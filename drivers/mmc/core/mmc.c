@@ -298,6 +298,12 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	 * are authorized, see JEDEC JESD84-B50 section B.8.
 	 */
 	card->ext_csd.rev = ext_csd[EXT_CSD_REV];
+	if (card->ext_csd.rev > 7) {
+		pr_err("%s: unrecognised EXT_CSD revision %d\n",
+			mmc_hostname(card->host), card->ext_csd.rev);
+		err = -EINVAL;
+		goto out;
+	}
 
 	card->ext_csd.raw_sectors[0] = ext_csd[EXT_CSD_SEC_CNT + 0];
 	card->ext_csd.raw_sectors[1] = ext_csd[EXT_CSD_SEC_CNT + 1];
@@ -481,6 +487,10 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	}
 
 	if (card->ext_csd.rev >= 5) {
+		/* Adjust production date as per JEDEC JESD84-B451 */
+		if (card->cid.year < 2010)
+			card->cid.year += 16;
+
 		/* check whether the eMMC card supports BKOPS */
 		if (ext_csd[EXT_CSD_BKOPS_SUPPORT] & 0x1) {
 			card->ext_csd.bkops = 1;
@@ -1041,11 +1051,9 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	}
 
 	/*
-	 * If the host supports the power_off_notify capability then
-	 * set the notification byte in the ext_csd register of device
+	 * Enable power_off_notification byte in the ext_csd register
 	 */
-	if ((host->caps2 & MMC_CAP2_POWEROFF_NOTIFY) &&
-	    (card->ext_csd.rev >= 6)) {
+	if (card->ext_csd.rev >= 6) {
 		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
 				 EXT_CSD_POWER_OFF_NOTIFICATION,
 				 EXT_CSD_POWER_ON,
@@ -1437,6 +1445,11 @@ static int mmc_suspend(struct mmc_host *host)
 
 	mmc_claim_host(host);
 
+	if (mmc_card_doing_bkops(host->card)) {
+		err = mmc_stop_bkops(host->card);
+		if (err)
+			goto out;
+	}
 	err = mmc_cache_ctrl(host, 0);
 	if (err)
 		goto out;
