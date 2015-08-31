@@ -63,3 +63,4 @@ obj-$(CONFIG_ZCACHE)		+= zcache/
 obj-$(CONFIG_GOLDFISH)		+= goldfish/
 obj-$(CONFIG_USB_DWC2)		+= dwc2/
 obj-$(CONFIG_LTTNG)		+= lttng/
+obj-$(CONFIG_AMD_IMC)           += amd_imc/

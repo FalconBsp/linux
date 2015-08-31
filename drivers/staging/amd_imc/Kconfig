@@ -1,0 +1,9 @@
+config AMD_IMC
+	bool "AMD Intergrated Micro Controller support"
+	depends on PCI && X86_64
+	default y
+	---help---
+	  This driver supports AMD Intergrated Micro Controller.
+
+	  To compile this driver as a module, choose M here. The module
+	  will be called amd_imc.
