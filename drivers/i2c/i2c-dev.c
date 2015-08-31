@@ -39,6 +39,7 @@
 #include <linux/i2c-dev.h>
 #include <linux/jiffies.h>
 #include <linux/uaccess.h>
+#include <linux/amd_imc.h>
 
 /*
  * An i2c_dev represents an i2c_adapter ... an I2C or SMBus master, not a
@@ -511,7 +512,9 @@ static int i2cdev_open(struct inode *inode, struct file *file)
 
 	client->adapter = adap;
 	file->private_data = client;
-
+ 
+    amd_imc_enter_scratch_ram();
+        
 	return 0;
 }
 
@@ -522,6 +525,8 @@ static int i2cdev_release(struct inode *inode, struct file *file)
 	i2c_put_adapter(client->adapter);
 	kfree(client);
 	file->private_data = NULL;
+
+    amd_imc_exit_scratch_ram();
 
 	return 0;
 }
