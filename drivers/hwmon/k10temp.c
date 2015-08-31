@@ -77,7 +77,7 @@ static ssize_t show_temp(struct device *dev,
 			 struct device_attribute *attr, char *buf)
 {
 	u32 regval;
-	struct pci_dev *pdev = to_pci_dev(dev);
+	struct pci_dev *pdev = dev_get_drvdata(dev);
 
 	if (boot_cpu_data.x86 == 0x15 && boot_cpu_data.x86_model == 0x60) {
 		amd_nb_smu_index_read(pdev, PCI_DEVFN(0, 0),
@@ -242,6 +242,7 @@ static DEFINE_PCI_DEVICE_TABLE(k10temp_id_table) = {
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_15H_M30H_NB_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_15H_M60H_NB_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_16H_NB_F3) },
+	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_16H_M30H_NB_F3) },
 	{}
 };
 MODULE_DEVICE_TABLE(pci, k10temp_id_table);
