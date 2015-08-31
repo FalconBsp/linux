@@ -55,13 +55,13 @@ static struct apd_device_desc amd_uart_desc = {
         .rate = 48000000,
 };
 
-static const struct acpi_device_id acpi_apd_device_ids[] = {
-	/* Generic apd devices */
-	{ "AMD0010", (unsigned long)&amd_i2c_desc },
+ static const struct acpi_device_id acpi_apd_device_ids[] = {
+ 	/* Generic apd devices */
+ 	{ "AMD0010", (unsigned long)&amd_i2c_desc },
 	{ "AMD0020", (unsigned long)&amd_uart_desc },
-	{ "AMD0030", (unsigned long)NULL },
-	{ }
-};
+	/*{"AMD0030", (unsigned long)&amd_gpio_desc },*/
+ 	{ }
+ };
 
 static int is_memory(struct acpi_resource *res, void *not_used)
 {
