@@ -3,7 +3,7 @@
 # It provides the entry point for all DAL services to the driver.
 
 
-INTERFACE = dal.o timing_list_query.o
+INTERFACE = dal.o timing_list_query.o hdcp.o
 
 AMD_DAL_INTERFACE = $(addprefix $(AMDDALPATH)/interface/,$(INTERFACE))
 

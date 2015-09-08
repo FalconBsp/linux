@@ -31,6 +31,7 @@
 #include "set_mode_types.h"
 #include "plane_types.h"
 #include "dcs_types.h"
+#include "hdcp_types.h"
 #include "timing_list_query_interface.h"
 
 struct dal;
@@ -257,5 +258,10 @@ enum dal_irq_source dal_interrupt_to_irq_source(
 		struct dal *dal,
 		uint32_t src_id,
 		uint32_t ext_id);
+
+bool dal_process_hdcp_msg(
+	struct dal *dal,
+	uint32_t display_index,
+	struct hdcp_protection_message *message);
 
 #endif

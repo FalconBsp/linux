@@ -25,7 +25,6 @@
 
 #include "dal_services.h"
 
-#include "include/dal_interface.h"
 #include "include/adapter_service_interface.h"
 #include "include/timing_service_interface.h"
 #include "include/topology_mgr_interface.h"
@@ -42,45 +41,8 @@
 #include "include/dcs_interface.h"
 #include "include/irq_service_interface.h"
 
-/*
-* DAL - Display Abstraction Layer
-* represents the main high level object that provides
-* abstracted display services. One such object needs to
-* be created per GPU ASIC.
-*/
+#include "dal.h"
 
-struct dal {
-	struct dal_init_data init_data;
-	struct dal_context dal_context;
-	struct adapter_service *adapter_srv;
-	struct timing_service *timing_srv;
-	struct topology_mgr *topology_mgr;
-	struct display_service *display_service;
-	struct hw_sequencer *hws;
-	struct mode_manager *mm;
-	struct irq_service *irqs;
-};
-
-/* debugging macro definitions */
-#define DAL_IF_TRACE()	\
-	dal_logger_write(dal_context->logger, \
-		LOG_MAJOR_INTERFACE_TRACE, \
-		LOG_MINOR_COMPONENT_DAL_INTERFACE, \
-		"DAL_IF_TRACE: %s()\n", __func__)
-
-#define DAL_IF_NOT_IMPLEMENTED() \
-	DAL_LOGGER_NOT_IMPL(LOG_MINOR_COMPONENT_DAL_INTERFACE, \
-			"DAL_IF:%s()\n", __func__)
-
-#define DAL_IF_ERROR(...) \
-	dal_logger_write(dal_context->logger, \
-		LOG_MAJOR_ERROR, \
-		LOG_MINOR_COMPONENT_DAL_INTERFACE, \
-		__VA_ARGS__)
-
-enum {
-	MAX_PLANE_NUM = 4
-};
 /******************************************************************************
 	Declarations for Timing List Query.
 ******************************************************************************/
