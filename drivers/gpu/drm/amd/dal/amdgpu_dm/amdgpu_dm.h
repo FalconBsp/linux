@@ -139,8 +139,9 @@ struct amdgpu_display_manager {
 	struct mutex dal_mutex;
 
 	struct backlight_device *backlight_dev;
-};
 
+	struct drm_property *cp_status_property;
+};
 
 /* basic init/fini API */
 int amdgpu_dm_init(struct amdgpu_device *adev);
@@ -166,6 +167,10 @@ void amdgpu_dm_destroy_drm_device(
 bool amdgpu_dm_acquire_dal_lock(struct amdgpu_display_manager *dm);
 
 bool amdgpu_dm_release_dal_lock(struct amdgpu_display_manager *dm);
+
+struct amdgpu_connector *amdgpu_dm_find_connector_by_display_index(
+	struct drm_device *dev,
+	uint32_t display_index);
 
 extern const struct amd_ip_funcs amdgpu_dm_funcs;
 

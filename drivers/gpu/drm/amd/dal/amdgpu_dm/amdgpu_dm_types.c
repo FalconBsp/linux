@@ -35,6 +35,7 @@
 #undef DEPRECATED
 
 #include "amdgpu_dm_types.h"
+#include "amdgpu_dm_hdcp.h"
 
 #include "include/dal_interface.h"
 #include "include/timing_service_types.h"
@@ -1531,6 +1532,54 @@ static int to_drm_connector_type(enum signal_type st)
 	}
 }
 
+static ssize_t content_protection_status_show(
+	struct device *device,
+	struct device_attribute *attr,
+	char *buf)
+{
+	struct drm_connector *connector = device->driver_data;
+	struct drm_device *dev = connector->dev;
+	struct amdgpu_device *adev = dev->dev_private;
+	uint64_t value;
+	int ret;
+
+	ret = drm_object_property_get_value(
+		&connector->base,
+		adev->dm.cp_status_property,
+		&value);
+
+	if (ret)
+		return 0;
+
+	return snprintf(buf, PAGE_SIZE, "%lld\n", value);
+}
+
+static DEVICE_ATTR_RO(content_protection_status);
+
+bool amdgpu_dm_update_cp_status_property(
+	struct amdgpu_display_manager *dm,
+	uint32_t display_idx,
+	bool is_enabled)
+{
+	struct amdgpu_connector *aconnector;
+	int r;
+
+	aconnector =
+		amdgpu_dm_find_connector_by_display_index(
+			dm->adev->ddev,
+			display_idx);
+
+	if (!aconnector)
+		return false;
+
+	r = drm_object_property_set_value(
+		&aconnector->base.base,
+		dm->cp_status_property,
+		is_enabled ? 1 : 0);
+
+	return r == 0;
+}
+
 int amdgpu_dm_connector_init(
 	struct amdgpu_display_manager *dm,
 	struct amdgpu_connector *aconnector,
@@ -1567,6 +1616,11 @@ int amdgpu_dm_connector_init(
 	aconnector->base.interlace_allowed = true;
 	aconnector->base.doublescan_allowed = true;
 	aconnector->hpd.hpd = display_idx; /* maps to 'enum amdgpu_hpd_id' */
+
+	drm_object_attach_property(
+		&aconnector->base.base,
+		dm->cp_status_property,
+		0);
 
 	if (is_connected)
 		aconnector->base.status = connector_status_connected;
@@ -1609,6 +1663,10 @@ int amdgpu_dm_connector_init(
 	}
 
 	drm_connector_register(&aconnector->base);
+
+	device_create_file(
+		aconnector->base.kdev,
+		&dev_attr_content_protection_status);
 
 	return 0;
 }

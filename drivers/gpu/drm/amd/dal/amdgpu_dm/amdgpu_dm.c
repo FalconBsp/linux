@@ -374,7 +374,7 @@ static void hpd_low_irq_helper_func(
 	*display_index = pm->display_path_index;
 }
 
-static inline struct amdgpu_connector *find_connector_by_display_index(
+struct amdgpu_connector *amdgpu_dm_find_connector_by_display_index(
 	struct drm_device *dev,
 	uint32_t display_index)
 {
@@ -428,7 +428,9 @@ static void amdgpu_dm_hpd_low_irq(void *interrupt_params)
 		adev->dm.fake_display_index = display_index;
 
 		aconnector =
-			find_connector_by_display_index(dev, display_index);
+			amdgpu_dm_find_connector_by_display_index(
+				dev,
+				display_index);
 
 		if (!aconnector)
 			return;
@@ -458,7 +460,7 @@ static void amdgpu_dm_hpd_low_irq(void *interrupt_params)
 		}
 
 		aconnector =
-			find_connector_by_display_index(
+			amdgpu_dm_find_connector_by_display_index(
 				dev,
 				adev->dm.fake_display_index);
 
@@ -970,6 +972,15 @@ int amdgpu_dm_initialize_drm_device(struct amdgpu_display_manager *dm)
 		goto fail_switch_dev;
 	*/
 
+	dm->cp_status_property =
+		drm_property_create_bool(
+			dm->adev->ddev,
+			0,
+			"Content Protection Status");
+
+	if (!dm->cp_status_property)
+		goto fail_cp_property;
+
 #if defined(CONFIG_BACKLIGHT_CLASS_DEVICE) ||\
 	defined(CONFIG_BACKLIGHT_CLASS_DEVICE_MODULE)
 	{
@@ -1067,6 +1078,8 @@ fail_connector:
 fail_switch_dev:*/
 	backlight_device_unregister(dm->backlight_dev);
 fail_backlight_dev:
+	drm_property_destroy(dm->adev->ddev, dm->cp_status_property);
+fail_cp_property:
 	return -1;
 }
 
