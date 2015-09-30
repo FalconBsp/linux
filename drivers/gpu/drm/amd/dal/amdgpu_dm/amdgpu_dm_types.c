@@ -44,6 +44,8 @@
 #include "include/mode_manager_interface.h"
 #include "include/mode_manager_types.h"
 
+#include "hdcp_service/hdcpss_interface.h"
+
 /*#include "amdgpu_buffer.h"*/
 
 #include "dce/dce_11_0_d.h"
@@ -1599,6 +1601,7 @@ int amdgpu_dm_connector_init(
 	/* TODO: this switch should be updated during hotplug/unplug*/
 	if (dm->dal != NULL && is_connected) {
 		DRM_DEBUG_KMS("Connector is connected\n");
+		hdcpss_notify_hotplug_detect(is_connected ? 1 : 0, display_idx);
 		drm_mode_connector_update_edid_property(
 			&aconnector->base,
 			(struct edid *)

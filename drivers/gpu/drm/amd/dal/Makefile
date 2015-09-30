@@ -5,7 +5,7 @@
 
 AMDDALPATH = $(RELATIVE_AMD_DAL_PATH)
 
-subdir-ccflags-y += -I$(AMDDALPATH)/ -I$(AMDDALPATH)/include -DDAL_CZ_BRINGUP
+subdir-ccflags-y += -I$(AMDDALPATH)/ -I$(AMDDALPATH)/include -I$(FULL_AMD_PATH)/ -DDAL_CZ_BRINGUP
 
 DAL_LIBS = adapter amdgpu_dm audio asic_capability basics bios connector controller dcs \
 	display_path display_service encoder gpio gpu hw_sequencer i2caux \
