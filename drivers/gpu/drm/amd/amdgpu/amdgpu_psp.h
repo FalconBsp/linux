@@ -92,4 +92,6 @@ struct amdgpu_psp {
 	const struct firmware		*fw;
 };
 
+extern const struct amd_ip_funcs psp_ip_funcs;
+
 #endif	/* __AMDGPU_PSP_H__ */
