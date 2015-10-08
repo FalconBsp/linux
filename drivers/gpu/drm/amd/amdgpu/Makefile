@@ -99,6 +99,15 @@ endif
 amdgpu-y += \
 	amdgpu_psp.o
 
+# HDCP SS component
+ifneq ($(CONFIG_DRM_AMD_HDCP_SERVICE),)
+
+AMDHDCPSERVICEPATH := ../hdcp_service
+include $(FULL_AMD_PATH)/hdcp_service/Makefile
+
+amdgpu-y += $(AMD_HDCPSERVICE_FILES)
+endif
+
 amdgpu-$(CONFIG_COMPAT) += amdgpu_ioc32.o
 amdgpu-$(CONFIG_VGA_SWITCHEROO) += amdgpu_atpx_handler.o
 amdgpu-$(CONFIG_ACPI) += amdgpu_acpi.o
