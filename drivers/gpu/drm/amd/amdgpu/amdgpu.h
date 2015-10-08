@@ -55,6 +55,7 @@
 #include "amdgpu_gds.h"
 #include "amdgpu_acp.h"
 #include "amdgpu_dm.h"
+#include "amdgpu_psp.h"
 
 /*
  * Modules parameters.
@@ -2022,6 +2023,9 @@ struct amdgpu_device {
 
 	/* vce */
 	struct amdgpu_vce		vce;
+
+	/* psp */
+	struct amdgpu_psp		psp;
 
 	/* firmwares */
 	struct amdgpu_firmware		firmware;
