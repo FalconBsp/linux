@@ -458,7 +458,14 @@ void hdcpss_notify_hotplug_detect(int event, int display_index)
 	}
 }
 EXPORT_SYMBOL_GPL(hdcpss_notify_hotplug_detect);
+#else
+void hdcpss_notify_hotplug_detect(int event, int display_index)
+{
+
+}
+EXPORT_SYMBOL_GPL(hdcpss_notify_hotplug_detect);
 #endif
+
 
 static inline void *getpagestart(void *addr)
 {
