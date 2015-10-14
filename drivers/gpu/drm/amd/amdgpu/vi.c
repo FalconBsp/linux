@@ -1163,6 +1163,13 @@ static const struct amdgpu_ip_block_version cz_ip_blocks[] =
 		.funcs = &cz_dpm_ip_funcs,
 	},
 	{
+		.type = AMD_IP_BLOCK_TYPE_PSP,
+		.major = 2,
+		.minor = 0,
+		.rev = 0,
+		.funcs = &psp_ip_funcs,
+	},
+	{
 		.type = AMD_IP_BLOCK_TYPE_DCE,
 		.major = 11,
 		.minor = 0,
@@ -1206,13 +1213,6 @@ static const struct amdgpu_ip_block_version cz_ip_blocks[] =
 		.funcs = &acp_ip_funcs,
 	},
 #endif
-	{
-		.type = AMD_IP_BLOCK_TYPE_PSP,
-		.major = 2,
-		.minor = 0,
-		.rev = 0,
-		.funcs = &psp_ip_funcs,
-	},
 };
 
 /*
@@ -1250,6 +1250,13 @@ static const struct amdgpu_ip_block_version cz_ip_blocks_dal[] =
 		.minor = 0,
 		.rev = 0,
 		.funcs = &cz_dpm_ip_funcs,
+	},
+	{
+		.type = AMD_IP_BLOCK_TYPE_PSP,
+		.major = 2,
+		.minor = 0,
+		.rev = 0,
+		.funcs = &psp_ip_funcs,
 	},
 	{
 		.type = AMD_IP_BLOCK_TYPE_DCE,
@@ -1295,13 +1302,6 @@ static const struct amdgpu_ip_block_version cz_ip_blocks_dal[] =
 		.funcs = &acp_ip_funcs,
 	},
 #endif
-	{
-		.type = AMD_IP_BLOCK_TYPE_PSP,
-		.major = 2,
-		.minor = 0,
-		.rev = 0,
-		.funcs = &psp_ip_funcs,
-	},
 };
 #endif
 
