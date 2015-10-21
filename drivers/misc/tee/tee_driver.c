@@ -118,12 +118,13 @@ static void tee_terminate_wait(u32 session)
 {
 	int ret = 0;
 	/* make sure waitnotification ends */
-	if (tee_drv_data.tee_session[session].status == TRUE) {
+	if (tee_drv_data.tee_session[session].status == TEE_NOTIFY_DONE) {
 		pr_debug(" %s : wait notification in progress\n",
 				__func__);
-		tee_drv_data.tee_session[session].status = TRUE;
+		tee_drv_data.tee_session[session].status = TEE_NOTIFY_CLEAR;
 		up(&tee_drv_data.tee_sem);
-		while (tee_drv_data.tee_session[session].status == FALSE)
+		while (tee_drv_data.tee_session[session].status
+				== TEE_NOTIFY_NONE)
 			;
 		ret = down_interruptible(&tee_drv_data.tee_sem);
 		if (0 != ret)
@@ -549,6 +550,8 @@ static int handle_open_session(struct tee_instance *instance,
 					params.out.sessionid;
 				init_waitqueue_head(&tee_drv_data.
 						tee_session[i].wait);
+				tee_drv_data.tee_session[i].
+						status = TEE_NOTIFY_NONE;
 				break;
 			}
 		}
@@ -1170,7 +1173,7 @@ static int handle_notify(struct tee_instance *instance,
 		i = tee_session_location(params.in.sessionid);
 		if (i == MAX_SESSIONS_SUPPORTED)
 			break;
-		tee_drv_data.tee_session[i].status = TRUE;
+		tee_drv_data.tee_session[i].status = TEE_NOTIFY_DONE;
 		for (j = 0; j < MAX_BUFFERS_MAPPED; j++) {
 			flush_buffer((void *)tee_drv_data.tee_session[i]
 							.map_virtaddr[j],
@@ -1220,7 +1223,7 @@ static int handle_waitfornotification(struct tee_instance *instance,
 			up(&tee_drv_data.tee_sem);
 			break;
 		}
-		if (tee_drv_data.tee_session[i].status == FALSE) {
+		if (tee_drv_data.tee_session[i].status == TEE_NOTIFY_NONE) {
 			pr_err(" %s : sid 0x%llx no notify in place\n",
 								__func__,
 					params.in.sessionid);
@@ -1241,12 +1244,12 @@ static int handle_waitfornotification(struct tee_instance *instance,
 					.tee_session[i].wait,
 				tee_drv_data
 					.tee_session[i].status
-				== TRUE,
+				== TEE_NOTIFY_CLEAR,
 				msecs_to_jiffies(timeout));
 		ret = down_interruptible(&tee_drv_data.tee_sem);
 		if (0 != ret)
 			break;
-		tee_drv_data.tee_session[i].status = FALSE;
+		tee_drv_data.tee_session[i].status = TEE_NOTIFY_NONE;
 		for (j = 0; j < MAX_BUFFERS_MAPPED; j++) {
 			invalidate_buffer(
 					(void *)tee_drv_data.tee_session[i]
@@ -1356,7 +1359,7 @@ int tee_callbackfunc(void *notification_data)
 		if (tee_drv_data.tee_session[i].sessionid ==
 					*(u32 *)notification_data) {
 			tee_drv_data.tee_session[i].status
-				= TRUE;
+				= TEE_NOTIFY_CLEAR;
 			wake_up_interruptible(
 					&tee_drv_data.tee_session[i].wait);
 		}

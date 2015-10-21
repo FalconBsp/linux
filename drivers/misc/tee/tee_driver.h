@@ -37,7 +37,14 @@
 #define TEE_DRV_MOD_DEVNODE_FULLPATH	"/dev/" TEE_DRV_MOD_DEVNODE
 #define TEE_TBASE_PRODUCT_ID_LEN	(64)
 #define TEE_CLIENT_TYPE			0
-#define TEE_RESPONSE_TIMEOUT		0x5000
+#define TEE_RESPONSE_TIMEOUT		400
+
+enum tee_notify_status {
+	TEE_NOTIFY_NONE = 0x0,
+	TEE_NOTIFY_DONE = 0x1,
+	TEE_NOTIFY_CLEAR = 0x2,
+};
+
 /* msp detail */
 struct tee_map {
 	uint64_t	virtaddr;
