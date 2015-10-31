@@ -35,8 +35,10 @@
 #include "../dal/include/hdcp_types.h"
 #include "../dal/include/dal_interface.h"
 
-#define FIRMWARE_CARRIZO	"amdgpu/carrizo_psp.bin"
+#define FIRMWARE_CARRIZO	"amdgpu/hdcp14tx_ta.bin"
+#define ASD_BIN_CARRIZO		"amdgpu/asd.bin"
 MODULE_FIRMWARE(FIRMWARE_CARRIZO);
+MODULE_FIRMWARE(ASD_BIN_CARRIZO);
 
 int hdcpss_notify_ta(struct hdcpss_data *);
 
@@ -50,34 +52,63 @@ int hdcpss_read_An_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 
 	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader.
 		commandId = HDCP_CMD_HOST_CMDS;
+	hdcp->tci_buf_addr->eHDCPSessionType = HDCP_14;
+	hdcp->tci_buf_addr->eHDCPCommand = TL_HDCP_CMD_ID_OPEN_SESSION;
 	hdcp->tci_buf_addr->HDCP_14_Message.
-		CmdHDCPCmdInput.ulDisplayIndex = display_index;
+		CmdHDCPCmdInput.DigId = display_index;
 	hdcp->tci_buf_addr->HDCP_14_Message.
-		CmdHDCPCmdInput.bCommandCode = HDCP_14_COMMAND_CREATE_SESSION;
+		CmdHDCPCmdInput.OpenSession.bIsDualLink = 0;
 
 	ret = hdcpss_notify_ta(hdcp);
 
+	dev_info(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
+				HDCP_14_Message.ResponseHeader.responseId);
+	dev_info(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
+
 	if (!ret) {
-		if (hdcp->tci_buf_addr->HDCP_14_Message.ResponseHeader.
-			responseId == IS_RSP(HDCP_14_COMMAND_CREATE_SESSION)) {
-			dev_dbg(hdcp->adev->dev, "An received :\n");
+		if(hdcp->is_primary_link) {
+			dev_info(hdcp->adev->dev,
+					"An received :\n");
 			for (i = 0; i < 8; i++) {
 				dev_info(hdcp->adev->dev, "%x\t",
-					hdcp->tci_buf_addr->
-					HDCP_14_Message.RspHDCPCmdOutput.
-					GetAnAksv.An[i]);
+						hdcp->tci_buf_addr->
+						HDCP_14_Message.RspHDCPCmdOutput.
+						OpenSession.AnPrimary[i]);
 			}
-			dev_dbg(hdcp->adev->dev, "Aksv received :\n");
+
+			dev_info(hdcp->adev->dev, "Aksv received :\n");
 			for (i = 0; i < 5; i++) {
 				dev_info(hdcp->adev->dev, "%x\t",
-					hdcp->tci_buf_addr->
-					HDCP_14_Message.RspHDCPCmdOutput.
-					GetAnAksv.Aksv[i]);
+						hdcp->tci_buf_addr->
+						HDCP_14_Message.RspHDCPCmdOutput.
+						OpenSession.AksvPrimary[i]);
+			}
+		} else {
+			dev_info(hdcp->adev->dev,
+					"An Secondary received :\n");
+			for (i = 0; i < 8; i++) {
+				dev_info(hdcp->adev->dev,
+						"%x\t",
+						hdcp->tci_buf_addr->
+						HDCP_14_Message.
+						RspHDCPCmdOutput.
+						OpenSession.
+						AnSecondary[i]);
+			}
+			dev_info(hdcp->adev->dev,
+					"Aksv received :\n");
+			for (i = 0; i < 5; i++) {
+				dev_info(hdcp->adev->dev,
+						"%x\t",
+						hdcp->tci_buf_addr->
+						HDCP_14_Message
+						.RspHDCPCmdOutput.
+						OpenSession
+						.AksvSecondary[i]);
 			}
 		}
-	} else {
-		dev_dbg(hdcp->adev->dev, "Invalid Response from TL !\n");
 	}
+	dev_info(hdcp->adev->dev, "%s: Read completed successfully\n", __func__);
 	return ret;
 }
 
@@ -87,17 +118,25 @@ bool hdcpss_write_An(struct hdcpss_data *hdcp, u32 display_index)
 	bool ret = 0;
 	uint8_t An[8];
 
-	memcpy(An, hdcp->tci_buf_addr->HDCP_14_Message.
-			RspHDCPCmdOutput.GetAnAksv.An,
-			sizeof(An));
+	if (hdcp->is_primary_link) {
 
-	message.version = HDCP_VERSION_14;
-	message.link = HDCP_LINK_PRIMARY;
-	message.msg_id = HDCP_MESSAGE_ID_WRITE_AN;
-	message.length = sizeof(An);
-	message.data = An;
+		memcpy(An, hdcp->tci_buf_addr->HDCP_14_Message.
+				RspHDCPCmdOutput.OpenSession.AnPrimary,
+				sizeof(An));
+		message.link = HDCP_LINK_PRIMARY;
+	} else {
 
-	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
+		memcpy(An, hdcp->tci_buf_addr->HDCP_14_Message.
+				RspHDCPCmdOutput.OpenSession.AnSecondary,
+				sizeof(An));
+		message.link = HDCP_LINK_SECONDARY;
+	}
+		message.version = HDCP_VERSION_14;
+		message.msg_id = HDCP_MESSAGE_ID_WRITE_AN;
+		message.length = sizeof(An);
+		message.data = An;
+
+		ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
 
 	return ret;
 }
@@ -108,38 +147,53 @@ bool hdcpss_write_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 	bool ret = 0;
 	uint8_t Aksv[5];
 
-	memcpy(Aksv, hdcp->tci_buf_addr->HDCP_14_Message.
-			RspHDCPCmdOutput.GetAnAksv.Aksv,
-			sizeof(Aksv));
+	if (hdcp->is_primary_link) {
 
-	message.version = HDCP_VERSION_14;
-	message.link = HDCP_LINK_PRIMARY;
-	message.msg_id = HDCP_MESSAGE_ID_WRITE_AKSV;
-	message.length = sizeof(Aksv);
-	message.data = Aksv;
+		memcpy(Aksv, hdcp->tci_buf_addr->HDCP_14_Message.
+				RspHDCPCmdOutput.OpenSession.AksvPrimary,
+				sizeof(Aksv));
 
-	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
+		message.link = HDCP_LINK_PRIMARY;
+	} else {
+
+		memcpy(Aksv, hdcp->tci_buf_addr->HDCP_14_Message.
+				RspHDCPCmdOutput.OpenSession.AksvSecondary,
+				sizeof(Aksv));
+
+		message.link = HDCP_LINK_SECONDARY;
+	}
+
+		message.version = HDCP_VERSION_14;
+		message.msg_id = HDCP_MESSAGE_ID_WRITE_AKSV;
+		message.length = sizeof(Aksv);
+		message.data = Aksv;
+
+		ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
 
 	return ret;
 }
 
-bool hdcpss_read_Bksv(struct hdcpss_data *hdcp, u32 display_index)
+bool hdcpss_read_Bksv(struct hdcpss_data *hdcp, u32 display_index, u32 link_type)
 {
 	struct hdcp_protection_message message;
 	bool ret = 0;
 	int i = 0;
 
 	message.version = HDCP_VERSION_14;
-	message.link = HDCP_LINK_PRIMARY;
+	message.link = link_type;
 	message.msg_id = HDCP_MESSAGE_ID_READ_BKSV;
 	message.length = 5;
-	message.data = hdcp->Bksv;
+	if(link_type == HDCP_LINK_PRIMARY)
+		message.data = hdcp->BksvPrimary;
+	else {
+		message.data = hdcp->BksvSecondary;
+	}
 
 	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
 
 	dev_info(hdcp->adev->dev, "Received BKsv\n");
 	for (i = 0; i < 5; i++)
-		dev_info(hdcp->adev->dev, "BKsv[%d] = %x\n", i, hdcp->Bksv[i]);
+		dev_info(hdcp->adev->dev, "BKsv[%d] = %x\n", i, hdcp->BksvPrimary[i]);
 
 	return ret;
 }
@@ -168,32 +222,6 @@ bool hdcpss_read_Bcaps(struct hdcpss_data *hdcp, u32 display_index)
 	return ret;
 }
 
-int hdcpss_send_bksv_bcaps(struct hdcpss_data *hdcp, u32 display_index)
-{
-	int ret = 0;
-
-	hdcp->tci_buf_addr->HDCP_14_Message
-		.CommandHeader.commandId = HDCP_CMD_HOST_CMDS;
-	hdcp->tci_buf_addr->HDCP_14_Message.
-		CmdHDCPCmdInput.ulDisplayIndex = display_index;
-	hdcp->tci_buf_addr->HDCP_14_Message.
-		CmdHDCPCmdInput.bCommandCode = HDCP_14_COMMAND_SEND_DATA;
-
-	memcpy(hdcp->tci_buf_addr->HDCP_14_Message.
-			CmdHDCPCmdInput.buffer, hdcp->Bksv, 5);
-
-	hdcp->tci_buf_addr->HDCP_14_Message.
-		CmdHDCPCmdInput.buffer[5] = hdcp->Bcaps;
-
-	ret = hdcpss_notify_ta(hdcp);
-
-	if (hdcp->tci_buf_addr->HDCP_14_Message.
-		ResponseHeader.responseId != IS_RSP(HDCP_14_COMMAND_SEND_DATA))
-		dev_err(hdcp->adev->dev, "Invalid Response from TL !\n");
-
-	return ret;
-}
-
 bool hdcpss_read_R0not(struct hdcpss_data *hdcp, u32 display_index)
 {
 	struct hdcp_protection_message message;
@@ -216,26 +244,44 @@ bool hdcpss_read_R0not(struct hdcpss_data *hdcp, u32 display_index)
 	return ret;
 }
 
-int hdcpss_send_R0_Prime(struct hdcpss_data *hdcp, u32 display_index)
+int hdcpss_send_first_part_auth(struct hdcpss_data *hdcp,
+					u32 display_index,
+					u32 hdcp_link_type)
 {
 	int ret = 0;
 
-	hdcp->tci_buf_addr->HDCP_14_Message
-		.CommandHeader.commandId = HDCP_CMD_HOST_CMDS;
-	hdcp->tci_buf_addr->HDCP_14_Message.
-		CmdHDCPCmdInput.ulDisplayIndex = display_index;
-	hdcp->tci_buf_addr->HDCP_14_Message.
-		CmdHDCPCmdInput.bCommandCode = HDCP_14_COMMAND_SEND_DATA;
+	dev_info(hdcp->adev->dev, "%s: Started\n", __func__);
+	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader
+				.commandId = HDCP_CMD_HOST_CMDS;
+	hdcp->tci_buf_addr->eHDCPSessionType = HDCP_14;
+	hdcp->tci_buf_addr->eHDCPCommand =
+			TL_HDCP_CMD_ID_HDCP_14_FIRST_PART_AUTH;
+	hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput
+				.DigId = display_index;
+	hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+			OpenSession.bIsDualLink = 0;
 
-	memcpy(hdcp->tci_buf_addr->HDCP_14_Message.
-			CmdHDCPCmdInput.buffer, &hdcp->R_Prime,
-			sizeof(uint16_t));
+	if (hdcp_link_type  == HDCP_LINK_PRIMARY)
+		memcpy(hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+						FirstPartAuth.BksvPrimary,
+						&hdcp->BksvPrimary, 5);
+	else
+		memcpy(hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+						FirstPartAuth.BksvSecondary,
+						&hdcp->BksvSecondary, 5);
+
+	hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+					FirstPartAuth.Bcaps = hdcp->Bcaps;
+
+	memcpy(hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+				FirstPartAuth.RNotPrime, &hdcp->R_Prime,
+				sizeof(uint16_t));
 
 	ret = hdcpss_notify_ta(hdcp);
 
-	if (hdcp->tci_buf_addr->HDCP_14_Message.ResponseHeader.
-			responseId != IS_RSP(HDCP_14_COMMAND_SEND_DATA))
-		dev_err(hdcp->adev->dev, "Invalid Response from TL !\n");
+	dev_info(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
+			HDCP_14_Message.RspHDCPCmdOutput.bResponseCode);
+	dev_info(hdcp->adev->dev, "%s: Completed successfully\n", __func__);
 	return ret;
 }
 
@@ -312,33 +358,13 @@ bool hdcpss_read_v_prime(struct hdcpss_data *hdcp, u32 display_index)
 	return ret;
 }
 
-int hdcpss_send_ksv_list(struct hdcpss_data *hdcp, u32 display_index)
+int hdcpss_send_second_part_auth(struct hdcpss_data *hdcp,
+					u32 display_index,
+					u32 hdcp_link_type)
 {
-	int ret = 0;
-
-	hdcp->tci_buf_addr->HDCP_14_Message
-		.CommandHeader.commandId = HDCP_CMD_HOST_CMDS;
-	hdcp->tci_buf_addr->HDCP_14_Message.
-		CmdHDCPCmdInput.ulDisplayIndex = display_index;
-	hdcp->tci_buf_addr->HDCP_14_Message.
-		CmdHDCPCmdInput.bCommandCode = HDCP_14_COMMAND_SEND_DATA;
-
-	memcpy(hdcp->tci_buf_addr->HDCP_14_Message.
-			CmdHDCPCmdInput.buffer, hdcp->ksv_fifo_buf,
-			hdcp->ksv_list_size);
-	memcpy(&hdcp->tci_buf_addr->HDCP_14_Message.
-			CmdHDCPCmdInput.buffer[hdcp->ksv_list_size],
-			hdcp->V_Prime,
-			20);
-	ret = hdcpss_notify_ta(hdcp);
-
-	if (hdcp->tci_buf_addr->HDCP_14_Message.
-		ResponseHeader.responseId != IS_RSP(HDCP_14_COMMAND_SEND_DATA))
-		dev_err(hdcp->adev->dev, "Invalid Response from TL !\n");
-
-	return ret;
+	/* TODO Implement Second Half */
+	return 0;
 }
-
 /*
  * This function will be called when a connect event is detected.
  * It starts the authentication of the receiver.
@@ -348,64 +374,54 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 	struct hdcpss_data *hdcp = &hdcp_data;
 	int ret = 0;
 	uint8_t device_count = 0;
+	/* TODO: Obtain link type from DAL */
+	hdcp->is_primary_link = 1;
 
-	/* Send CREATE_SESSION command to TA */
+	/* Send OPEN_SESSION command to TA */
 	ret = hdcpss_read_An_Aksv(hdcp, display_index);
 	if (ret) {
-		dev_err(hdcp->adev->dev, "Error in reading An and Aksv\n");
+		dev_err(hdcp->adev->dev, "Error in reading An and Aksv:%d\n",
+									ret);
 		return ret;
 	}
-
-	if (hdcp->tci_buf_addr->HDCP_14_Message.
-			RspHDCPCmdOutput.bRequestType == REQUESTING_BKSV) {
-		/* Write An to Receiver */
-		ret = hdcpss_write_An(hdcp, display_index);
-		if (ret) {
-			dev_err(hdcp->adev->dev, "Error in writing An\n");
-			return ret;
-		}
-		/* Write AKsv to Receiver */
-		ret = hdcpss_write_Aksv(hdcp, display_index);
-		if (ret) {
-			dev_err(hdcp->adev->dev, "Error in writing AKsv\n");
-			return ret;
-		}
-		/* Read BKsv from Receiver */
-		ret = hdcpss_read_Bksv(hdcp, display_index);
-		if (ret) {
-			dev_err(hdcp->adev->dev, "Error in reading bksv\n");
-			return ret;
-		}
-		/* Read BCaps from Receiver */
-		ret = hdcpss_read_Bcaps(hdcp, display_index);
-		if (ret) {
-			dev_err(hdcp->adev->dev, "Error in reading bcaps\n");
-			return ret;
-		}
-		/* Send BKsv and BCaps to TA */
-		ret = hdcpss_send_bksv_bcaps(hdcp, display_index);
-		if (ret) {
-			dev_err(hdcp->adev->dev, "Error sending bksv bcaps\n");
-			return ret;
-		}
+	/* Write An to Receiver */
+	ret = hdcpss_write_An(hdcp, display_index);
+	if (!ret) {
+		dev_err(hdcp->adev->dev, "Error in writing An\n");
+		return ret;
 	}
-
-	if (hdcp->tci_buf_addr->HDCP_14_Message.
-			RspHDCPCmdOutput.bRequestType == REQUESTING_R_NOT) {
-		/* Read R0' from Receiver */
-		ret = hdcpss_read_R0not(hdcp, display_index);
-		if (ret) {
-			dev_err(hdcp->adev->dev, "Error in reading r0not\n");
-			return ret;
-		}
-		/* Send R0' to TA */
-		ret = hdcpss_send_R0_Prime(hdcp, display_index);
-		if (ret) {
-			dev_err(hdcp->adev->dev, "Error in sending r0 prime\n");
-			return ret;
-		}
+	/* Write AKsv to Receiver */
+	ret = hdcpss_write_Aksv(hdcp, display_index);
+	if (!ret) {
+		dev_err(hdcp->adev->dev, "Error in writing AKsv\n");
+		return ret;
 	}
-
+	/* Read BKsv from Receiver */
+	ret = hdcpss_read_Bksv(hdcp, display_index, HDCP_LINK_PRIMARY);
+	if (!ret) {
+		dev_err(hdcp->adev->dev, "Error in reading bksv\n");
+		return ret;
+	}
+	/* Read BCaps from Receiver */
+	ret = hdcpss_read_Bcaps(hdcp, display_index);
+	if (!ret) {
+		dev_err(hdcp->adev->dev, "Error in reading bcaps\n");
+		return ret;
+	}
+	mdelay(100);
+	ret = hdcpss_read_R0not(hdcp, display_index);
+	if (!ret) {
+		dev_err(hdcp->adev->dev, "Error in reading r0not\n");
+		return ret;
+	}
+	ret = hdcpss_send_first_part_auth(hdcp, display_index,
+						HDCP_LINK_PRIMARY);
+	if (ret) {
+		dev_err(hdcp->adev->dev,
+			"Error in first part of authentication\n");
+		return ret;
+	}
+#if 0
 	/* Repeater Only */
 	if (hdcp->is_repeater) {
 		/* Poll for KSV FIFO Ready bit */
@@ -433,12 +449,10 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 		/* Read V' */
 		hdcpss_read_v_prime(hdcp, display_index);
 
-		/* Send the KSV list and V' to TA */
-		ret = hdcpss_send_ksv_list(hdcp, display_index);
 	}
+#endif
 	return 0;
 }
-
 /*
  *  This function will be called by DAL when it detects cable plug/unplug event
  *  int display_index : - Display identifier
@@ -575,7 +589,7 @@ int hdcpss_load_ta(struct hdcpss_data *hdcp)
 
 	/* Check for response from PSP in Response buffer */
 	if (!hdcp->cmd_buf_addr->resp.status)
-		dev_dbg(hdcp->adev->dev, "session_id = %d\n",
+		dev_info(hdcp->adev->dev, "session_id = %d\n",
 				hdcp->cmd_buf_addr->resp.session_id);
 
 	hdcp->session_id = hdcp->cmd_buf_addr->resp.session_id;
@@ -629,7 +643,7 @@ int hdcpss_notify_ta(struct hdcpss_data *hdcp)
 	int ret = 0;
 	int fence_val = 0;
 
-	dev_dbg(hdcp->adev->dev, "session_id = %d\n", hdcp->session_id);
+	dev_info(hdcp->adev->dev, "session_id = %d\n", hdcp->session_id);
 
 	/* Submit NOTIFY_TA command */
 	hdcp->cmd_buf_addr->buf_size	= sizeof(struct gfx_cmd_resp);
@@ -669,7 +683,7 @@ int hdcpss_notify_ta(struct hdcpss_data *hdcp)
 		dev_err(hdcp->adev->dev, "Error from Trustlet = %d\n",
 		hdcp->tci_buf_addr->message.response.header.returnCode);
 #else
-	if (RET_OK != hdcp->tci_buf_addr->HDCP_14_Message.ResponseHeader.
+	 if (TRUE != hdcp->tci_buf_addr->HDCP_14_Message.ResponseHeader.
 						returnCode) {
 		dev_err(hdcp->adev->dev, "Error from Trustlet = %d\n",
 			hdcp->tci_buf_addr->HDCP_14_Message.
@@ -678,8 +692,101 @@ int hdcpss_notify_ta(struct hdcpss_data *hdcp)
 						ResponseHeader.returnCode;
 	}
 #endif
+	dev_info(hdcp->adev->dev, " Trustlet returnCode = %d\n",
+			hdcp->tci_buf_addr->HDCP_14_Message.
+			ResponseHeader.returnCode);
+	dev_info(hdcp->adev->dev, " Out Resp Code = %d\n",
+			hdcp->tci_buf_addr->HDCP_14_Message.
+			RspHDCPCmdOutput.bResponseCode);
+
 	if (!hdcp->cmd_buf_addr->resp.status)
-		dev_info(hdcp->adev->dev, "NOTIFY TA success\n");
+		dev_info(hdcp->adev->dev, "NOTIFY TA success status =  %x\n",
+					hdcp->cmd_buf_addr->resp.status);
+	return ret;
+}
+
+int hdcpss_load_asd(struct hdcpss_data *hdcp)
+{
+	int ret = 0;
+	int fence_val = 0;
+
+	/* Create the LOAD_ASD command */
+	hdcp->cmd_buf_addr->buf_size	= sizeof(struct gfx_cmd_resp);
+	hdcp->cmd_buf_addr->buf_version	= PSP_GFX_CMD_BUF_VERSION;
+	hdcp->cmd_buf_addr->cmd_id	= GFX_CMD_ID_LOAD_ASD;
+
+	hdcp->cmd_buf_addr->u.load_ta.app_phy_addr_hi =
+			upper_32_bits(virt_to_phys(hdcp->asd_buf_addr));
+
+	hdcp->cmd_buf_addr->u.load_ta.app_phy_addr_lo =
+			lower_32_bits(virt_to_phys(hdcp->asd_buf_addr));
+
+	hdcp->cmd_buf_addr->u.load_ta.app_len = hdcp->asd_size;
+
+	hdcp->cmd_buf_addr->u.load_ta.tci_buf_phy_addr_hi =
+			upper_32_bits(virt_to_phys(hdcp->dci_buf_addr));
+
+	hdcp->cmd_buf_addr->u.load_ta.tci_buf_phy_addr_lo =
+			lower_32_bits(virt_to_phys(hdcp->dci_buf_addr));
+
+	hdcp->cmd_buf_addr->u.load_ta.tci_buf_len = hdcp->dci_size;
+
+	dev_dbg(hdcp->adev->dev, "Dumping Load ASD command contents\n");
+	dev_dbg(hdcp->adev->dev, "Buf size = %d\n",
+					hdcp->cmd_buf_addr->buf_size);
+	dev_dbg(hdcp->adev->dev, "Buf verion = %x\n",
+					hdcp->cmd_buf_addr->buf_version);
+	dev_dbg(hdcp->adev->dev, "Command ID = %x\n",
+					hdcp->cmd_buf_addr->cmd_id);
+	dev_dbg(hdcp->adev->dev, "TA phy addr hi = %x\n",
+			hdcp->cmd_buf_addr->u.load_ta.app_phy_addr_hi);
+	dev_dbg(hdcp->adev->dev, "TA phy addr lo = %x\n",
+			hdcp->cmd_buf_addr->u.load_ta.app_phy_addr_lo);
+	dev_dbg(hdcp->adev->dev, "TA Size = %d\n",
+				hdcp->cmd_buf_addr->u.load_ta.app_len);
+	dev_dbg(hdcp->adev->dev, "DCI Phy addr hi  = %x\n",
+		hdcp->cmd_buf_addr->u.load_ta.tci_buf_phy_addr_hi);
+	dev_dbg(hdcp->adev->dev, "DCI Phy addr lo = %x\n",
+		hdcp->cmd_buf_addr->u.load_ta.tci_buf_phy_addr_lo);
+	dev_dbg(hdcp->adev->dev, "DCI Size = %d\n",
+			hdcp->cmd_buf_addr->u.load_ta.tci_buf_len);
+
+	/* Flush ASD buffer */
+	flush_buffer((void *)hdcp->asd_buf_addr, hdcp->asd_size);
+
+	/* Flush DCI buffer */
+	flush_buffer((HDCP_TCI *)hdcp->dci_buf_addr, hdcp->dci_size);
+
+	/* Initialize fence value */
+	fence_val = 0x44444444;
+
+	ret = g2p_comm_send_command_buffer(hdcp->cmd_buf_addr,
+					sizeof(struct gfx_cmd_resp),
+					fence_val);
+	if (ret) {
+		dev_err(hdcp->adev->dev, "LOAD ASD failed\n");
+		dev_err(hdcp->adev->dev, "status = %d\n",
+					hdcp->cmd_buf_addr->resp.status);
+		free_pages((unsigned long)hdcp->dci_buf_addr,
+						get_order(hdcp->dci_size));
+		free_pages((unsigned long)hdcp->asd_buf_addr,
+						get_order(hdcp->asd_size));
+		free_pages((unsigned long)hdcp->cmd_buf_addr,
+					get_order(hdcp->cmd_buf_size));
+		return ret;
+	}
+
+	dev_dbg(hdcp->adev->dev, "status = %d\n",
+					hdcp->cmd_buf_addr->resp.status);
+
+	/* Check for response from PSP in Response buffer */
+	if (!hdcp->cmd_buf_addr->resp.status)
+		dev_info(hdcp->adev->dev, "ASD session_id = %d\n",
+				hdcp->cmd_buf_addr->resp.session_id);
+
+	hdcp->asd_session_id = hdcp->cmd_buf_addr->resp.session_id;
+
+	dev_info(hdcp->adev->dev, "Loaded ASD driver successfully\n");
 
 	return ret;
 }
@@ -697,6 +804,7 @@ int hdcpss_init(void *handle)
 {
 	int ret = 0;
 	const char *fw_name = FIRMWARE_CARRIZO;
+	const char *asd_bin_name = ASD_BIN_CARRIZO;
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 
 	dev_dbg(adev->dev, "%s\n", __func__);
@@ -717,6 +825,34 @@ int hdcpss_init(void *handle)
 	dev_dbg(adev->dev, "Command buffer address = %p\n",
 						hdcp_data.cmd_buf_addr);
 
+	/* Request ASD firmware */
+	ret = request_firmware(&adev->psp.fw, asd_bin_name, adev->dev);
+	if (ret) {
+		dev_err(adev->dev, "amdgpu_psp: Can't load firmware \"%s\"\n",
+							asd_bin_name);
+		return ret;
+	}
+
+	dev_info(adev->dev, "request_fw success: size of asd_bin= %ld\n",
+							adev->psp.fw->size);
+
+	hdcp_data.asd_size = adev->psp.fw->size;
+
+	/* Allocate physically contiguos memory to hold the ASD binary */
+	hdcp_data.asd_buf_addr = (u64 *)__get_free_pages(GFP_KERNEL,
+						get_order(hdcp_data.asd_size));
+	if (!hdcp_data.asd_buf_addr) {
+		dev_err(adev->dev, "ASD buffer memory allocation failed\n");
+		free_pages((unsigned long)hdcp_data.cmd_buf_addr,
+					get_order(hdcp_data.cmd_buf_size));
+		return -ENOMEM;
+	}
+	dev_dbg(adev->dev, "ASD buffer address = %p\n", hdcp_data.asd_buf_addr);
+
+	/* Copy the ASD binary into the allocated buffer */
+	memcpy(hdcp_data.asd_buf_addr, adev->psp.fw->data, hdcp_data.asd_size);
+
+	/* Request TA binary */
 	ret = request_firmware(&adev->psp.fw, fw_name, adev->dev);
 	if (ret) {
 		dev_err(adev->dev, "amdgpu_psp: Can't load firmware \"%s\"\n",
@@ -724,7 +860,7 @@ int hdcpss_init(void *handle)
 		return ret;
 	}
 
-	dev_dbg(adev->dev, "request_fw success: size of ta = %ld\n",
+	dev_info(adev->dev, "request_fw success: size of ta = %ld\n",
 							adev->psp.fw->size);
 
 	hdcp_data.ta_size = adev->psp.fw->size;
@@ -742,6 +878,24 @@ int hdcpss_init(void *handle)
 
 	/* Copy the TA binary into the allocated buffer */
 	memcpy(hdcp_data.ta_buf_addr, adev->psp.fw->data, hdcp_data.ta_size);
+
+	/*Allocate physically contigous memory for DCI */
+
+	hdcp_data.dci_size = sizeof(dciMessage_t);
+	hdcp_data.dci_buf_addr = (dciMessage_t *)__get_free_pages(GFP_KERNEL,
+						get_order(hdcp_data.dci_size));
+	if (!hdcp_data.dci_buf_addr) {
+		dev_err(adev->dev, "TCI memory allocation failure\n");
+		free_pages((unsigned long)hdcp_data.asd_buf_addr,
+						get_order(hdcp_data.asd_size));
+		free_pages((unsigned long)hdcp_data.cmd_buf_addr,
+					get_order(hdcp_data.cmd_buf_size));
+		return -ENOMEM;
+	}
+	dev_dbg(adev->dev, "DCI buffer address = %p\n", hdcp_data.dci_buf_addr);
+
+	/* Load ASD Firmware */
+	ret = hdcpss_load_asd(&hdcp_data);
 
 	/* Allocate physically contiguos memory for TCI */
 #ifdef HDCPSS_USE_TEST_TA
@@ -763,6 +917,7 @@ int hdcpss_init(void *handle)
 	}
 	dev_dbg(adev->dev, "TCI buffer address = %p\n", hdcp_data.tci_buf_addr);
 
+	/* Load TA Binary */
 	ret = hdcpss_load_ta(&hdcp_data);
 
 #ifdef HDCPSS_USE_TEST_TA

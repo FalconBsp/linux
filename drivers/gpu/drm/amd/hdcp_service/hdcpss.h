@@ -27,9 +27,10 @@
 #define __HDCPSS_H__
 
 #include <linux/types.h>
-#include "tl_hdcp_public.h"
+#include "tl_hdcp_if.h"
+#include "drDrmApi.h"
 
-#define HDCPSS_USE_TEST_TA	1
+//#define HDCPSS_USE_TEST_TA	1
 
 #define PSP_GFX_CMD_BUF_VERSION	0x00000001
 #define RET_OK			0
@@ -156,17 +157,23 @@ typedef struct {
 
 struct hdcpss_data {
 	u32			session_id;
+	u32			asd_session_id;
 	u32			cmd_buf_size;
 	u32			ta_size;
+	u32			asd_size;
 	u32			tci_size;
+	u32			dci_size;
 	struct gfx_cmd_resp	*cmd_buf_addr;
 #ifdef HDCPSS_USE_TEST_TA
 	tci_t			*tci_buf_addr;
 #else
 	HDCP_TCI		*tci_buf_addr;
 #endif
+	dciMessage_t		*dci_buf_addr;
 	void			*ta_buf_addr;
-	uint8_t			Bksv[5];
+	void			*asd_buf_addr;
+	uint8_t			BksvPrimary[5];
+	uint8_t			BksvSecondary[5];
 	uint8_t			Bcaps;
 	uint8_t			R_Prime[2];
 	uint8_t			*ksv_fifo_buf;
@@ -175,6 +182,7 @@ struct hdcpss_data {
 	uint8_t			bstatus[2];
 	struct amdgpu_device	*adev;
 	uint8_t			is_repeater;
+	uint8_t			is_primary_link;
 };
 
 #endif
