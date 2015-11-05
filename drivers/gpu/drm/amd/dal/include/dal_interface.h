@@ -264,4 +264,6 @@ bool dal_process_hdcp_msg(
 	uint32_t display_index,
 	struct hdcp_protection_message *message);
 
+uint8_t dal_get_dig_index(struct dal *dal, uint32_t display_index);
+
 #endif

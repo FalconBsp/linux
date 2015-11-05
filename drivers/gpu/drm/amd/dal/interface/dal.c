@@ -40,6 +40,7 @@
 #include "include/mode_manager_interface.h"
 #include "include/dcs_interface.h"
 #include "include/irq_service_interface.h"
+#include "include/encoder_interface.h"
 
 #include "dal.h"
 
@@ -1624,4 +1625,39 @@ enum dal_irq_source dal_interrupt_to_irq_source(
 		uint32_t ext_id)
 {
 	return dal_irq_service_to_irq_source(dal->irqs, src_id, ext_id);
+}
+
+uint8_t dal_get_dig_index(struct dal *dal, uint32_t display_index)
+{
+	struct display_path *dp;
+	struct encoder *enc;
+	enum engine_id id;
+
+	dp = dal_tm_display_index_to_display_path(dal->topology_mgr, display_index);
+
+	if (!dp)
+		return -1;
+
+	enc = dal_display_path_get_upstream_object(dp, SINK_LINK_INDEX);
+
+	id = dal_encoder_get_preferred_stream_engine(enc);
+
+	switch (id) {
+	case ENGINE_ID_DIGA:
+		return 0;
+	case ENGINE_ID_DIGB:
+		return 1;
+	case ENGINE_ID_DIGC:
+		return 2;
+	case ENGINE_ID_DIGD:
+		return 3;
+	case ENGINE_ID_DIGE:
+		return 4;
+	case ENGINE_ID_DIGF:
+		return 5;
+	case ENGINE_ID_DIGG:
+		return 6;
+	default:
+		return -1;
+	}
 }
