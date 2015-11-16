@@ -112,6 +112,23 @@ int hdcpss_read_An_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 	return ret;
 }
 
+bool hdcpss_write_Ainfo(struct hdcpss_data *hdcp, u32 display_index)
+{
+	struct hdcp_protection_message message;
+	bool ret = 0;
+	uint8_t Ainfo = 0x02;
+
+	message.version = HDCP_VERSION_14;
+	message.link = HDCP_LINK_PRIMARY;
+	message.msg_id = HDCP_MESSAGE_ID_WRITE_AINFO;
+	message.length = sizeof(uint8_t);
+	message.data = &Ainfo;
+
+	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
+
+	return ret;
+}
+
 bool hdcpss_write_An(struct hdcpss_data *hdcp, u32 display_index)
 {
 	struct hdcp_protection_message message;
