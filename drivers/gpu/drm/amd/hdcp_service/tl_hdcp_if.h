@@ -599,6 +599,18 @@ typedef enum _HDCP_14_RESPONSE_CODE
     HDCP_14_STATUS_FAILED_ALLOCATING_SESSION = 0x03
 } HDCP_14_RESPONSE_CODE;
 
+typedef enum _HDCP_14_CONNECTOR_TYPE
+{
+    HDCP_14_CONNECTOR_TYPE_VGA = 0,
+    HDCP_14_CONNECTOR_TYPE_SVideo = 1,
+    HDCP_14_CONNECTOR_TYPE_CompositeVideo = 2,
+    HDCP_14_CONNECTOR_TYPE_ComponentVideo = 3,
+    HDCP_14_CONNECTOR_TYPE_DVI = 4,
+    HDCP_14_CONNECTOR_TYPE_HDMI = 5,
+    HDCP_14_CONNECTOR_TYPE_DP = 6,
+    HDCP_14_CONNECTOR_TYPE_ForceDWORD = 0x7fffffff  /* force 32-bit size enum */
+} HDCP_14_CONNECTOR_TYPE;
+
  typedef struct _HDCP_14_IN_MSG
  {
      uint8_t DigId;
@@ -606,6 +618,9 @@ typedef enum _HDCP_14_RESPONSE_CODE
      {
          struct {
              uint32_t bIsDualLink;
+             uint32_t DDCLine;
+             uint8_t Bcaps;
+             HDCP_14_CONNECTOR_TYPE ConnectorType;
          } OpenSession;
 
          struct {
@@ -632,13 +647,12 @@ typedef enum _HDCP_14_RESPONSE_CODE
      union
      {
          struct {
+             uint8_t AInfo;
              uint8_t AnPrimary[8];
              uint8_t AksvPrimary[5];
              // For DualLink
              uint8_t AnSecondary[8];
              uint8_t AksvSecondary[5];
- //            uint32_t PspVersionId;
-   //          uint32_t DrmSessionId;
          } OpenSession;
      };
 
