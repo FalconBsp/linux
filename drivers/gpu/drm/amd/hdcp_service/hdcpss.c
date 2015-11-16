@@ -457,6 +457,40 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 #endif
 	return 0;
 }
+
+int count_number_of_ones(uint8_t *buff)
+{
+	uint8_t hex_to_1s_num[] = {
+		0, /* 0 */
+		1, /* 1 */
+		1, /* 2 */
+		2, /* 3 */
+		1, /* 4 */
+		2, /* 5 */
+		2, /* 6 */
+		3, /* 7 */
+		1, /* 8 */
+		2, /* 9 */
+		2, /* A */
+		3, /* B */
+		2, /* C */
+		3, /* D */
+		3, /* E */
+		4, /* F */
+	};
+	uint8_t i = 0;
+	uint8_t count_of_1s = 0;
+
+	for (i = 0; i < 5; ++i) {
+		count_of_1s +=
+			hex_to_1s_num[0xf & buff[i]] +
+			hex_to_1s_num[(0xf0 & buff[i]) >> 4];
+	}
+	printk("Number of 1s in BKSV = %d\n", count_of_1s);
+
+	return count_of_1s;
+}
+
 /*
  *  This function will be called by DAL when it detects cable plug/unplug event
  *  int display_index : - Display identifier
@@ -466,10 +500,19 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 
 void hdcpss_notify_hotplug_detect(int event, int display_index)
 {
+	uint8_t count_of_ones = 0;
+	bool    ret;
 
 	if (event) {
 		printk("Connect event detected\n");
-		hdcpss_start_hdcp14_authentication(display_index);
+		ret = hdcpss_read_Bksv(&hdcp_data, display_index, HDCP_LINK_PRIMARY);
+		count_of_ones = count_number_of_ones(hdcp_data.BksvPrimary);
+		if (count_of_ones == 20) {
+			hdcpss_start_hdcp14_authentication(display_index);
+		} else {
+			printk("Connected display is Not HDCP compliant\n");
+			return;
+		}
 	} else {
 		/* TODO: Handle disconnection */
 		printk("Disconnect event detected\n");
