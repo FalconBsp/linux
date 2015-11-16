@@ -183,6 +183,7 @@ struct hdcpss_data {
 	struct amdgpu_device	*adev;
 	uint8_t			is_repeater;
 	uint8_t			is_primary_link;
+	uint8_t			dig_id;
 };
 
 #endif

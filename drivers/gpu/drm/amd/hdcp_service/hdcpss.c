@@ -55,7 +55,7 @@ int hdcpss_read_An_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 	hdcp->tci_buf_addr->eHDCPSessionType = HDCP_14;
 	hdcp->tci_buf_addr->eHDCPCommand = TL_HDCP_CMD_ID_OPEN_SESSION;
 	hdcp->tci_buf_addr->HDCP_14_Message.
-		CmdHDCPCmdInput.DigId = display_index;
+		CmdHDCPCmdInput.DigId = hdcp->dig_id;
 	hdcp->tci_buf_addr->HDCP_14_Message.
 		CmdHDCPCmdInput.OpenSession.bIsDualLink = 0;
 
@@ -257,7 +257,7 @@ int hdcpss_send_first_part_auth(struct hdcpss_data *hdcp,
 	hdcp->tci_buf_addr->eHDCPCommand =
 			TL_HDCP_CMD_ID_HDCP_14_FIRST_PART_AUTH;
 	hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput
-				.DigId = display_index;
+				.DigId = hdcp->dig_id;
 	hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
 			OpenSession.bIsDualLink = 0;
 
@@ -376,6 +376,10 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 	uint8_t device_count = 0;
 	/* TODO: Obtain link type from DAL */
 	hdcp->is_primary_link = 1;
+
+	hdcp->dig_id = dal_get_dig_index(hdcp->adev->dm.dal, display_index);
+	dev_info(hdcp->adev->dev, "dig_id : %x display_index : %x\n",
+				hdcp->dig_id, display_index);
 
 	/* Send OPEN_SESSION command to TA */
 	ret = hdcpss_read_An_Aksv(hdcp, display_index);
