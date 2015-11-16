@@ -39,6 +39,7 @@
 #include "include/logger_interface.h"
 #include "include/mode_manager_interface.h"
 #include "include/dcs_interface.h"
+#include "include/ddc_service_interface.h"
 #include "include/irq_service_interface.h"
 #include "include/encoder_interface.h"
 
@@ -1660,4 +1661,30 @@ uint8_t dal_get_dig_index(struct dal *dal, uint32_t display_index)
 	default:
 		return -1;
 	}
+}
+
+enum gpio_ddc_line dal_get_ddc_line(
+		struct dal *dal,
+		uint32_t display_index)
+{
+	struct display_path *dp;
+	struct dcs *dcs;
+	struct ddc_service *ddc_service;
+	struct ddc *ddc;
+
+	dp = dal_tm_display_index_to_display_path(
+			dal->topology_mgr,
+			display_index);
+
+	if (!dp)
+		return GPIO_DDC_LINE_UNKNOWN;
+
+	dcs = dal_display_path_get_dcs(dp);
+
+	ddc_service = dal_dcs_update_ddc(dcs, NULL);
+	dal_dcs_update_ddc(dcs, ddc_service);
+
+	ddc = dal_ddc_service_get_ddc_pin(ddc_service);
+
+	return dal_ddc_get_line(ddc);
 }

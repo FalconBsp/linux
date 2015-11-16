@@ -94,4 +94,6 @@ enum ddc_result dal_ddc_service_write_dpcd_data(
 	const uint8_t *data,
 	uint32_t len);
 
+struct ddc *dal_ddc_service_get_ddc_pin(struct ddc_service *ddc_service);
+
 #endif /* __DAL_DDC_SERVICE_INTERFACE_H__ */

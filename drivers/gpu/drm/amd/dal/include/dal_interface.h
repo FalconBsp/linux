@@ -31,6 +31,7 @@
 #include "set_mode_types.h"
 #include "plane_types.h"
 #include "dcs_types.h"
+#include "gpio_types.h"
 #include "hdcp_types.h"
 #include "timing_list_query_interface.h"
 
@@ -265,5 +266,9 @@ bool dal_process_hdcp_msg(
 	struct hdcp_protection_message *message);
 
 uint8_t dal_get_dig_index(struct dal *dal, uint32_t display_index);
+
+enum gpio_ddc_line dal_get_ddc_line(
+		struct dal *dal,
+		uint32_t display_index);
 
 #endif
