@@ -184,6 +184,8 @@ struct hdcpss_data {
 	uint8_t			is_repeater;
 	uint8_t			is_primary_link;
 	uint8_t			dig_id;
+	uint8_t			Ainfo;
+	uint32_t		connector_type;
 };
 
 #endif

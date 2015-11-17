@@ -59,6 +59,29 @@ int hdcpss_read_An_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 	hdcp->tci_buf_addr->HDCP_14_Message.
 		CmdHDCPCmdInput.OpenSession.bIsDualLink = 0;
 
+	hdcp->tci_buf_addr->HDCP_14_Message.
+		CmdHDCPCmdInput.OpenSession.DDCLine =
+					dal_get_ddc_line(hdcp->adev->dm.dal,
+								display_index);
+
+	printk("DDCLine = %x\n", hdcp->tci_buf_addr->HDCP_14_Message.
+					CmdHDCPCmdInput.OpenSession.DDCLine);
+
+	hdcp->tci_buf_addr->HDCP_14_Message.
+		CmdHDCPCmdInput.OpenSession.Bcaps = hdcp->Bcaps;
+
+	printk("BCaps = %x\n", hdcp->tci_buf_addr->HDCP_14_Message.
+					CmdHDCPCmdInput.OpenSession.Bcaps);
+
+	hdcp->tci_buf_addr->HDCP_14_Message.
+		CmdHDCPCmdInput.OpenSession.ConnectorType =
+					hdcp->connector_type;
+
+	printk("Connector Type = %x\n", hdcp->tci_buf_addr->HDCP_14_Message.
+				CmdHDCPCmdInput.OpenSession.ConnectorType);
+
+	printk("Sending Open_session command\n");
+
 	ret = hdcpss_notify_ta(hdcp);
 
 	dev_info(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
@@ -66,6 +89,13 @@ int hdcpss_read_An_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 	dev_info(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
 
 	if (!ret) {
+		hdcp->Ainfo = hdcp->tci_buf_addr->
+				HDCP_14_Message.RspHDCPCmdOutput.
+				OpenSession.AInfo;
+		dev_info(hdcp->adev->dev, "Ainfo = %x\n",
+				hdcp->tci_buf_addr->
+				HDCP_14_Message.RspHDCPCmdOutput.
+				OpenSession.AInfo);
 		if(hdcp->is_primary_link) {
 			dev_info(hdcp->adev->dev,
 					"An received :\n");
@@ -108,7 +138,6 @@ int hdcpss_read_An_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 			}
 		}
 	}
-	dev_info(hdcp->adev->dev, "%s: Read completed successfully\n", __func__);
 	return ret;
 }
 
@@ -116,13 +145,14 @@ bool hdcpss_write_Ainfo(struct hdcpss_data *hdcp, u32 display_index)
 {
 	struct hdcp_protection_message message;
 	bool ret = 0;
-	uint8_t Ainfo = 0x02;
 
 	message.version = HDCP_VERSION_14;
 	message.link = HDCP_LINK_PRIMARY;
 	message.msg_id = HDCP_MESSAGE_ID_WRITE_AINFO;
 	message.length = sizeof(uint8_t);
-	message.data = &Ainfo;
+	message.data = &hdcp->Ainfo;
+
+	printk("Writing Ainfo = %x\n", hdcp->Ainfo);
 
 	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
 
@@ -298,7 +328,6 @@ int hdcpss_send_first_part_auth(struct hdcpss_data *hdcp,
 
 	dev_info(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
 			HDCP_14_Message.RspHDCPCmdOutput.bResponseCode);
-	dev_info(hdcp->adev->dev, "%s: Completed successfully\n", __func__);
 	return ret;
 }
 
@@ -391,12 +420,38 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 	struct hdcpss_data *hdcp = &hdcp_data;
 	int ret = 0;
 	uint8_t device_count = 0;
+	uint32_t connector_type = 0;
+
 	/* TODO: Obtain link type from DAL */
 	hdcp->is_primary_link = 1;
 
 	hdcp->dig_id = dal_get_dig_index(hdcp->adev->dm.dal, display_index);
 	dev_info(hdcp->adev->dev, "dig_id : %x display_index : %x\n",
 				hdcp->dig_id, display_index);
+
+	connector_type = dal_get_display_signal(hdcp->adev->dm.dal, display_index);
+	printk("connector_type = %x\n", connector_type);
+	switch (connector_type) {
+		case SIGNAL_TYPE_HDMI_TYPE_A:
+			hdcp->connector_type = HDCP_14_CONNECTOR_TYPE_HDMI;
+			printk("HDMI plug detected\n");
+			break;
+		case SIGNAL_TYPE_DISPLAY_PORT:
+			hdcp->connector_type = HDCP_14_CONNECTOR_TYPE_DP;
+			printk("DP plug detected\n");
+			break;
+		default:
+			hdcp->connector_type = 0;
+			break;
+	}
+	printk("hdcp->connector_type = %x\n", hdcp->connector_type);
+
+	/* Read BCaps from Receiver */
+	ret = hdcpss_read_Bcaps(hdcp, display_index);
+	if (!ret) {
+		dev_err(hdcp->adev->dev, "Error in reading bcaps\n");
+		return ret;
+	}
 
 	/* Send OPEN_SESSION command to TA */
 	ret = hdcpss_read_An_Aksv(hdcp, display_index);
@@ -405,6 +460,14 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 									ret);
 		return ret;
 	}
+
+	/* Write Ainfo register for HDMI connector */
+	if (hdcp->connector_type == HDCP_14_CONNECTOR_TYPE_HDMI) {
+		dev_info(hdcp->adev->dev, " Writing Ainfo for connector %x\n",
+				hdcp->connector_type);
+		ret = hdcpss_write_Ainfo(hdcp, display_index);
+	}
+
 	/* Write An to Receiver */
 	ret = hdcpss_write_An(hdcp, display_index);
 	if (!ret) {
