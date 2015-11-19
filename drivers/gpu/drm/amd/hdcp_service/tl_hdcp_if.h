@@ -213,7 +213,9 @@ typedef enum _TL_HDCP_COMMAND_CODE {
     TL_HDCP_CMD_ID_HDCP_14_GET_AN_AKSV      = 0x00000114,
     TL_HDCP_CMD_ID_HDCP_14_FIRST_PART_AUTH  = 0x00000115,
     TL_HDCP_CMD_ID_HDCP_14_SECOND_PART_AUTH = 0x00000116,
-    TL_HDCP_CMD_ID_START_ENCRYPTION         = 0x00000117
+    TL_HDCP_CMD_ID_START_ENCRYPTION         = 0x00000117,
+    TL_HDCP_CMD_ID_GET_PROTECTION_LEVEL     = 0x00000118
+
 } TL_HDCP_COMMAND_CODE;
 
 /**
@@ -654,6 +656,10 @@ typedef enum _HDCP_14_CONNECTOR_TYPE
              uint8_t AnSecondary[8];
              uint8_t AksvSecondary[5];
          } OpenSession;
+
+	struct {
+             uint32_t ProtectionLevel;
+         } GetProtectionLevel;
      };
 
  } HDCP_14_OUT_MSG;

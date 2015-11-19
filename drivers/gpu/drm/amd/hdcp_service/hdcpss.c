@@ -411,6 +411,42 @@ int hdcpss_send_second_part_auth(struct hdcpss_data *hdcp,
 	/* TODO Implement Second Half */
 	return 0;
 }
+
+int hdcpss_get_encryption_level(struct hdcpss_data *hdcp, u32 display_index)
+{
+	int ret = 0;
+	int i = 0;
+
+	int encryption_level = 0;
+
+	printk("%s\n", __func__);
+
+	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader.
+		commandId = HDCP_CMD_HOST_CMDS;
+	hdcp->tci_buf_addr->eHDCPSessionType = HDCP_14;
+	hdcp->tci_buf_addr->eHDCPCommand = TL_HDCP_CMD_ID_GET_PROTECTION_LEVEL;
+	hdcp->tci_buf_addr->HDCP_14_Message.
+		CmdHDCPCmdInput.DigId = hdcp->dig_id;
+
+	printk("Sending command TL_HDCP_CMD_ID_GET_PROTECTION_LEVEL\n");
+
+	ret = hdcpss_notify_ta(hdcp);
+
+	dev_info(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
+			HDCP_14_Message.ResponseHeader.responseId);
+	dev_info(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
+
+	dev_info(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
+			HDCP_14_Message.RspHDCPCmdOutput.bResponseCode);
+
+	encryption_level = hdcp->tci_buf_addr->HDCP_14_Message.RspHDCPCmdOutput.
+					GetProtectionLevel.ProtectionLevel;
+
+	printk("encryption_level = %x\n", encryption_level);
+
+	return ret;
+}
+
 /*
  * This function will be called when a connect event is detected.
  * It starts the authentication of the receiver.
@@ -461,6 +497,8 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 		return ret;
 	}
 
+	ret = hdcpss_get_encryption_level(hdcp, display_index);
+
 	/* Write Ainfo register for HDMI connector */
 	if (hdcp->connector_type == HDCP_14_CONNECTOR_TYPE_HDMI) {
 		dev_info(hdcp->adev->dev, " Writing Ainfo for connector %x\n",
@@ -503,8 +541,10 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 	if (ret) {
 		dev_err(hdcp->adev->dev,
 			"Error in first part of authentication\n");
-		return ret;
+		//return ret;
 	}
+
+	ret = hdcpss_get_encryption_level(hdcp, display_index);
 #if 0
 	/* Repeater Only */
 	if (hdcp->is_repeater) {
