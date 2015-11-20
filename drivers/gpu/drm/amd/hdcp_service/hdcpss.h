@@ -172,6 +172,8 @@ struct hdcpss_data {
 	dciMessage_t		*dci_buf_addr;
 	void			*ta_buf_addr;
 	void			*asd_buf_addr;
+	uint8_t			AnPrimary[8];
+	uint8_t			AksvPrimary[5];
 	uint8_t			BksvPrimary[5];
 	uint8_t			BksvSecondary[5];
 	uint8_t			Bcaps;

@@ -105,6 +105,9 @@ int hdcpss_read_An_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 						HDCP_14_Message.RspHDCPCmdOutput.
 						OpenSession.AnPrimary[i]);
 			}
+			memcpy(hdcp->AnPrimary, hdcp->tci_buf_addr->HDCP_14_Message.
+                                RspHDCPCmdOutput.OpenSession.AnPrimary,
+                                8);
 
 			dev_info(hdcp->adev->dev, "Aksv received :\n");
 			for (i = 0; i < 5; i++) {
@@ -113,6 +116,9 @@ int hdcpss_read_An_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 						HDCP_14_Message.RspHDCPCmdOutput.
 						OpenSession.AksvPrimary[i]);
 			}
+			memcpy(hdcp->AksvPrimary, hdcp->tci_buf_addr->HDCP_14_Message.
+                                RspHDCPCmdOutput.OpenSession.AksvPrimary,
+                                5);
 		} else {
 			dev_info(hdcp->adev->dev,
 					"An Secondary received :\n");
@@ -163,27 +169,22 @@ bool hdcpss_write_An(struct hdcpss_data *hdcp, u32 display_index)
 {
 	struct hdcp_protection_message message;
 	bool ret = 0;
-	uint8_t An[8];
+	int i = 0;
 
-	if (hdcp->is_primary_link) {
-
-		memcpy(An, hdcp->tci_buf_addr->HDCP_14_Message.
-				RspHDCPCmdOutput.OpenSession.AnPrimary,
-				sizeof(An));
+	if (hdcp->is_primary_link)
 		message.link = HDCP_LINK_PRIMARY;
-	} else {
-
-		memcpy(An, hdcp->tci_buf_addr->HDCP_14_Message.
-				RspHDCPCmdOutput.OpenSession.AnSecondary,
-				sizeof(An));
+	else
 		message.link = HDCP_LINK_SECONDARY;
-	}
-		message.version = HDCP_VERSION_14;
-		message.msg_id = HDCP_MESSAGE_ID_WRITE_AN;
-		message.length = sizeof(An);
-		message.data = An;
 
-		ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
+	message.version = HDCP_VERSION_14;
+	message.msg_id = HDCP_MESSAGE_ID_WRITE_AN;
+	message.length = 8;
+	message.data = hdcp->AnPrimary;
+
+	for(i = 0; i < 8; i++)
+		printk("%s An[%d] = %x\n", __func__, i, hdcp->AnPrimary[i]);
+
+	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
 
 	return ret;
 }
@@ -192,30 +193,22 @@ bool hdcpss_write_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 {
 	struct hdcp_protection_message message;
 	bool ret = 0;
-	uint8_t Aksv[5];
+	int i = 0;
 
-	if (hdcp->is_primary_link) {
-
-		memcpy(Aksv, hdcp->tci_buf_addr->HDCP_14_Message.
-				RspHDCPCmdOutput.OpenSession.AksvPrimary,
-				sizeof(Aksv));
-
+	if (hdcp->is_primary_link)
 		message.link = HDCP_LINK_PRIMARY;
-	} else {
-
-		memcpy(Aksv, hdcp->tci_buf_addr->HDCP_14_Message.
-				RspHDCPCmdOutput.OpenSession.AksvSecondary,
-				sizeof(Aksv));
-
+	else
 		message.link = HDCP_LINK_SECONDARY;
-	}
 
-		message.version = HDCP_VERSION_14;
-		message.msg_id = HDCP_MESSAGE_ID_WRITE_AKSV;
-		message.length = sizeof(Aksv);
-		message.data = Aksv;
+	message.version = HDCP_VERSION_14;
+	message.msg_id = HDCP_MESSAGE_ID_WRITE_AKSV;
+	message.length = 5;
+	message.data = hdcp->AksvPrimary;
 
-		ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
+	for(i = 0; i < 5; i++)
+		printk("%s AKSV[%d] = %x\n", __func__, i, hdcp->AksvPrimary[i]);
+
+	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
 
 	return ret;
 }
@@ -296,6 +289,7 @@ int hdcpss_send_first_part_auth(struct hdcpss_data *hdcp,
 					u32 hdcp_link_type)
 {
 	int ret = 0;
+	int i = 0;
 
 	dev_info(hdcp->adev->dev, "%s: Started\n", __func__);
 	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader
@@ -323,6 +317,19 @@ int hdcpss_send_first_part_auth(struct hdcpss_data *hdcp,
 	memcpy(hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
 				FirstPartAuth.RNotPrime, &hdcp->R_Prime,
 				sizeof(uint16_t));
+
+	printk("DigID = %x\n", hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.DigId);
+
+	for (i = 0; i < 5; i++)
+		printk("BKSV Primary [%x] = %x\n", i, hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+				FirstPartAuth.BksvPrimary[i]);
+
+	printk("Bcaps = %x\n", hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+			FirstPartAuth.Bcaps);
+
+	for (i = 0; i < 2; i++)
+		printk("R_Prime [%x] = %x\n", i, hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+				FirstPartAuth.RNotPrime[i]);
 
 	ret = hdcpss_notify_ta(hdcp);
 
@@ -415,8 +422,6 @@ int hdcpss_send_second_part_auth(struct hdcpss_data *hdcp,
 int hdcpss_get_encryption_level(struct hdcpss_data *hdcp, u32 display_index)
 {
 	int ret = 0;
-	int i = 0;
-
 	int encryption_level = 0;
 
 	printk("%s\n", __func__);
@@ -497,8 +502,6 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 		return ret;
 	}
 
-	ret = hdcpss_get_encryption_level(hdcp, display_index);
-
 	/* Write Ainfo register for HDMI connector */
 	if (hdcp->connector_type == HDCP_14_CONNECTOR_TYPE_HDMI) {
 		dev_info(hdcp->adev->dev, " Writing Ainfo for connector %x\n",
@@ -541,8 +544,9 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 	if (ret) {
 		dev_err(hdcp->adev->dev,
 			"Error in first part of authentication\n");
-		//return ret;
+		return ret;
 	}
+	printk("First Part authentication success \n");
 
 	ret = hdcpss_get_encryption_level(hdcp, display_index);
 #if 0
