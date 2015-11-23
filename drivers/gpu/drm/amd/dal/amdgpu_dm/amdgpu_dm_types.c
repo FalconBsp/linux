@@ -1,5 +1,7 @@
 /*
  * Copyright 2012-13 Advanced Micro Devices, Inc.
+ * Copyright (c) 2006-2008 Intel Corporation
+ * Copyright (c) 2007 Dave Airlie <airlied@linux.ie>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
