@@ -4122,7 +4122,7 @@ bool dal_dpsst_ls_handle_hpd_irq_link_status(
 
 		/* Check interlane align.*/
 		if (sink_status_changed ||
-			!hpd_irq_dpcd_data->bytes.lane_Status_Updated.bits.
+			!hpd_irq_dpcd_data->bytes.lane_status_updated.bits.
 			INTERLANE_ALIGN_DONE) {
 
 			dal_logger_write(ls->dal_context->logger,
@@ -4157,15 +4157,12 @@ bool dal_dpsst_ls_handle_hpd_irq_device_service(
 	struct link_service *ls,
 	union hpd_irq_data *hpd_irq_dpcd_data)
 {
-	bool is_device_service_irq;
-	union device_service_irq device_irq;
-
-	is_device_service_irq = false;
-	dal_memset(&device_irq, '\0', sizeof(device_irq));
-
+	bool is_device_service_irq = false;
+	union device_service_irq *cur_device_service_irq =
+		&hpd_irq_dpcd_data->bytes.device_service_irq;
 	/* check content of DPCD 00201h (DpcdAddress_DeviceServiceIrqVector)*/
 
-	if (hpd_irq_dpcd_data->bytes.device_Service_Irq.bits.AUTOMATED_TEST) {
+	if (cur_device_service_irq->bits.AUTOMATED_TEST) {
 		dal_logger_write(ls->dal_context->logger,
 			LOG_MAJOR_HW_TRACE,
 			LOG_MINOR_HW_TRACE_HPD_IRQ,
@@ -4174,14 +4171,41 @@ bool dal_dpsst_ls_handle_hpd_irq_device_service(
 		is_device_service_irq = true;
 		/* acknowledge automated test mode*/
 		dal_dpsst_ls_write_dpcd_data(
-		ls,
-		DPCD_ADDRESS_DEVICE_SERVICE_IRQ_VECTOR,
-		&hpd_irq_dpcd_data->bytes.device_Service_Irq.raw,
-		sizeof(hpd_irq_dpcd_data->bytes.device_Service_Irq.raw));
+			ls,
+			DPCD_ADDRESS_DEVICE_SERVICE_IRQ_VECTOR,
+			&cur_device_service_irq->raw,
+			sizeof(cur_device_service_irq->raw));
 
 		/* handle automated test request*/
 		/*TODO:handle_automated_test();*/
 
+	} else if (cur_device_service_irq->bits.CP_IRQ) {
+		uint8_t bstatus;
+		union device_service_irq ack_device_service_irq;
+
+		dal_memset(
+			&ack_device_service_irq,
+			'\0',
+			sizeof(ack_device_service_irq));
+
+		is_device_service_irq = true;
+
+		/* read bstatus here to avoid time out */
+		dal_dpsst_ls_read_dpcd_data(
+			ls,
+			0x68029, /* TODO: do not use hardcode here */
+			&bstatus,
+			sizeof(bstatus));
+
+		dal_notify_cp_event(ls->dal_context);
+
+		ack_device_service_irq.bits.CP_IRQ = 1;
+
+		dal_dpsst_ls_write_dpcd_data(
+			ls,
+			DPCD_ADDRESS_DEVICE_SERVICE_IRQ_VECTOR,
+			&ack_device_service_irq.raw,
+			sizeof(ack_device_service_irq));
 	}
 
 	return is_device_service_irq;

@@ -265,6 +265,12 @@ void dal_notify_setmode_complete(struct dal_context *ctx,
 {
 	/*TODO*/
 }
+
+void dal_notify_cp_event(struct dal_context *ctx)
+{
+
+}
+
 /* End of calls to notification */
 
 long dal_get_pid(void)

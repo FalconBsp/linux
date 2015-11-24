@@ -312,6 +312,8 @@ void dal_notify_setmode_complete(
 	uint32_t v_active,
 	uint32_t pix_clk_in_khz);
 
+void dal_notify_cp_event(struct dal_context *ctx);
+
 /* End of notification calls */
 
 /*

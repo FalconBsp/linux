@@ -765,10 +765,10 @@ read during handling of HPD-IRQ*/
 union hpd_irq_data {
 	struct {
 		union sink_count sink_cnt;/* 200h */
-		union device_service_irq device_Service_Irq;/* 201h */
+		union device_service_irq device_service_irq;/* 201h */
 		union lane_status lane01_status;/* 202h */
 		union lane_status lane23_status;/* 203h */
-		union lane_align_status_updated lane_Status_Updated;/* 204h */
+		union lane_align_status_updated lane_status_updated;/* 204h */
 		union sink_status sink_status;
 	} bytes;
 	uint8_t raw[6];
