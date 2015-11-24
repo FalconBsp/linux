@@ -543,6 +543,9 @@ bool amdgpu_dm_mode_set(
 
 
 	dal_set_blanking(adev->dm.dal, acrtc->crtc_id, true);
+
+	hdcpss_notify_hotplug_detect(0, acrtc->crtc_id);
+
 	/* the actual mode set call */
 	ret = dal_set_path_mode(adev->dm.dal, pms);
 
@@ -560,6 +563,9 @@ bool amdgpu_dm_mode_set(
 	amdgpu_dm_fill_surface_address(crtc, &addr_flip_info, afb, old_fb);
 
 	dal_set_blanking(adev->dm.dal, acrtc->crtc_id, false);
+
+	hdcpss_notify_hotplug_detect(1, acrtc->crtc_id);
+
 	/* Turn vblank on after reset */
 	drm_crtc_vblank_on(crtc);
 
@@ -622,6 +628,9 @@ bool amdgpu_dm_mode_reset(struct drm_crtc *crtc)
 		mutex_lock(&adev->dm.dal_mutex);
 		ret = dal_reset_path_mode(adev->dm.dal, 1, &display_index);
 		mutex_unlock(&adev->dm.dal_mutex);
+
+		hdcpss_notify_hotplug_detect(0, display_index);
+
 		DRM_DEBUG_KMS(
 			"Do reset mode for disp_index %d\n",
 			display_index);
@@ -1657,7 +1666,6 @@ int amdgpu_dm_connector_init(
 	/* TODO: this switch should be updated during hotplug/unplug*/
 	if (dm->dal != NULL && is_connected) {
 		DRM_DEBUG_KMS("Connector is connected\n");
-		hdcpss_notify_hotplug_detect(is_connected ? 1 : 0, display_idx);
 		drm_mode_connector_update_edid_property(
 			&aconnector->base,
 			(struct edid *)

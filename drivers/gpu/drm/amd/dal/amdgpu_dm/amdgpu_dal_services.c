@@ -222,8 +222,6 @@ void dal_notify_hotplug(
 		break;
 	}
 
-	hdcpss_notify_hotplug_detect(is_connected ? 1 : 0, display_index);
-
 	drm_helper_hpd_irq_event(dev);
 }
 
@@ -254,8 +252,6 @@ void dal_notify_capability_change(
 					NULL));
 		}
 	}
-
-	hdcpss_notify_hotplug_detect(1, display_index);
 
 	drm_kms_helper_hotplug_event(dev);
 }
