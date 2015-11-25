@@ -34,6 +34,7 @@
 #include "amdgpu.h"
 #include "../dal/include/hdcp_types.h"
 #include "../dal/include/dal_interface.h"
+#include "../dal/amdgpu_dm/amdgpu_dm_hdcp.h"
 
 #define FIRMWARE_CARRIZO	"amdgpu/hdcp14tx_ta.bin"
 #define ASD_BIN_CARRIZO		"amdgpu/asd.bin"
@@ -449,6 +450,9 @@ int hdcpss_get_encryption_level(struct hdcpss_data *hdcp, u32 display_index)
 
 	printk("encryption_level = %x\n", encryption_level);
 
+	amdgpu_dm_update_cp_status_property(&hdcp->adev->dm, display_index,
+						encryption_level ? 1 : 0);
+
 	return ret;
 }
 
@@ -628,7 +632,7 @@ void hdcpss_notify_hotplug_detect(int event, int display_index)
 	bool    ret;
 
 	if (event) {
-		printk("Connect event detected\n");
+		printk("Connect event detected display_index = %d\n", display_index);
 		ret = hdcpss_read_Bksv(&hdcp_data, display_index, HDCP_LINK_PRIMARY);
 		count_of_ones = count_number_of_ones(hdcp_data.BksvPrimary);
 		if (count_of_ones == 20) {
@@ -639,7 +643,10 @@ void hdcpss_notify_hotplug_detect(int event, int display_index)
 		}
 	} else {
 		/* TODO: Handle disconnection */
-		printk("Disconnect event detected\n");
+		printk("Disconnect event detected display_index = %d\n", display_index);
+		amdgpu_dm_update_cp_status_property(&hdcp_data.adev->dm,
+							display_index,
+							0);
 	}
 }
 EXPORT_SYMBOL_GPL(hdcpss_notify_hotplug_detect);

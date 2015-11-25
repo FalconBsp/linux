@@ -26,8 +26,6 @@
 #ifndef __DAL_AMDGPU_DM_HDCP_H__
 #define __DAL_AMDGPU_DM_HDCP_H__
 
-struct amdgpu_display_manager *dm;
-
 bool amdgpu_dm_update_cp_status_property(
 	struct amdgpu_display_manager *dm,
 	uint32_t display_idx,
