@@ -370,16 +370,6 @@ int psp_comm_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	return ret;
 }
 
-static inline u32 low_address(void *addr)
-{
-	return (u64)addr & 0xffffffff;
-}
-
-static inline u32 high_address(void *addr)
-{
-	return ((u64)addr > 0xffffffff) & 0xffffffff;
-}
-
 void psp_comm_write_command(u32 cmd, u32 high, u32 low)
 {
 	dev_dbg(dev, "%s : high : %x low : %x\n", __func__, high, low);
@@ -436,13 +426,12 @@ int psp_comm_command(u32 command)
 {
 	int ret = 0;
 	int command_resp, error_code = 0;
+	u64 val = (u64) psp_comm_data.psp_comm_physical_addr;
 
 	flush_buffer(psp_comm_data.psp_comm_virtual_addr,
 			sizeof(struct psp_comm_buf));
 	psp_comm_data.command_status = FALSE;
-	psp_comm_write_command(command,
-			high_address(psp_comm_data.psp_comm_physical_addr),
-			low_address(psp_comm_data.psp_comm_physical_addr));
+	psp_comm_write_command(command,	upper_32_bits(val), lower_32_bits(val));
 	wait_event_interruptible_timeout(psp_comm_data.command_wait,
 			psp_comm_data.command_status
 			== TRUE,
