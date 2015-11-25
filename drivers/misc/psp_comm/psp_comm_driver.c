@@ -523,7 +523,7 @@ int psp_comm_send_buffer(u32 client_type, void *buf, u32 buf_size, u32 cmd_id)
 	cmd_id |= (client_type << PSP_COMM_CLIENT_TYPE_SHIFT);
 
 	ret = psp_comm_command(cmd_id);
-	memcpy(buf, &comm_buf->cmdbuf, PSP_COMM_CMD_BUF_MAX_SIZE);
+	memcpy(buf, &comm_buf->cmdbuf, buf_size);
 	if (ret != 0) {
 		dev_err(dev, " %s : error in sending command\n", __func__);
 		ret = -1;
