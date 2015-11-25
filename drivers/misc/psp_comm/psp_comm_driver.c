@@ -93,11 +93,6 @@ static u32 sizetoorder(u32 size)
 	return order;
 }
 
-static u32 addrtopfn(void *addr)
-{
-	return (u32)((u64)(addr) >> PAGE_SHIFT);
-}
-
 static void flush_buffer(void *addr, u32 size)
 {
 	struct page *page;
@@ -159,7 +154,7 @@ int psp_comm_unregister_client(u32 client_type)
 }
 EXPORT_SYMBOL_GPL(psp_comm_unregister_client);
 
-void psp_comm_process_work(struct workqueue_struct *psp_comm_workqueue)
+void psp_comm_process_work(struct work_struct *psp_comm_workqueue)
 {
 	u32 outqueuerdptr, outqueuewrtptr;
 	struct psp_comm_buf *comm_buf;
@@ -651,10 +646,9 @@ static int __init psp_comm_driver_init(void)
 	return (int)ret;
 }
 
-static int __exit psp_comm_driver_exit(void)
+static void __exit psp_comm_driver_exit(void)
 {
 	pci_unregister_driver(&psp_comm_pci_device);
-	return 0;
 }
 
 module_init(psp_comm_driver_init);
