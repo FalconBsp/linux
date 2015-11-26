@@ -79,6 +79,8 @@ static bool hdmi_14_process_transaction(
 	struct adapter_service *as,
 	struct hdcp_protection_message *message_info)
 {
+	uint8_t *buff = NULL;
+	bool result;
 	const uint8_t hdcp_i2c_addr_link_primary = 0x3a; /* 0x74 >> 1 */
 	const uint8_t hdcp_i2c_addr_link_secondary = 0x3b; /* 0x76 >> 1 */
 	struct i2c_command i2c_command;
@@ -101,16 +103,35 @@ static bool hdmi_14_process_transaction(
 		break;
 	}
 
-	i2c_payloads[1].write = !hdcp_cmd_is_read[message_info->msg_id];
-	i2c_payloads[1].length = message_info->length;
-	i2c_payloads[1].data = message_info->data;
+	if (hdcp_cmd_is_read[message_info->msg_id]) {
+		i2c_payloads[1].write = false;
+		i2c_command.number_of_payloads = ARRAY_SIZE(i2c_payloads);
+		i2c_payloads[1].length = message_info->length;
+		i2c_payloads[1].data = message_info->data;
+	} else {
+		i2c_command.number_of_payloads = 1;
+		buff = dal_alloc(message_info->length + 1);
 
-	i2c_command.number_of_payloads = ARRAY_SIZE(i2c_payloads);
+		if (!buff)
+			return false;
+
+		buff[0] = offset;
+		dal_memmove(&buff[1], message_info->data, message_info->length);
+		i2c_payloads[0].length = message_info->length + 1;
+		i2c_payloads[0].data = buff;
+	}
+
+
 	i2c_command.payloads = i2c_payloads;
 	i2c_command.engine = I2C_COMMAND_ENGINE_SW;
 	i2c_command.speed = dal_adapter_service_get_sw_i2c_speed(as);
 
-	return dal_i2caux_submit_i2c_command(i2caux, ddc, &i2c_command);
+	result = dal_i2caux_submit_i2c_command(i2caux, ddc, &i2c_command);
+
+	if (buff)
+		dal_free(buff);
+
+	return result;
 }
 
 static const struct protection_properties hdmi_14_protection = {
