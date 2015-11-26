@@ -143,12 +143,12 @@ int psp_comm_unregister_client(u32 client_type)
 
 	if (psp_comm_data.client_data[client_type] == NULL) {
 		dev_dbg(dev, " %s : client not registered\n", __func__);
-		ret = EINVAL;
+		ret = -EINVAL;
 		return ret;
 	}
 	mutex_lock(&psp_comm_data.psp_comm_lock);
-	psp_comm_data.client_data[client_type] = NULL;
 	vfree(psp_comm_data.client_data[client_type]);
+	psp_comm_data.client_data[client_type] = NULL;
 	mutex_unlock(&psp_comm_data.psp_comm_lock);
 	return ret;
 }
