@@ -51,6 +51,8 @@ int hdcpss_read_An_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 	int ret = 0;
 	int i = 0;
 
+	memset(hdcp->tci_buf_addr, 0, sizeof(HDCP_TCI));
+
 	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader.
 		commandId = HDCP_CMD_HOST_CMDS;
 	hdcp->tci_buf_addr->eHDCPSessionType = HDCP_14;
@@ -293,6 +295,9 @@ int hdcpss_send_first_part_auth(struct hdcpss_data *hdcp,
 	int i = 0;
 
 	dev_info(hdcp->adev->dev, "%s: Started\n", __func__);
+
+	memset(hdcp->tci_buf_addr, 0, sizeof(HDCP_TCI));
+
 	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader
 				.commandId = HDCP_CMD_HOST_CMDS;
 	hdcp->tci_buf_addr->eHDCPSessionType = HDCP_14;
@@ -300,8 +305,6 @@ int hdcpss_send_first_part_auth(struct hdcpss_data *hdcp,
 			TL_HDCP_CMD_ID_HDCP_14_FIRST_PART_AUTH;
 	hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput
 				.DigId = hdcp->dig_id;
-	hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
-			OpenSession.bIsDualLink = 0;
 
 	if (hdcp_link_type  == HDCP_LINK_PRIMARY)
 		memcpy(hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
@@ -427,12 +430,17 @@ int hdcpss_get_encryption_level(struct hdcpss_data *hdcp, u32 display_index)
 
 	printk("%s\n", __func__);
 
+	memset(hdcp->tci_buf_addr, 0, sizeof(HDCP_TCI));
+
 	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader.
 		commandId = HDCP_CMD_HOST_CMDS;
 	hdcp->tci_buf_addr->eHDCPSessionType = HDCP_14;
 	hdcp->tci_buf_addr->eHDCPCommand = TL_HDCP_CMD_ID_GET_PROTECTION_LEVEL;
 	hdcp->tci_buf_addr->HDCP_14_Message.
 		CmdHDCPCmdInput.DigId = hdcp->dig_id;
+
+	hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+					GetProtectionLevel.bIsDualLink = 0;
 
 	printk("Sending command TL_HDCP_CMD_ID_GET_PROTECTION_LEVEL\n");
 
@@ -625,6 +633,8 @@ void hdcpss_send_close_session(int display_index)
 	struct hdcpss_data *hdcp = &hdcp_data;
 
 	printk("%s\n", __func__);
+
+	memset(hdcp->tci_buf_addr, 0, sizeof(HDCP_TCI));
 
 	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader.
 		commandId = HDCP_CMD_HOST_CMDS;

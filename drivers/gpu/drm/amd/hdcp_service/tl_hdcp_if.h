@@ -598,7 +598,9 @@ typedef enum _HDCP_14_RESPONSE_CODE
 {
     HDCP_14_STATUS_SUCCESS                   = 0x01,
     HDCP_14_STATUS_GENERIC_FAILURE           = 0x02,
-    HDCP_14_STATUS_FAILED_ALLOCATING_SESSION = 0x03
+    HDCP_14_STATUS_FAILED_ALLOCATING_SESSION = 0x03,
+    HDCP_14_STATUS_FAILED_SETUP_TX              = 0x04,
+    HDCP_14_STATUS_TCI_BUFFER_NOT_SET_CORRECTLY = 0x05
 } HDCP_14_RESPONSE_CODE;
 
 typedef enum _HDCP_14_CONNECTOR_TYPE
@@ -639,6 +641,10 @@ typedef enum _HDCP_14_CONNECTOR_TYPE
              uint8_t  Pj;
              uint8_t  VPrime[20];
          } SecondPartAuth;
+
+	struct {
+             uint32_t bIsDualLink;
+         } GetProtectionLevel;
      };
  } HDCP_14_IN_MSG;
 
