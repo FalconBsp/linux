@@ -619,6 +619,35 @@ int count_number_of_ones(uint8_t *buff)
 	return count_of_1s;
 }
 
+void hdcpss_send_close_session(int display_index)
+{
+	int ret = 0;
+	struct hdcpss_data *hdcp = &hdcp_data;
+
+	printk("%s\n", __func__);
+
+	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader.
+		commandId = HDCP_CMD_HOST_CMDS;
+	hdcp->tci_buf_addr->eHDCPSessionType = HDCP_14;
+	hdcp->tci_buf_addr->eHDCPCommand = TL_HDCP_CMD_ID_CLOSE_SESSION;
+	hdcp->tci_buf_addr->HDCP_14_Message.
+		CmdHDCPCmdInput.DigId = dal_get_dig_index(hdcp->adev->dm.dal,
+								display_index);
+
+	printk("TL_HDCP_CMD_ID_CLOSE_SESSION for digID = %x\n",
+					hdcp->tci_buf_addr->HDCP_14_Message.
+					CmdHDCPCmdInput.DigId);
+
+	ret = hdcpss_notify_ta(hdcp);
+
+	dev_info(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
+			HDCP_14_Message.ResponseHeader.responseId);
+	dev_info(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
+
+	dev_info(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
+			HDCP_14_Message.RspHDCPCmdOutput.bResponseCode);
+}
+
 /*
  *  This function will be called by DAL when it detects cable plug/unplug event
  *  int display_index : - Display identifier
@@ -636,6 +665,7 @@ void hdcpss_notify_hotplug_detect(int event, int display_index)
 		ret = hdcpss_read_Bksv(&hdcp_data, display_index, HDCP_LINK_PRIMARY);
 		count_of_ones = count_number_of_ones(hdcp_data.BksvPrimary);
 		if (count_of_ones == 20) {
+			hdcp_data.session_opened[display_index] = 1;
 			hdcpss_start_hdcp14_authentication(display_index);
 		} else {
 			printk("Connected display is Not HDCP compliant\n");
@@ -647,6 +677,12 @@ void hdcpss_notify_hotplug_detect(int event, int display_index)
 		amdgpu_dm_update_cp_status_property(&hdcp_data.adev->dm,
 							display_index,
 							0);
+		if (hdcp_data.session_opened[display_index]) {
+			printk("Calling Close session for display_index = %x\n", display_index);
+			hdcpss_send_close_session(display_index);
+			hdcp_data.session_opened[display_index] = 0;
+			hdcpss_get_encryption_level(&hdcp_data, display_index);
+		}
 	}
 }
 EXPORT_SYMBOL_GPL(hdcpss_notify_hotplug_detect);

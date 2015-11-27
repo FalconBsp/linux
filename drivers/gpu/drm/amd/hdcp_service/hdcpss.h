@@ -188,6 +188,7 @@ struct hdcpss_data {
 	uint8_t			dig_id;
 	uint8_t			Ainfo;
 	uint32_t		connector_type;
+	uint8_t			session_opened[4];
 };
 
 #endif
