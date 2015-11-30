@@ -45,6 +45,9 @@
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
 #include <linux/vmalloc.h>
+#ifdef CONFIG_PSP_TRACE
+#include "psp_comm_trace.h"
+#endif
 
 /* define types */
 #if !defined(TRUE)
@@ -112,6 +115,9 @@ struct psp_comm_drv_data {
 	struct psp_comm_buf		*psp_comm_virtual_addr;
 	struct psp_comm_buf		*psp_comm_physical_addr;
 	struct client_context		*client_data[PSP_COMM_MAX_CLIENT_TYPES];
+#ifdef CONFIG_PSP_TRACE
+	struct trace_info		trace_buf_info;
+#endif
 };
 
 struct psp_comm_drv_data psp_comm_data;

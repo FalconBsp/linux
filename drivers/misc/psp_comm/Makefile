@@ -27,3 +27,4 @@
 
 obj-$(CONFIG_PSP_COMM_DRIVER_SUPPORT) := psp_comm.o
 psp_comm-objs := psp_comm_driver.o
+psp_comm-$(CONFIG_PSP_TRACE) += psp_comm_trace.o

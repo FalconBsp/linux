@@ -313,6 +313,9 @@ void psp_comm_pci_remove(struct pci_dev *pdev)
 	mutex_destroy(&psp_comm_data.psp_comm_lock);
 	psp_comm_deallocate_memory((u64)psp_comm_data.psp_comm_virtual_addr,
 			sizeof(struct psp_comm_buf));
+#ifdef CONFIG_PSP_TRACE
+	free_psp_trace_resources(&psp_comm_data.trace_buf_info);
+#endif
 }
 
 int psp_comm_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
@@ -610,7 +613,13 @@ int psp_comm_init(void)
 					psp_comm_virtual_addr,
 					sizeof(struct psp_comm_buf));
 			ret = -1;
+			break;
 		}
+
+#ifdef CONFIG_PSP_TRACE
+		psp_comm_trace_init(&psp_comm_data.trace_buf_info);
+#endif
+
 	} while (FALSE);
 
 	dev_info(dev, " %s : psp comm init successful\n", __func__);
