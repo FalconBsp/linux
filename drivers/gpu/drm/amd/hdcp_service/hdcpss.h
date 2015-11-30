@@ -30,8 +30,6 @@
 #include "tl_hdcp_if.h"
 #include "drDrmApi.h"
 
-//#define HDCPSS_USE_TEST_TA	1
-
 #define PSP_GFX_CMD_BUF_VERSION	0x00000001
 #define RET_OK			0
 #define CMD_ID_TEE_TEST		13
@@ -110,51 +108,6 @@ struct gfx_cmd_resp {
 	unsigned char   resv2[16];
 };
 
-#ifdef HDCPSS_USE_TEST_TA
-
-/**
- *  Key info data structure
- */
-typedef struct {
-	uint32_t	key_blob;           /**< Key blob buffer */
-	uint32_t	key_blob_len;       /**< Length of key blob buffer */
-	uint32_t	key_metadata;       /**< Key metadata */
-} get_key_info_t;
-
-
-/**
- *  Test data structure
- */
-typedef struct {
-	uint32_t	a;	/**< Key blob buffer */
-	uint32_t	b;      /**< Length of key blob buffer */
-	uint32_t	c;      /**< Key metadata */
-} test_t;
-
-/**
- * TCI message data.
- */
-typedef struct {
-	union {
-		command_t     command;
-		response_t    response;
-	};
-
-	union {
-		get_key_info_t   get_key_info;
-		test_t           test;
-	};
-
-} tciMessage_t, *tciMessage_ptr;
-
-/**
- * Overall TCI structure.
- */
-typedef struct {
-	tciMessage_t message;   /**< TCI message */
-} tci_t;
-#endif
-
 struct hdcpss_data {
 	u32			session_id;
 	u32			asd_session_id;
@@ -164,11 +117,7 @@ struct hdcpss_data {
 	u32			tci_size;
 	u32			dci_size;
 	struct gfx_cmd_resp	*cmd_buf_addr;
-#ifdef HDCPSS_USE_TEST_TA
-	tci_t			*tci_buf_addr;
-#else
 	HDCP_TCI		*tci_buf_addr;
-#endif
 	dciMessage_t		*dci_buf_addr;
 	void			*ta_buf_addr;
 	void			*asd_buf_addr;

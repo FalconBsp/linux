@@ -45,7 +45,6 @@ int hdcpss_notify_ta(struct hdcpss_data *);
 
 static struct hdcpss_data hdcp_data;
 
-#ifndef HDCPSS_USE_TEST_TA
 int hdcpss_read_An_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 {
 	int ret = 0;
@@ -696,14 +695,6 @@ void hdcpss_notify_hotplug_detect(int event, int display_index)
 	}
 }
 EXPORT_SYMBOL_GPL(hdcpss_notify_hotplug_detect);
-#else
-void hdcpss_notify_hotplug_detect(int event, int display_index)
-{
-
-}
-EXPORT_SYMBOL_GPL(hdcpss_notify_hotplug_detect);
-#endif
-
 
 static inline void *getpagestart(void *addr)
 {
@@ -783,11 +774,7 @@ int hdcpss_load_ta(struct hdcpss_data *hdcp)
 	flush_buffer((void *)hdcp->ta_buf_addr, hdcp->ta_size);
 
 	/* Flush TCI buffer */
-#ifdef HDCPSS_USE_TEST_TA
-	flush_buffer((tci_t *)hdcp->tci_buf_addr, hdcp->tci_size);
-#else
 	flush_buffer((HDCP_TCI *)hdcp->tci_buf_addr, hdcp->tci_size);
-#endif
 
 	/* Initialize fence value */
 	fence_val = 0x11111111;
@@ -876,11 +863,7 @@ int hdcpss_notify_ta(struct hdcpss_data *hdcp)
 	hdcp->cmd_buf_addr->u.notify_ta.session_id = hdcp->session_id;
 
 	/* Flush TCI buffer */
-#ifdef HDCPSS_USE_TEST_TA
-	flush_buffer((tci_t *)hdcp->tci_buf_addr, hdcp->tci_size);
-#else
 	flush_buffer((HDCP_TCI *)hdcp->tci_buf_addr, hdcp->tci_size);
-#endif
 
 	fence_val = 0x22222222;
 
@@ -902,12 +885,7 @@ int hdcpss_notify_ta(struct hdcpss_data *hdcp)
 	dev_dbg(hdcp->adev->dev, "status = %d\n",
 					hdcp->cmd_buf_addr->resp.status);
 
-#ifdef HDCPSS_USE_TEST_TA
-	if (RET_OK != hdcp->tci_buf_addr->message.response.header.returnCode)
-		dev_err(hdcp->adev->dev, "Error from Trustlet = %d\n",
-		hdcp->tci_buf_addr->message.response.header.returnCode);
-#else
-	 if (TRUE != hdcp->tci_buf_addr->HDCP_14_Message.ResponseHeader.
+	if (TRUE != hdcp->tci_buf_addr->HDCP_14_Message.ResponseHeader.
 						returnCode) {
 		dev_err(hdcp->adev->dev, "Error from Trustlet = %d\n",
 			hdcp->tci_buf_addr->HDCP_14_Message.
@@ -915,7 +893,6 @@ int hdcpss_notify_ta(struct hdcpss_data *hdcp)
 		ret = hdcp->tci_buf_addr->HDCP_14_Message.
 						ResponseHeader.returnCode;
 	}
-#endif
 	dev_info(hdcp->adev->dev, " Trustlet returnCode = %d\n",
 			hdcp->tci_buf_addr->HDCP_14_Message.
 			ResponseHeader.returnCode);
@@ -1122,15 +1099,9 @@ int hdcpss_init(void *handle)
 	ret = hdcpss_load_asd(&hdcp_data);
 
 	/* Allocate physically contiguos memory for TCI */
-#ifdef HDCPSS_USE_TEST_TA
-	hdcp_data.tci_size = sizeof(tci_t);
-	hdcp_data.tci_buf_addr = (tci_t *)__get_free_pages(GFP_KERNEL,
-						get_order(hdcp_data.tci_size));
-#else
 	hdcp_data.tci_size = sizeof(HDCP_TCI);
 	hdcp_data.tci_buf_addr = (HDCP_TCI *)__get_free_pages(GFP_KERNEL,
 						get_order(hdcp_data.tci_size));
-#endif
 	if (!hdcp_data.tci_buf_addr) {
 		dev_err(adev->dev, "TCI memory allocation failure\n");
 		free_pages((unsigned long)hdcp_data.ta_buf_addr,
@@ -1144,33 +1115,6 @@ int hdcpss_init(void *handle)
 	/* Load TA Binary */
 	ret = hdcpss_load_ta(&hdcp_data);
 
-#ifdef HDCPSS_USE_TEST_TA
-	hdcp_data.tci_buf_addr->message.command.header.
-						commandId  = CMD_ID_TEE_TEST;
-	hdcp_data.tci_buf_addr->message.test.a = 1;
-	hdcp_data.tci_buf_addr->message.test.b = 1;
-	hdcp_data.tci_buf_addr->message.test.c = 1;
-
-	dev_info(adev->dev, "TCI commandID = %d\n",
-		hdcp_data.tci_buf_addr->message.command.header.commandId);
-	dev_info(adev->dev, "Host initialized TCI a = %d\n",
-					hdcp_data.tci_buf_addr->message.test.a);
-	dev_info(adev->dev, "Host initialized TCI b = %d\n",
-					hdcp_data.tci_buf_addr->message.test.b);
-	dev_info(adev->dev, "Host initialized TCI c = %d\n",
-					hdcp_data.tci_buf_addr->message.test.c);
-
-	ret = hdcpss_notify_ta(&hdcp_data);
-
-	dev_info(adev->dev, "PSP updated a = %d\n",
-					hdcp_data.tci_buf_addr->message.test.a);
-	dev_info(adev->dev, "PSP updated b = %d\n",
-					hdcp_data.tci_buf_addr->message.test.b);
-	dev_info(adev->dev, "PSP updated c = %d\n",
-					hdcp_data.tci_buf_addr->message.test.c);
-
-	ret = hdcpss_unload_ta(&hdcp_data);
-#endif
 	dev_dbg(adev->dev, "%s exit\n", __func__);
 	return 0;
 }
