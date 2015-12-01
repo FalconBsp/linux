@@ -1008,13 +1008,12 @@ int hdcpss_notify_ta(struct hdcpss_data *hdcp)
 	dev_dbg(hdcp->adev->dev, "status = %d\n",
 					hdcp->cmd_buf_addr->resp.status);
 
-	if (TRUE != hdcp->tci_buf_addr->HDCP_14_Message.ResponseHeader.
+	if (1 != hdcp->tci_buf_addr->HDCP_14_Message.ResponseHeader.
 						returnCode) {
 		dev_err(hdcp->adev->dev, "Error from Trustlet = %d\n",
 			hdcp->tci_buf_addr->HDCP_14_Message.
 						ResponseHeader.returnCode);
-		ret = hdcp->tci_buf_addr->HDCP_14_Message.
-						ResponseHeader.returnCode;
+		ret = 1;
 	}
 	dev_info(hdcp->adev->dev, " Trustlet returnCode = %d\n",
 			hdcp->tci_buf_addr->HDCP_14_Message.
