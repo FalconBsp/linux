@@ -255,10 +255,20 @@ bool hdcpss_read_Bcaps(struct hdcpss_data *hdcp, u32 display_index)
 
 	dev_info(hdcp->adev->dev, "Received BCaps = %x\n", hdcp->Bcaps);
 
-	/* Check if Repeater bit is set */
-	if (hdcp->Bcaps & (1 << BIT_REPEATER)) {
-		dev_info(hdcp->adev->dev, "Connected Receiver is also a Repeater\n");
-		hdcp->is_repeater = 1;
+	if (hdcp->connector_type == HDCP_14_CONNECTOR_TYPE_HDMI) {
+		/* Check if Repeater bit is set */
+		if (hdcp->Bcaps & (1 << BIT_REPEATER)) {
+			dev_info(hdcp->adev->dev,
+			"HDMI: Connected Receiver is also a Repeater\n");
+			hdcp->is_repeater = 1;
+		}
+	} else {
+		/* DP Case */
+		if (hdcp->Bcaps & (1 << BIT_DP_REPEATER)) {
+			dev_info(hdcp->adev->dev,
+			"DP: Connected Receiver is also a Repeater\n");
+			hdcp->is_repeater = 1;
+		}
 	}
 
 	return ret;
@@ -285,6 +295,62 @@ bool hdcpss_read_R0not(struct hdcpss_data *hdcp, u32 display_index)
 
 	return ret;
 }
+
+bool hdcpss_read_Pj(struct hdcpss_data *hdcp, u32 display_index)
+{
+	struct hdcp_protection_message message;
+	bool ret = 0;
+
+	message.version = HDCP_VERSION_14;
+	message.link = HDCP_LINK_PRIMARY;
+	message.msg_id = HDCP_MESSAGE_ID_READ_PJ;
+	message.length = 1;
+	message.data = &hdcp->Pj;
+
+	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
+
+	dev_info(hdcp->adev->dev, "Received Pj = %x\n", hdcp->Pj);
+
+	return ret;
+}
+
+bool hdcpss_read_Binfo(struct hdcpss_data *hdcp, u32 display_index)
+{
+	struct hdcp_protection_message message;
+	bool ret = 0;
+	int i = 0;
+
+	message.version = HDCP_VERSION_14;
+	message.link = HDCP_LINK_PRIMARY;
+	message.msg_id = HDCP_MESSAGE_ID_READ_BINFO;
+	message.length = 2;
+	message.data = hdcp->Binfo;
+
+	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
+	dev_info(hdcp->adev->dev, "Received BInfo\n");
+	for (i = 0; i < 2; i++)
+		dev_info(hdcp->adev->dev, "BInfo[%d] = %x\n", i,
+				hdcp->Binfo[i]);
+	return ret;
+}
+
+bool hdcpss_read_bstatus_dp(struct hdcpss_data *hdcp, u32 display_index)
+{
+	struct hdcp_protection_message message;
+	bool ret = 0;
+
+	message.version = HDCP_VERSION_14;
+	message.link = HDCP_LINK_PRIMARY;
+	message.msg_id = HDCP_MESSAGE_ID_READ_BSTATUS;
+	message.length = 1;
+	message.data = &hdcp->bstatus_dp;
+
+	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
+	dev_info(hdcp->adev->dev, "BStatus_DP = %x\n", hdcp->bstatus_dp);
+
+	return ret;
+}
+
 
 int hdcpss_send_first_part_auth(struct hdcpss_data *hdcp,
 					u32 display_index,
@@ -418,7 +484,48 @@ int hdcpss_send_second_part_auth(struct hdcpss_data *hdcp,
 					u32 display_index,
 					u32 hdcp_link_type)
 {
-	/* TODO Implement Second Half */
+	int ret = 0;
+
+	dev_info(hdcp->adev->dev, "%s: Started\n", __func__);
+
+	memset(hdcp->tci_buf_addr, 0, sizeof(HDCP_TCI));
+
+	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader.
+		commandId = HDCP_CMD_HOST_CMDS;
+	hdcp->tci_buf_addr->eHDCPSessionType = HDCP_14;
+	hdcp->tci_buf_addr->eHDCPCommand = TL_HDCP_CMD_ID_HDCP_14_SECOND_PART_AUTH;
+	hdcp->tci_buf_addr->HDCP_14_Message.
+		CmdHDCPCmdInput.DigId = dal_get_dig_index(hdcp->adev->dm.dal,
+								display_index);
+
+	memcpy(hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+				SecondPartAuth.Bstatus,
+				&hdcp->bstatus, 2);
+
+	memcpy(hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+				SecondPartAuth.KSVList,
+				&hdcp->ksv_fifo_buf, hdcp->ksv_list_size);
+
+	hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+				SecondPartAuth.KSVListSize =
+							hdcp->ksv_list_size;
+
+	hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+				SecondPartAuth.Pj = hdcp->Pj;
+
+	memcpy(hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+				SecondPartAuth.VPrime,
+				&hdcp->V_Prime, 20);
+
+	ret = hdcpss_notify_ta(hdcp);
+
+	dev_info(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
+			HDCP_14_Message.ResponseHeader.responseId);
+	dev_info(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
+
+	dev_info(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
+			HDCP_14_Message.RspHDCPCmdOutput.bResponseCode);
+
 	return 0;
 }
 
@@ -476,6 +583,7 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 
 	/* TODO: Obtain link type from DAL */
 	hdcp->is_primary_link = 1;
+	hdcp->is_repeater = 0;
 
 	hdcp->dig_id = dal_get_dig_index(hdcp->adev->dm.dal, display_index);
 	dev_info(hdcp->adev->dev, "dig_id : %x display_index : %x\n",
@@ -560,25 +668,31 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 	printk("First Part authentication success \n");
 
 	ret = hdcpss_get_encryption_level(hdcp, display_index);
-#if 0
+
 	/* Repeater Only */
 	if (hdcp->is_repeater) {
-		/* Poll for KSV FIFO Ready bit */
-		do {
-			hdcpss_read_Bcaps(hdcp, display_index);
-		} while (!(hdcp->Bcaps & (1 << BIT_FIFO_READY)));
+		printk("Repeater detected \n");
+		if (hdcp->connector_type == HDCP_14_CONNECTOR_TYPE_HDMI) {
+			do {
+				/* Poll for Ready bit */
+				hdcpss_read_Bcaps(hdcp, display_index);
+			} while (!(hdcp->Bcaps & (1 << BIT_FIFO_READY)));
 
-		/* Read Bstatus to know the DEVICE_COUNT */
-		hdcpss_read_bstatus(hdcp, display_index);
+			/* Read Bstatus to know the DEVICE_COUNT */
+			hdcpss_read_bstatus(hdcp, display_index);
 
-		if (hdcp->bstatus[0] & (1 << BIT_MAX_DEVS_EXCEDDED))
-			dev_err(hdcp->adev->dev,
-					"Topology error: MAX_DEVS_EXCEDDED\n");
-		else if (hdcp->bstatus[1] & (1 << BIT_MAX_CASCADE_EXCEDDED))
-			dev_err(hdcp->adev->dev,
-				"Topology error: MAX_CASCADE_EXCEDDED\n");
-		else
 			device_count = hdcp->bstatus[0] & DEVICE_COUNT_MASK;
+		} else {
+			/* DP Case */
+			do {
+				/* Poll for Ready bit */
+				hdcpss_read_bstatus_dp(hdcp, display_index);
+			} while (!(hdcp->bstatus_dp & (1 << 0)));
+
+			/* Read Binfo to determine the count */
+			hdcpss_read_Binfo(hdcp, display_index);
+			device_count = hdcp->Binfo[0] & DEVICE_COUNT_MASK;
+		}
 
 		dev_info(hdcp->adev->dev, "Device count = %d\n", device_count);
 
@@ -588,8 +702,17 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 		/* Read V' */
 		hdcpss_read_v_prime(hdcp, display_index);
 
+		/* Read Pj' */
+		hdcpss_read_Pj(hdcp, display_index);
+
+		ret = hdcpss_send_second_part_auth(hdcp, display_index,
+						HDCP_LINK_PRIMARY);
+
+		if (!ret)
+			dev_info(hdcp->adev->dev,
+				"Second Part Authentication success\n");
+
 	}
-#endif
 	return 0;
 }
 

@@ -35,6 +35,7 @@
 #define CMD_ID_TEE_TEST		13
 
 #define BIT_REPEATER			6
+#define BIT_DP_REPEATER			1
 #define BIT_FIFO_READY			5
 
 #define DEVICE_COUNT_MASK		0x7F
@@ -138,6 +139,9 @@ struct hdcpss_data {
 	uint8_t			Ainfo;
 	uint32_t		connector_type;
 	uint8_t			session_opened[4];
+	uint8_t			Pj;
+	uint8_t			Binfo[2];
+	uint8_t			bstatus_dp;
 };
 
 #endif
