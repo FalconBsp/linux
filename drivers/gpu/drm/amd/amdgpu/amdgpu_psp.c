@@ -365,7 +365,7 @@ static int g2p_process_interrupt(struct amdgpu_device *adev,
 	psp_data->is_resp_recvd = 1;
 
 	/* Wake the thread waiting for frame completion */
-	wake_up_interruptible(&psp_data->psp_queue);
+	wake_up(&psp_data->psp_queue);
 
 	/* Acknowledge the interrupt */
 	WREG32(mmMP0_MSP_MESSAGE_7, PSP_MP0_SW_INT_ACK_VALUE);
@@ -520,7 +520,7 @@ int g2p_comm_send_command_buffer(void *cmd_buf, u32 cmd_size, u32 fence_val)
 	WREG32(mmMP0_MSP_MESSAGE_3, val);
 
 	/* Wait for PSP interrupt for frame completion */
-	ret = wait_event_interruptible_timeout(psp_data->psp_queue,
+	ret = wait_event_timeout(psp_data->psp_queue,
 					psp_data->is_resp_recvd == 1,
 					msecs_to_jiffies
 					(COMMAND_RESP_TIMEOUT));
