@@ -66,35 +66,39 @@ int hdcpss_read_An_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 					dal_get_ddc_line(hdcp->adev->dm.dal,
 								display_index);
 
-	printk("DDCLine = %x\n", hdcp->tci_buf_addr->HDCP_14_Message.
+	dev_dbg(hdcp->adev->dev, "DDCLine = %x\n",
+					hdcp->tci_buf_addr->HDCP_14_Message.
 					CmdHDCPCmdInput.OpenSession.DDCLine);
 
 	hdcp->tci_buf_addr->HDCP_14_Message.
 		CmdHDCPCmdInput.OpenSession.Bcaps = hdcp->Bcaps;
 
-	printk("BCaps = %x\n", hdcp->tci_buf_addr->HDCP_14_Message.
+	dev_dbg(hdcp->adev->dev, "BCaps = %x\n",
+					hdcp->tci_buf_addr->HDCP_14_Message.
 					CmdHDCPCmdInput.OpenSession.Bcaps);
 
 	hdcp->tci_buf_addr->HDCP_14_Message.
 		CmdHDCPCmdInput.OpenSession.ConnectorType =
 					hdcp->connector_type;
 
-	printk("Connector Type = %x\n", hdcp->tci_buf_addr->HDCP_14_Message.
+	dev_dbg(hdcp->adev->dev, "Connector Type = %x\n",
+				hdcp->tci_buf_addr->HDCP_14_Message.
 				CmdHDCPCmdInput.OpenSession.ConnectorType);
 
-	printk("Sending Open_session command\n");
+	dev_info(hdcp->adev->dev,
+			"Sending command TL_HDCP_CMD_ID_OPEN_SESSION\n");
 
 	ret = hdcpss_notify_ta(hdcp);
 
-	dev_info(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
+	dev_dbg(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
 				HDCP_14_Message.ResponseHeader.responseId);
-	dev_info(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
+	dev_dbg(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
 
 	if (!ret) {
 		hdcp->Ainfo = hdcp->tci_buf_addr->
 				HDCP_14_Message.RspHDCPCmdOutput.
 				OpenSession.AInfo;
-		dev_info(hdcp->adev->dev, "Ainfo = %x\n",
+		dev_dbg(hdcp->adev->dev, "Ainfo = %x\n",
 				hdcp->tci_buf_addr->
 				HDCP_14_Message.RspHDCPCmdOutput.
 				OpenSession.AInfo);
@@ -160,7 +164,7 @@ bool hdcpss_write_Ainfo(struct hdcpss_data *hdcp, u32 display_index)
 	message.length = sizeof(uint8_t);
 	message.data = &hdcp->Ainfo;
 
-	printk("Writing Ainfo = %x\n", hdcp->Ainfo);
+	dev_dbg(hdcp->adev->dev, "Writing Ainfo = %x\n", hdcp->Ainfo);
 
 	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
 
@@ -184,7 +188,8 @@ bool hdcpss_write_An(struct hdcpss_data *hdcp, u32 display_index)
 	message.data = hdcp->AnPrimary;
 
 	for(i = 0; i < 8; i++)
-		printk("%s An[%d] = %x\n", __func__, i, hdcp->AnPrimary[i]);
+		dev_dbg(hdcp->adev->dev, "%s An[%d] = %x\n", __func__, i,
+					hdcp->AnPrimary[i]);
 
 	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
 
@@ -208,7 +213,8 @@ bool hdcpss_write_Aksv(struct hdcpss_data *hdcp, u32 display_index)
 	message.data = hdcp->AksvPrimary;
 
 	for(i = 0; i < 5; i++)
-		printk("%s AKSV[%d] = %x\n", __func__, i, hdcp->AksvPrimary[i]);
+		dev_dbg(hdcp->adev->dev, "%s AKSV[%d] = %x\n", __func__, i,
+							hdcp->AksvPrimary[i]);
 
 	ret = dal_process_hdcp_msg(hdcp->adev->dm.dal, display_index, &message);
 
@@ -359,8 +365,6 @@ int hdcpss_send_first_part_auth(struct hdcpss_data *hdcp,
 	int ret = 0;
 	int i = 0;
 
-	dev_info(hdcp->adev->dev, "%s: Started\n", __func__);
-
 	memset(hdcp->tci_buf_addr, 0, sizeof(HDCP_TCI));
 
 	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader
@@ -387,22 +391,29 @@ int hdcpss_send_first_part_auth(struct hdcpss_data *hdcp,
 				FirstPartAuth.RNotPrime, &hdcp->R_Prime,
 				sizeof(uint16_t));
 
-	printk("DigID = %x\n", hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.DigId);
+	dev_dbg(hdcp->adev->dev, "DigID = %x\n",
+		hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.DigId);
 
 	for (i = 0; i < 5; i++)
-		printk("BKSV Primary [%x] = %x\n", i, hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
-				FirstPartAuth.BksvPrimary[i]);
+		dev_dbg(hdcp->adev->dev, "BKSV Primary [%x] = %x\n", i,
+			hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+						FirstPartAuth.BksvPrimary[i]);
 
-	printk("Bcaps = %x\n", hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+	dev_dbg(hdcp->adev->dev, "Bcaps = %x\n",
+			hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
 			FirstPartAuth.Bcaps);
 
 	for (i = 0; i < 2; i++)
-		printk("R_Prime [%x] = %x\n", i, hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
-				FirstPartAuth.RNotPrime[i]);
+		dev_dbg(hdcp->adev->dev, "R_Prime [%x] = %x\n", i,
+			hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
+			FirstPartAuth.RNotPrime[i]);
+
+	dev_info(hdcp->adev->dev,
+		"Sending command TL_HDCP_CMD_ID_HDCP_14_FIRST_PART_AUTH\n");
 
 	ret = hdcpss_notify_ta(hdcp);
 
-	dev_info(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
+	dev_dbg(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
 			HDCP_14_Message.RspHDCPCmdOutput.bResponseCode);
 	return ret;
 }
@@ -517,13 +528,15 @@ int hdcpss_send_second_part_auth(struct hdcpss_data *hdcp,
 				SecondPartAuth.VPrime,
 				&hdcp->V_Prime, 20);
 
+	dev_info(hdcp->adev->dev,
+		"Sending command TL_HDCP_CMD_ID_HDCP_14_SECOND_PART_AUTH\n");
 	ret = hdcpss_notify_ta(hdcp);
 
-	dev_info(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
+	dev_dbg(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
 			HDCP_14_Message.ResponseHeader.responseId);
-	dev_info(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
+	dev_dbg(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
 
-	dev_info(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
+	dev_dbg(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
 			HDCP_14_Message.RspHDCPCmdOutput.bResponseCode);
 
 	return 0;
@@ -533,8 +546,6 @@ int hdcpss_get_encryption_level(struct hdcpss_data *hdcp, u32 display_index)
 {
 	int ret = 0;
 	int encryption_level = 0;
-
-	printk("%s\n", __func__);
 
 	memset(hdcp->tci_buf_addr, 0, sizeof(HDCP_TCI));
 
@@ -548,21 +559,22 @@ int hdcpss_get_encryption_level(struct hdcpss_data *hdcp, u32 display_index)
 	hdcp->tci_buf_addr->HDCP_14_Message.CmdHDCPCmdInput.
 					GetProtectionLevel.bIsDualLink = 0;
 
-	printk("Sending command TL_HDCP_CMD_ID_GET_PROTECTION_LEVEL\n");
+	dev_info(hdcp->adev->dev,
+		"Sending command TL_HDCP_CMD_ID_GET_PROTECTION_LEVEL\n");
 
 	ret = hdcpss_notify_ta(hdcp);
 
-	dev_info(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
+	dev_dbg(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
 			HDCP_14_Message.ResponseHeader.responseId);
-	dev_info(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
+	dev_dbg(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
 
-	dev_info(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
+	dev_dbg(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
 			HDCP_14_Message.RspHDCPCmdOutput.bResponseCode);
 
 	encryption_level = hdcp->tci_buf_addr->HDCP_14_Message.RspHDCPCmdOutput.
 					GetProtectionLevel.ProtectionLevel;
 
-	printk("encryption_level = %x\n", encryption_level);
+	dev_info(hdcp->adev->dev, "Encryption level = %x\n", encryption_level);
 
 	amdgpu_dm_update_cp_status_property(&hdcp->adev->dm, display_index,
 						encryption_level ? 1 : 0);
@@ -586,25 +598,24 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 	hdcp->is_repeater = 0;
 
 	hdcp->dig_id = dal_get_dig_index(hdcp->adev->dm.dal, display_index);
-	dev_info(hdcp->adev->dev, "dig_id : %x display_index : %x\n",
+	dev_dbg(hdcp->adev->dev, "dig_id : %x display_index : %x\n",
 				hdcp->dig_id, display_index);
 
 	connector_type = dal_get_display_signal(hdcp->adev->dm.dal, display_index);
-	printk("connector_type = %x\n", connector_type);
+
 	switch (connector_type) {
 		case SIGNAL_TYPE_HDMI_TYPE_A:
 			hdcp->connector_type = HDCP_14_CONNECTOR_TYPE_HDMI;
-			printk("HDMI plug detected\n");
+			dev_info(hdcp->adev->dev, "HDMI plug detected\n");
 			break;
 		case SIGNAL_TYPE_DISPLAY_PORT:
 			hdcp->connector_type = HDCP_14_CONNECTOR_TYPE_DP;
-			printk("DP plug detected\n");
+			dev_info(hdcp->adev->dev, "DP plug detected\n");
 			break;
 		default:
 			hdcp->connector_type = 0;
 			break;
 	}
-	printk("hdcp->connector_type = %x\n", hdcp->connector_type);
 
 	/* Read BCaps from Receiver */
 	ret = hdcpss_read_Bcaps(hdcp, display_index);
@@ -623,7 +634,7 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 
 	/* Write Ainfo register for HDMI connector */
 	if (hdcp->connector_type == HDCP_14_CONNECTOR_TYPE_HDMI) {
-		dev_info(hdcp->adev->dev, " Writing Ainfo for connector %x\n",
+		dev_dbg(hdcp->adev->dev, "Writing Ainfo for connector %x\n",
 				hdcp->connector_type);
 		ret = hdcpss_write_Ainfo(hdcp, display_index);
 	}
@@ -665,13 +676,13 @@ static int hdcpss_start_hdcp14_authentication(int display_index)
 			"Error in first part of authentication\n");
 		return ret;
 	}
-	printk("First Part authentication success \n");
+	dev_info(hdcp->adev->dev, "First Part authentication success\n");
 
 	ret = hdcpss_get_encryption_level(hdcp, display_index);
 
 	/* Repeater Only */
 	if (hdcp->is_repeater) {
-		printk("Repeater detected \n");
+		dev_info(hdcp->adev->dev, "Repeater detected\n");
 		if (hdcp->connector_type == HDCP_14_CONNECTOR_TYPE_HDMI) {
 			do {
 				/* Poll for Ready bit */
@@ -754,8 +765,6 @@ void hdcpss_send_close_session(int display_index)
 	int ret = 0;
 	struct hdcpss_data *hdcp = &hdcp_data;
 
-	printk("%s\n", __func__);
-
 	memset(hdcp->tci_buf_addr, 0, sizeof(HDCP_TCI));
 
 	hdcp->tci_buf_addr->HDCP_14_Message.CommandHeader.
@@ -766,17 +775,18 @@ void hdcpss_send_close_session(int display_index)
 		CmdHDCPCmdInput.DigId = dal_get_dig_index(hdcp->adev->dm.dal,
 								display_index);
 
-	printk("TL_HDCP_CMD_ID_CLOSE_SESSION for digID = %x\n",
-					hdcp->tci_buf_addr->HDCP_14_Message.
-					CmdHDCPCmdInput.DigId);
+	dev_info(hdcp->adev->dev,
+		"Sending command TL_HDCP_CMD_ID_CLOSE_SESSION for digID = %x\n",
+				hdcp->tci_buf_addr->HDCP_14_Message.
+				CmdHDCPCmdInput.DigId);
 
 	ret = hdcpss_notify_ta(hdcp);
 
-	dev_info(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
+	dev_dbg(hdcp->adev->dev, "respId = %x\n",hdcp->tci_buf_addr->
 			HDCP_14_Message.ResponseHeader.responseId);
-	dev_info(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
+	dev_dbg(hdcp->adev->dev, "ret = %x : link = %x",ret,hdcp->is_primary_link);
 
-	dev_info(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
+	dev_dbg(hdcp->adev->dev,"Out resp code = %x\n",hdcp->tci_buf_addr->
 			HDCP_14_Message.RspHDCPCmdOutput.bResponseCode);
 }
 
@@ -810,7 +820,6 @@ void hdcpss_notify_hotplug_detect(int event, int display_index)
 							display_index,
 							0);
 		if (hdcp_data.session_opened[display_index]) {
-			printk("Calling Close session for display_index = %x\n", display_index);
 			hdcpss_send_close_session(display_index);
 			hdcp_data.session_opened[display_index] = 0;
 			hdcpss_get_encryption_level(&hdcp_data, display_index);
@@ -977,7 +986,7 @@ int hdcpss_notify_ta(struct hdcpss_data *hdcp)
 	int ret = 0;
 	int fence_val = 0;
 
-	dev_info(hdcp->adev->dev, "session_id = %d\n", hdcp->session_id);
+	dev_dbg(hdcp->adev->dev, "session_id = %d\n", hdcp->session_id);
 
 	/* Submit NOTIFY_TA command */
 	hdcp->cmd_buf_addr->buf_size	= sizeof(struct gfx_cmd_resp);
@@ -1015,15 +1024,15 @@ int hdcpss_notify_ta(struct hdcpss_data *hdcp)
 						ResponseHeader.returnCode);
 		ret = 1;
 	}
-	dev_info(hdcp->adev->dev, " Trustlet returnCode = %d\n",
+	dev_info(hdcp->adev->dev, "TA return code = %d\n",
 			hdcp->tci_buf_addr->HDCP_14_Message.
 			ResponseHeader.returnCode);
-	dev_info(hdcp->adev->dev, " Out Resp Code = %d\n",
+	dev_info(hdcp->adev->dev, "TA response code = %d\n",
 			hdcp->tci_buf_addr->HDCP_14_Message.
 			RspHDCPCmdOutput.bResponseCode);
 
 	if (!hdcp->cmd_buf_addr->resp.status)
-		dev_info(hdcp->adev->dev, "NOTIFY TA success status =  %x\n",
+		dev_dbg(hdcp->adev->dev, "NOTIFY TA success status =  %x\n",
 					hdcp->cmd_buf_addr->resp.status);
 	return ret;
 }

@@ -32,7 +32,6 @@
 
 #define PSP_GFX_CMD_BUF_VERSION	0x00000001
 #define RET_OK			0
-#define CMD_ID_TEE_TEST		13
 
 #define BIT_REPEATER			6
 #define BIT_DP_REPEATER			1
