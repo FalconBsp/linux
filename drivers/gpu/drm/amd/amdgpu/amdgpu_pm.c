@@ -30,6 +30,8 @@
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 
+#define  SONY_PORTING  1
+
 static int amdgpu_debugfs_pm_init(struct amdgpu_device *adev);
 
 void amdgpu_pm_acpi_event_handler(struct amdgpu_device *adev)
@@ -695,6 +697,8 @@ int amdgpu_pm_sysfs_init(struct amdgpu_device *adev)
 
 	if (adev->pm.funcs->get_temperature == NULL)
 		return 0;
+		
+#ifndef SONY_PORTING	
 	adev->pm.int_hwmon_dev = hwmon_device_register_with_groups(adev->dev,
 								   DRIVER_NAME, adev,
 								   hwmon_groups);
@@ -704,6 +708,25 @@ int amdgpu_pm_sysfs_init(struct amdgpu_device *adev)
 			"Unable to register hwmon device: %d\n", ret);
 		return ret;
 	}
+#else
+	adev->pm.int_hwmon_dev = hwmon_device_register(adev->dev);
+								   
+	if (IS_ERR(adev->pm.int_hwmon_dev)) {
+		ret = PTR_ERR(adev->pm.int_hwmon_dev);
+		dev_err(adev->dev,
+			"Unable to register hwmon device: %d\n", ret);
+		return ret;
+	}	
+	
+	dev_set_drvdata(adev->pm.int_hwmon_dev, adev);
+	ret = sysfs_create_group(&adev->pm.int_hwmon_dev->kobj,
+					&hwmon_attrgroup);
+	if (ret) {
+		dev_err(adev->dev,
+			"Unable to create hwmon sysfs file: %d\n", ret);
+		hwmon_device_unregister(adev->dev);
+	}
+#endif	
 
 	ret = device_create_file(adev->dev, &dev_attr_power_dpm_state);
 	if (ret) {
@@ -726,8 +749,15 @@ int amdgpu_pm_sysfs_init(struct amdgpu_device *adev)
 
 void amdgpu_pm_sysfs_fini(struct amdgpu_device *adev)
 {
+#ifndef SONY_PORTING
 	if (adev->pm.int_hwmon_dev)
 		hwmon_device_unregister(adev->pm.int_hwmon_dev);
+#else
+	if (adev->pm.int_hwmon_dev){
+		hwmon_device_unregister(adev->pm.int_hwmon_dev);
+		sysfs_remove_group(&adev->pm.int_hwmon_dev->kobj, &hwmon_attrgroup);
+	}
+#endif		
 	device_remove_file(adev->dev, &dev_attr_power_dpm_state);
 	device_remove_file(adev->dev, &dev_attr_power_dpm_force_performance_level);
 }

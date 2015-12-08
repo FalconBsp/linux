@@ -439,6 +439,17 @@ static inline void hlist_add_after_rcu(struct hlist_node *prev,
 		n->next->pprev = &n->next;
 }
 
+
+static inline void hlist_add_behind_rcu(struct hlist_node *n,
+					struct hlist_node *prev)
+{
+	n->next = prev->next;
+	n->pprev = &prev->next;
+	rcu_assign_pointer(hlist_next_rcu(prev), n);
+	if (n->next)
+		n->next->pprev = &n->next;
+}
+
 #define __hlist_for_each_rcu(pos, head)				\
 	for (pos = rcu_dereference(hlist_first_rcu(head));	\
 	     pos;						\

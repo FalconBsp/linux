@@ -58,6 +58,10 @@
 #define DRM_MODE_FLAG_PIXMUX			(1<<11)
 #define DRM_MODE_FLAG_DBLCLK			(1<<12)
 #define DRM_MODE_FLAG_CLKDIV2			(1<<13)
+ /*
+  * When adding a new stereo mode don't forget to adjust DRM_MODE_FLAGS_3D_MAX
+  * (define not exposed to user space).
+  */
 #define DRM_MODE_FLAG_3D_MASK			(0x1f<<14)
 #define  DRM_MODE_FLAG_3D_NONE			(0<<14)
 #define  DRM_MODE_FLAG_3D_FRAME_PACKING		(1<<14)
@@ -83,6 +87,11 @@
 #define DRM_MODE_SCALE_FULLSCREEN	1 /* Full screen, ignore aspect */
 #define DRM_MODE_SCALE_CENTER		2 /* Centered, no scaling */
 #define DRM_MODE_SCALE_ASPECT		3 /* Full screen, preserve aspect */
+
+/* Picture aspect ratio options */
+#define DRM_MODE_PICTURE_ASPECT_NONE	0
+#define DRM_MODE_PICTURE_ASPECT_4_3	1
+#define DRM_MODE_PICTURE_ASPECT_16_9	2
 
 /* Dithering mode options */
 #define DRM_MODE_DITHERING_OFF	0
@@ -177,6 +186,7 @@ struct drm_mode_get_plane_res {
 #define DRM_MODE_ENCODER_TVDAC	4
 #define DRM_MODE_ENCODER_VIRTUAL 5
 #define DRM_MODE_ENCODER_DSI	6
+#define DRM_MODE_ENCODER_DPMST	7
 
 struct drm_mode_get_encoder {
 	__u32 encoder_id;
@@ -247,6 +257,28 @@ struct drm_mode_get_connector {
 #define DRM_MODE_PROP_BLOB	(1<<4)
 #define DRM_MODE_PROP_BITMASK	(1<<5) /* bitmask of enumerated types */
 
+/* non-extended types: legacy bitmask, one bit per type: */
+#define DRM_MODE_PROP_LEGACY_TYPE  ( \
+		DRM_MODE_PROP_RANGE | \
+		DRM_MODE_PROP_ENUM | \
+		DRM_MODE_PROP_BLOB | \
+		DRM_MODE_PROP_BITMASK)
+
+/* extended-types: rather than continue to consume a bit per type,
+ * grab a chunk of the bits to use as integer type id.
+ */
+#define DRM_MODE_PROP_EXTENDED_TYPE	0x0000ffc0
+#define DRM_MODE_PROP_TYPE(n)		((n) << 6)
+#define DRM_MODE_PROP_OBJECT		DRM_MODE_PROP_TYPE(1)
+#define DRM_MODE_PROP_SIGNED_RANGE	DRM_MODE_PROP_TYPE(2)
+
+/* the PROP_ATOMIC flag is used to hide properties from userspace that
+ * is not aware of atomic properties.  This is mostly to work around
+ * older userspace (DDX drivers) that read/write each prop they find,
+ * witout being aware that this could be triggering a lengthy modeset.
+ */
+#define DRM_MODE_PROP_ATOMIC        0x80000000
+
 struct drm_mode_property_enum {
 	__u64 value;
 	char name[DRM_PROP_NAME_LEN];
@@ -261,6 +293,8 @@ struct drm_mode_get_property {
 	char name[DRM_PROP_NAME_LEN];
 
 	__u32 count_values;
+	/* This is only used to count enum values, not blobs. The _blobs is
+	 * simply because of a historical reason, i.e. backwards compat. */
 	__u32 count_enum_blobs;
 };
 
@@ -302,6 +336,7 @@ struct drm_mode_fb_cmd {
 };
 
 #define DRM_MODE_FB_INTERLACED	(1<<0) /* for interlaced framebuffers */
+#define DRM_MODE_FB_MODIFIERS	(1<<1) /* enables ->modifer[] */
 
 struct drm_mode_fb_cmd2 {
 	__u32 fb_id;
@@ -311,7 +346,7 @@ struct drm_mode_fb_cmd2 {
 
 	/*
 	 * In case of planar formats, this ioctl allows up to 4
-	 * buffer objects with offets and pitches per plane.
+	 * buffer objects with offsets and pitches per plane.
 	 * The pitch and offset order is dictated by the fourcc,
 	 * e.g. NV12 (http://fourcc.org/yuv.php#NV12) is described as:
 	 *
@@ -319,13 +354,21 @@ struct drm_mode_fb_cmd2 {
 	 *   followed by an interleaved U/V plane containing
 	 *   8 bit 2x2 subsampled colour difference samples.
 	 *
-	 * So it would consist of Y as offset[0] and UV as
-	 * offeset[1].  Note that offset[0] will generally
-	 * be 0.
+	 * So it would consist of Y as offsets[0] and UV as
+	 * offsets[1].  Note that offsets[0] will generally
+	 * be 0 (but this is not required).
+	 *
+	 * To accommodate tiled, compressed, etc formats, a per-plane
+	 * modifier can be specified.  The default value of zero
+	 * indicates "native" format as specified by the fourcc.
+	 * Vendor specific modifier token.  This allows, for example,
+	 * different tiling/swizzling pattern on different planes.
+	 * See discussion above of DRM_FORMAT_MOD_xxx.
 	 */
 	__u32 handles[4];
 	__u32 pitches[4]; /* pitch for each plane */
 	__u32 offsets[4]; /* offset of each plane */
+	__u64 modifier[4]; /* ie, tiling, compressed (per plane) */
 };
 
 #define DRM_MODE_FB_DIRTY_ANNOTATE_COPY 0x01
@@ -403,6 +446,19 @@ struct drm_mode_cursor {
 	__u32 handle;
 };
 
+struct drm_mode_cursor2 {
+	__u32 flags;
+	__u32 crtc_id;
+	__s32 x;
+	__s32 y;
+	__u32 width;
+	__u32 height;
+	/* driver specific handle */
+	__u32 handle;
+	__s32 hot_x;
+	__s32 hot_y;
+};
+
 struct drm_mode_crtc_lut {
 	__u32 crtc_id;
 	__u32 gamma_size;
@@ -414,7 +470,8 @@ struct drm_mode_crtc_lut {
 };
 
 #define DRM_MODE_PAGE_FLIP_EVENT 0x01
-#define DRM_MODE_PAGE_FLIP_FLAGS DRM_MODE_PAGE_FLIP_EVENT
+#define DRM_MODE_PAGE_FLIP_ASYNC 0x02
+#define DRM_MODE_PAGE_FLIP_FLAGS (DRM_MODE_PAGE_FLIP_EVENT|DRM_MODE_PAGE_FLIP_ASYNC)
 
 /*
  * Request a page flip on the specified crtc.
@@ -428,11 +485,14 @@ struct drm_mode_crtc_lut {
  * flip is already pending as the ioctl is called, EBUSY will be
  * returned.
  *
- * The ioctl supports one flag, DRM_MODE_PAGE_FLIP_EVENT, which will
- * request that drm sends back a vblank event (see drm.h: struct
- * drm_event_vblank) when the page flip is done.  The user_data field
- * passed in with this ioctl will be returned as the user_data field
- * in the vblank event struct.
+ * Flag DRM_MODE_PAGE_FLIP_EVENT requests that drm sends back a vblank
+ * event (see drm.h: struct drm_event_vblank) when the page flip is
+ * done.  The user_data field passed in with this ioctl will be
+ * returned as the user_data field in the vblank event struct.
+ *
+ * Flag DRM_MODE_PAGE_FLIP_ASYNC requests that the flip happen
+ * 'as soon as possible', meaning that it not delay waiting for vblank.
+ * This may cause tearing on the screen.
  *
  * The reserved field must be zero until we figure out something
  * clever to use it for.
@@ -473,6 +533,29 @@ struct drm_mode_map_dumb {
 
 struct drm_mode_destroy_dumb {
 	uint32_t handle;
+};
+
+/* page-flip flags are valid, plus: */
+#define DRM_MODE_ATOMIC_TEST_ONLY 0x0100
+#define DRM_MODE_ATOMIC_NONBLOCK  0x0200
+#define DRM_MODE_ATOMIC_ALLOW_MODESET 0x0400
+
+#define DRM_MODE_ATOMIC_FLAGS (\
+		DRM_MODE_PAGE_FLIP_EVENT |\
+		DRM_MODE_PAGE_FLIP_ASYNC |\
+		DRM_MODE_ATOMIC_TEST_ONLY |\
+		DRM_MODE_ATOMIC_NONBLOCK |\
+		DRM_MODE_ATOMIC_ALLOW_MODESET)
+
+struct drm_mode_atomic {
+	__u32 flags;
+	__u32 count_objs;
+	__u64 objs_ptr;
+	__u64 count_props_ptr;
+	__u64 props_ptr;
+	__u64 prop_values_ptr;
+	__u64 reserved;
+	__u64 user_data;
 };
 
 #endif

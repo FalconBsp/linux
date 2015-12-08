@@ -21,6 +21,7 @@
 
 struct kobject;
 struct module;
+struct bin_attribute;
 enum kobj_ns_type;
 
 struct attribute {
@@ -59,6 +60,7 @@ struct attribute_group {
 	umode_t			(*is_visible)(struct kobject *,
 					      struct attribute *, int);
 	struct attribute	**attrs;
+	struct bin_attribute	**bin_attrs;
 };
 
 
@@ -79,6 +81,14 @@ struct attribute_group {
 	.show	= _name##_show,					\
 }
 
+#define __ATTR_WO(_name) {						\
+	.attr	= { .name = __stringify(_name), .mode = S_IWUSR },	\
+	.store	= _name##_store,					\
+}
+
+#define __ATTR_RW(_name) __ATTR(_name, (S_IWUSR | S_IRUGO),		\
+			 _name##_show, _name##_store)
+
 #define __ATTR_NULL { .attr = { .name = NULL } }
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
@@ -91,6 +101,19 @@ struct attribute_group {
 #else
 #define __ATTR_IGNORE_LOCKDEP	__ATTR
 #endif
+
+#define __ATTRIBUTE_GROUPS(_name)				\
+static const struct attribute_group *_name##_groups[] = {	\
+	&_name##_group,						\
+	NULL,							\
+}
+
+#define ATTRIBUTE_GROUPS(_name)					\
+static const struct attribute_group _name##_group = {		\
+	.attrs = _name##_attrs,					\
+};								\
+__ATTRIBUTE_GROUPS(_name)
+
 
 #define attr_name(_attr) (_attr).attr.name
 

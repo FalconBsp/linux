@@ -229,7 +229,8 @@ static inline ktime_t timespec_to_ktime(const struct timespec ts)
 static inline ktime_t timeval_to_ktime(const struct timeval tv)
 {
 	return (ktime_t) { .tv = { .sec = (s32)tv.tv_sec,
-				   .nsec = (s32)tv.tv_usec * 1000 } };
+				   .nsec = (s32)(tv.tv_usec *
+						 NSEC_PER_USEC) } };
 }
 
 /**
@@ -301,6 +302,30 @@ static inline int ktime_compare(const ktime_t cmp1, const ktime_t cmp2)
 	return 0;
 }
 
+/**
+ * ktime_after - Compare if a ktime_t value is bigger than another one.
+ * @cmp1:	comparable1
+ * @cmp2:	comparable2
+ *
+ * Return: true if cmp1 happened after cmp2.
+ */
+static inline bool ktime_after(const ktime_t cmp1, const ktime_t cmp2)
+{
+	return ktime_compare(cmp1, cmp2) > 0;
+}
+
+/**
+ * ktime_before - Compare if a ktime_t value is smaller than another one.
+ * @cmp1:	comparable1
+ * @cmp2:	comparable2
+ *
+ * Return: true if cmp1 happened before cmp2.
+ */
+static inline bool ktime_before(const ktime_t cmp1, const ktime_t cmp2)
+{
+	return ktime_compare(cmp1, cmp2) < 0;
+}
+
 static inline s64 ktime_to_us(const ktime_t kt)
 {
 	struct timeval tv = ktime_to_timeval(kt);
@@ -320,12 +345,17 @@ static inline s64 ktime_us_delta(const ktime_t later, const ktime_t earlier)
 
 static inline ktime_t ktime_add_us(const ktime_t kt, const u64 usec)
 {
-	return ktime_add_ns(kt, usec * 1000);
+	return ktime_add_ns(kt, usec * NSEC_PER_USEC);
+}
+
+static inline ktime_t ktime_add_ms(const ktime_t kt, const u64 msec)
+{
+	return ktime_add_ns(kt, msec * NSEC_PER_MSEC);
 }
 
 static inline ktime_t ktime_sub_us(const ktime_t kt, const u64 usec)
 {
-	return ktime_sub_ns(kt, usec * 1000);
+	return ktime_sub_ns(kt, usec * NSEC_PER_USEC);
 }
 
 extern ktime_t ktime_add_safe(const ktime_t lhs, const ktime_t rhs);
@@ -336,9 +366,10 @@ extern ktime_t ktime_add_safe(const ktime_t lhs, const ktime_t rhs);
  * @kt:		the ktime_t variable to convert
  * @ts:		the timespec variable to store the result in
  *
- * Returns true if there was a successful conversion, false if kt was 0.
+ * Return: %true if there was a successful conversion, %false if kt was 0.
  */
-static inline bool ktime_to_timespec_cond(const ktime_t kt, struct timespec *ts)
+static inline __must_check bool ktime_to_timespec_cond(const ktime_t kt,
+						       struct timespec *ts)
 {
 	if (kt.tv64) {
 		*ts = ktime_to_timespec(kt);
@@ -369,4 +400,34 @@ static inline ktime_t ns_to_ktime(u64 ns)
 	return ktime_add_ns(ktime_zero, ns);
 }
 
+static inline ktime_t ms_to_ktime(u64 ms)
+{
+	static const ktime_t ktime_zero = { .tv64 = 0 };
+
+	return ktime_add_ms(ktime_zero, ms);
+}
+
+enum tk_offsets {
+	TK_OFFS_REAL,
+	TK_OFFS_BOOT,
+	TK_OFFS_TAI,
+	TK_OFFS_MAX,
+};
+
+extern ktime_t ktime_mono_to_any(ktime_t tmono, enum tk_offsets offs);
+
+static inline u64 ktime_get_raw_ns(void)
+{
+    struct timespec before;
+	getrawmonotonic(&before);
+	return timespec_to_ns(&before);
+}
+
+/**
+ * ktime_mono_to_real - Convert monotonic time to clock realtime
+ */
+static inline ktime_t ktime_mono_to_real(ktime_t mono)
+{
+	return ktime_mono_to_any(mono, TK_OFFS_REAL);
+}
 #endif
