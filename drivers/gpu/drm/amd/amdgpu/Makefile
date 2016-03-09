@@ -2,7 +2,7 @@
 # Makefile for the drm device driver.  This driver provides support for the
 # Direct Rendering Infrastructure (DRI) in XFree86 4.1.0 and higher.
 
-FULL_AMD_PATH=drivers/gpu/drm/amd
+FULL_AMD_PATH=$(src)/..
 DAL_FOLDER_NAME=dal
 FULL_AMD_DAL_PATH = $(FULL_AMD_PATH)/$(DAL_FOLDER_NAME)
 
@@ -14,7 +14,9 @@ ccflags-y := -Iinclude/drm -I$(FULL_AMD_PATH)/include/asic_reg \
 		-I$(FULL_AMD_DAL_PATH) \
 		-I$(FULL_AMD_DAL_PATH)/include \
 		-I$(FULL_AMD_PATH)/dsat \
-		-I$(FULL_AMD_DAL_PATH)/amdgpu_dm
+		-I$(FULL_AMD_PATH)/scheduler \
+		-I$(FULL_AMD_DAL_PATH)/amdgpu_dm \
+		-I$(FULL_AMD_PATH)/powerplay/inc
 		
 amdgpu-y := amdgpu_drv.o
 
@@ -52,8 +54,10 @@ amdgpu-y += \
 # add SMC block
 amdgpu-y += \
 	amdgpu_dpm.o \
+	amdgpu_powerplay.o \
 	cz_smc.o cz_dpm.o \
 	tonga_smc.o tonga_dpm.o \
+	fiji_smc.o fiji_dpm.o \
 	iceland_smc.o iceland_dpm.o
 
 # add DCE block
@@ -95,6 +99,18 @@ include $(FULL_AMD_PATH)/acp/Makefile
 amdgpu-y += $(AMD_ACP_FILES)
 endif
 
+# GPU scheduler
+amdgpu-y += \
+	../scheduler/gpu_scheduler.o \
+	../scheduler/sched_fence.o \
+	amdgpu_sched.o
+# add amdkfd interfaces
+amdgpu-y += \
+	 amdgpu_amdkfd.o \
+	 amdgpu_amdkfd_gfx_v7.o \
+	 amdgpu_amdkfd_gfx_v8.o \
+	 amdgpu_amdkfd_gfx_v8_tonga.o
+
 # add PSP block
 amdgpu-y += \
 	amdgpu_psp.o
@@ -112,6 +128,14 @@ amdgpu-$(CONFIG_COMPAT) += amdgpu_ioc32.o
 amdgpu-$(CONFIG_VGA_SWITCHEROO) += amdgpu_atpx_handler.o
 amdgpu-$(CONFIG_ACPI) += amdgpu_acpi.o
 amdgpu-$(CONFIG_MMU_NOTIFIER) += amdgpu_mn.o
+
+ifneq ($(CONFIG_DRM_AMD_POWERPLAY),)
+
+include $(FULL_AMD_PATH)/powerplay/Makefile
+
+amdgpu-y += $(AMD_POWERPLAY_FILES)
+
+endif
 
 ifneq ($(CONFIG_DRM_AMD_DAL),)
 

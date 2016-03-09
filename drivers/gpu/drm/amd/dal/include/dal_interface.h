@@ -47,6 +47,8 @@ struct address_info;
 struct wifi_display_caps;
 struct path_mode;
 struct path_mode_set;
+struct amdgpu_device;
+struct amdgpu_mode_mc_save;
 
 struct dal *dal_create(struct dal_init_data *init);
 void dal_destroy(struct dal **dal);
@@ -270,5 +272,11 @@ uint8_t dal_get_dig_index(struct dal *dal, uint32_t display_index);
 enum gpio_ddc_line dal_get_ddc_line(
 		struct dal *dal,
 		uint32_t display_index);
+			
+void dal_stop_mc_access(struct amdgpu_device *adev,
+				     struct amdgpu_mode_mc_save *save);
+
+void dal_resume_mc_access(struct amdgpu_device *adev,
+				       struct amdgpu_mode_mc_save *save);
 
 #endif

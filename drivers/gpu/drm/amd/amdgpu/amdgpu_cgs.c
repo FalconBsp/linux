@@ -24,11 +24,14 @@
 #include <linux/list.h>
 #include <linux/slab.h>
 #include <linux/pci.h>
+#include <linux/acpi.h>
 #include <drm/drmP.h>
+#include <linux/firmware.h>
 #include <drm/amdgpu_drm.h>
 #include "amdgpu.h"
 #include "cgs_linux.h"
 #include "atom.h"
+#include "amdgpu_ucode.h"
 
 struct amdgpu_cgs_device {
 	struct cgs_device base;
@@ -83,7 +86,7 @@ static int amdgpu_cgs_gmap_kmem(void *cgs_device, void *kmem,
 
 	struct sg_table *sg = drm_prime_pages_to_sg(&kmem_page, npages);
 	ret = amdgpu_bo_create(adev, size, PAGE_SIZE, false,
-			       AMDGPU_GEM_DOMAIN_GTT, 0, sg, &bo);
+			       AMDGPU_GEM_DOMAIN_GTT, 0, sg, NULL, &bo);
 	if (ret)
 		return ret;
 	ret = amdgpu_bo_reserve(bo, false);
@@ -194,7 +197,8 @@ static int amdgpu_cgs_alloc_gpu_mem(void *cgs_device,
 
 	ret = amdgpu_bo_create_restricted(adev, size, PAGE_SIZE,
 					  true, domain, flags,
-					  NULL, &placement, &obj);
+					  NULL, &placement, NULL,
+					  &obj);
 	if (ret) {
 		DRM_ERROR("(%d) bo create failed\n", ret);
 		return ret;
@@ -611,6 +615,450 @@ static int amdgpu_cgs_irq_put(void *cgs_device, unsigned src_id, unsigned type)
 	return amdgpu_irq_put(adev, adev->irq.sources[src_id], type);
 }
 
+int amdgpu_cgs_set_clockgating_state(void *cgs_device,
+				  enum amd_ip_block_type block_type,
+				  enum amd_clockgating_state state)
+{
+	CGS_FUNC_ADEV;
+	int i, r = -1;
+
+	for (i = 0; i < adev->num_ip_blocks; i++) {
+		if (!adev->ip_block_status[i].valid)
+			continue;
+
+		if (adev->ip_blocks[i].type == block_type) {
+			r = adev->ip_blocks[i].funcs->set_clockgating_state(
+								(void *)adev,
+									state);
+			break;
+		}
+	}
+	return r;
+}
+
+int amdgpu_cgs_set_powergating_state(void *cgs_device,
+				  enum amd_ip_block_type block_type,
+				  enum amd_powergating_state state)
+{
+	CGS_FUNC_ADEV;
+	int i, r = -1;
+
+	for (i = 0; i < adev->num_ip_blocks; i++) {
+		if (!adev->ip_block_status[i].valid)
+			continue;
+
+		if (adev->ip_blocks[i].type == block_type) {
+			r = adev->ip_blocks[i].funcs->set_powergating_state(
+								(void *)adev,
+									state);
+			break;
+		}
+	}
+	return r;
+}
+
+
+static uint32_t fw_type_convert(void *cgs_device, uint32_t fw_type)
+{
+	CGS_FUNC_ADEV;
+	enum AMDGPU_UCODE_ID result = AMDGPU_UCODE_ID_MAXIMUM;
+
+	switch (fw_type) {
+	case CGS_UCODE_ID_SDMA0:
+		result = AMDGPU_UCODE_ID_SDMA0;
+		break;
+	case CGS_UCODE_ID_SDMA1:
+		result = AMDGPU_UCODE_ID_SDMA1;
+		break;
+	case CGS_UCODE_ID_CP_CE:
+		result = AMDGPU_UCODE_ID_CP_CE;
+		break;
+	case CGS_UCODE_ID_CP_PFP:
+		result = AMDGPU_UCODE_ID_CP_PFP;
+		break;
+	case CGS_UCODE_ID_CP_ME:
+		result = AMDGPU_UCODE_ID_CP_ME;
+		break;
+	case CGS_UCODE_ID_CP_MEC:
+	case CGS_UCODE_ID_CP_MEC_JT1:
+		result = AMDGPU_UCODE_ID_CP_MEC1;
+		break;
+	case CGS_UCODE_ID_CP_MEC_JT2:
+		if (adev->asic_type == CHIP_TONGA)
+			result = AMDGPU_UCODE_ID_CP_MEC2;
+		else if (adev->asic_type == CHIP_CARRIZO)
+			result = AMDGPU_UCODE_ID_CP_MEC1;
+		break;
+	case CGS_UCODE_ID_RLC_G:
+		result = AMDGPU_UCODE_ID_RLC_G;
+		break;
+	default:
+		DRM_ERROR("Firmware type not supported\n");
+	}
+	return result;
+}
+
+static int amdgpu_cgs_get_firmware_info(void *cgs_device,
+					enum cgs_ucode_id type,
+					struct cgs_firmware_info *info)
+{
+	CGS_FUNC_ADEV;
+
+	if (CGS_UCODE_ID_SMU != type) {
+		uint64_t gpu_addr;
+		uint32_t data_size;
+		const struct gfx_firmware_header_v1_0 *header;
+		enum AMDGPU_UCODE_ID id;
+		struct amdgpu_firmware_info *ucode;
+
+		id = fw_type_convert(cgs_device, type);
+		ucode = &adev->firmware.ucode[id];
+		if (ucode->fw == NULL)
+			return -EINVAL;
+
+		gpu_addr  = ucode->mc_addr;
+		header = (const struct gfx_firmware_header_v1_0 *)ucode->fw->data;
+		data_size = le32_to_cpu(header->header.ucode_size_bytes);
+
+		if ((type == CGS_UCODE_ID_CP_MEC_JT1) ||
+		    (type == CGS_UCODE_ID_CP_MEC_JT2)) {
+			gpu_addr += le32_to_cpu(header->jt_offset) << 2;
+			data_size = le32_to_cpu(header->jt_size) << 2;
+		}
+		info->mc_addr = gpu_addr;
+		info->image_size = data_size;
+		info->version = (uint16_t)le32_to_cpu(header->header.ucode_version);
+		info->feature_version = (uint16_t)le32_to_cpu(header->ucode_feature_version);
+	} else {
+		char fw_name[30] = {0};
+		int err = 0;
+		uint32_t ucode_size;
+		uint32_t ucode_start_address;
+		const uint8_t *src;
+		const struct smc_firmware_header_v1_0 *hdr;
+
+		switch (adev->asic_type) {
+		case CHIP_TONGA:
+			strcpy(fw_name, "amdgpu/tonga_smc.bin");
+			break;
+		case CHIP_FIJI:
+			strcpy(fw_name, "amdgpu/fiji_smc.bin");
+			break;
+		default:
+			DRM_ERROR("SMC firmware not supported\n");
+			return -EINVAL;
+		}
+
+		err = request_firmware(&adev->pm.fw, fw_name, adev->dev);
+		if (err) {
+			DRM_ERROR("Failed to request firmware\n");
+			return err;
+		}
+
+		err = amdgpu_ucode_validate(adev->pm.fw);
+		if (err) {
+			DRM_ERROR("Failed to load firmware \"%s\"", fw_name);
+			release_firmware(adev->pm.fw);
+			adev->pm.fw = NULL;
+			return err;
+		}
+
+		hdr = (const struct smc_firmware_header_v1_0 *)	adev->pm.fw->data;
+		adev->pm.fw_version = le32_to_cpu(hdr->header.ucode_version);
+		ucode_size = le32_to_cpu(hdr->header.ucode_size_bytes);
+		ucode_start_address = le32_to_cpu(hdr->ucode_start_addr);
+		src = (const uint8_t *)(adev->pm.fw->data +
+		       le32_to_cpu(hdr->header.ucode_array_offset_bytes));
+
+		info->version = adev->pm.fw_version;
+		info->image_size = ucode_size;
+		info->kptr = (void *)src;
+	}
+	return 0;
+}
+
+static int amdgpu_cgs_query_system_info(void *cgs_device,
+				struct cgs_system_info *sys_info)
+{
+	CGS_FUNC_ADEV;
+
+	if (NULL == sys_info)
+		return -ENODEV;
+
+	if (sizeof(struct cgs_system_info) != sys_info->size)
+		return -ENODEV;
+
+	switch (sys_info->info_id) {
+	case CGS_SYSTEM_INFO_ADAPTER_BDF_ID:
+		sys_info->value = adev->pdev->devfn | (adev->pdev->bus->number << 8);
+		break;
+	case CGS_SYSTEM_INFO_PCIE_GEN_INFO:
+		sys_info->value = adev->pm.pcie_gen_mask;
+		break;
+	case CGS_SYSTEM_INFO_PCIE_MLW:
+		sys_info->value = adev->pm.pcie_mlw_mask;
+		break;
+	default:
+		return -ENODEV;
+	}
+
+	return 0;
+}
+
+static int amdgpu_cgs_get_active_displays_info(void *cgs_device,
+					  struct cgs_display_info *info)
+{
+	CGS_FUNC_ADEV;
+	struct amdgpu_crtc *amdgpu_crtc;
+	struct drm_device *ddev = adev->ddev;
+	struct drm_crtc *crtc;
+	uint32_t line_time_us, vblank_lines;
+
+	if (info == NULL)
+		return -EINVAL;
+
+	if (adev->mode_info.num_crtc && adev->mode_info.mode_config_initialized) {
+		list_for_each_entry(crtc,
+				&ddev->mode_config.crtc_list, head) {
+			amdgpu_crtc = to_amdgpu_crtc(crtc);
+			if (crtc->enabled) {
+				info->active_display_mask |= (1 << amdgpu_crtc->crtc_id);
+				info->display_count++;
+			}
+			if (info->mode_info != NULL &&
+				crtc->enabled && amdgpu_crtc->enabled &&
+				amdgpu_crtc->hw_mode.clock) {
+				line_time_us = (amdgpu_crtc->hw_mode.crtc_htotal * 1000) /
+							amdgpu_crtc->hw_mode.clock;
+				vblank_lines = amdgpu_crtc->hw_mode.crtc_vblank_end -
+							amdgpu_crtc->hw_mode.crtc_vdisplay +
+							(amdgpu_crtc->v_border * 2);
+				info->mode_info->vblank_time_us = vblank_lines * line_time_us;
+				info->mode_info->refresh_rate = amdgpu_crtc->hw_mode.vrefresh;
+				info->mode_info->ref_clock = adev->clock.spll.reference_freq;
+				info->mode_info++;
+			}
+		}
+	}
+
+	return 0;
+}
+
+/** \brief evaluate acpi namespace object, handle or pathname must be valid
+ *  \param cgs_device
+ *  \param info input/output arguments for the control method
+ *  \return status
+ */
+
+#if defined(CONFIG_ACPI)
+static int amdgpu_cgs_acpi_eval_object(void *cgs_device,
+				    struct cgs_acpi_method_info *info)
+{
+	CGS_FUNC_ADEV;
+	acpi_handle handle;
+	struct acpi_object_list input;
+	struct acpi_buffer output = { ACPI_ALLOCATE_BUFFER, NULL };
+	union acpi_object *params = NULL;
+	union acpi_object *obj = NULL;
+	uint8_t name[5] = {'\0'};
+	struct cgs_acpi_method_argument *argument = NULL;
+	uint32_t i, count;
+	acpi_status status;
+	int result;
+	uint32_t func_no = 0xFFFFFFFF;
+
+	handle = ACPI_HANDLE(&adev->pdev->dev);
+	if (!handle)
+		return -ENODEV;
+
+	memset(&input, 0, sizeof(struct acpi_object_list));
+
+	/* validate input info */
+	if (info->size != sizeof(struct cgs_acpi_method_info))
+		return -EINVAL;
+
+	input.count = info->input_count;
+	if (info->input_count > 0) {
+		if (info->pinput_argument == NULL)
+			return -EINVAL;
+			argument = info->pinput_argument;
+			func_no = argument->value;
+			for (i = 0; i < info->input_count; i++) {
+				if (((argument->type == ACPI_TYPE_STRING) ||
+					(argument->type == ACPI_TYPE_BUFFER))
+					&& (argument->pointer == NULL))
+					return -EINVAL;
+				argument++;
+			}
+	}
+
+	if (info->output_count > 0) {
+		if (info->poutput_argument == NULL)
+			return -EINVAL;
+		argument = info->poutput_argument;
+		for (i = 0; i < info->output_count; i++) {
+			if (((argument->type == ACPI_TYPE_STRING) ||
+				(argument->type == ACPI_TYPE_BUFFER))
+				&& (argument->pointer == NULL))
+				return -EINVAL;
+			argument++;
+		}
+	}
+
+	/* The path name passed to acpi_evaluate_object should be null terminated */
+	if ((info->field & CGS_ACPI_FIELD_METHOD_NAME) != 0) {
+		strncpy(name, (char *)&(info->name), sizeof(uint32_t));
+		name[4] = '\0';
+	}
+
+	/* parse input parameters */
+	if (input.count > 0) {
+		input.pointer = params =
+				kzalloc(sizeof(union acpi_object) * input.count, GFP_KERNEL);
+		if (params == NULL)
+			return -EINVAL;
+
+		argument = info->pinput_argument;
+
+		for (i = 0; i < input.count; i++) {
+			params->type = argument->type;
+			switch (params->type) {
+			case ACPI_TYPE_INTEGER:
+				params->integer.value = argument->value;
+				break;
+			case ACPI_TYPE_STRING:
+				params->string.length = argument->method_length;
+				params->string.pointer = argument->pointer;
+				break;
+			case ACPI_TYPE_BUFFER:
+				params->buffer.length = argument->method_length;
+				params->buffer.pointer = argument->pointer;
+				break;
+			default:
+				break;
+			}
+			params++;
+			argument++;
+		}
+	}
+
+	/* parse output info */
+	count = info->output_count;
+	argument = info->poutput_argument;
+
+	/* evaluate the acpi method */
+	status = acpi_evaluate_object(handle, name, &input, &output);
+
+	if (ACPI_FAILURE(status)) {
+		result = -EIO;
+		goto error;
+	}
+
+	/* return the output info */
+	obj = output.pointer;
+
+	if (count > 1) {
+		if ((obj->type != ACPI_TYPE_PACKAGE) ||
+			(obj->package.count != count)) {
+			result = -EIO;
+			goto error;
+		}
+		params = obj->package.elements;
+	} else
+		params = obj;
+
+	if (params == NULL) {
+		result = -EIO;
+		goto error;
+	}
+
+	for (i = 0; i < count; i++) {
+		if (argument->type != params->type) {
+			result = -EIO;
+			goto error;
+		}
+		switch (params->type) {
+		case ACPI_TYPE_INTEGER:
+			argument->value = params->integer.value;
+			break;
+		case ACPI_TYPE_STRING:
+			if ((params->string.length != argument->data_length) ||
+				(params->string.pointer == NULL)) {
+				result = -EIO;
+				goto error;
+			}
+			strncpy(argument->pointer,
+				params->string.pointer,
+				params->string.length);
+			break;
+		case ACPI_TYPE_BUFFER:
+			if (params->buffer.pointer == NULL) {
+				result = -EIO;
+				goto error;
+			}
+			memcpy(argument->pointer,
+				params->buffer.pointer,
+				argument->data_length);
+			break;
+		default:
+			break;
+		}
+		argument++;
+		params++;
+	}
+
+error:
+	if (obj != NULL)
+		kfree(obj);
+	kfree((void *)input.pointer);
+	return result;
+}
+#else
+static int amdgpu_cgs_acpi_eval_object(void *cgs_device,
+				struct cgs_acpi_method_info *info)
+{
+	return -EIO;
+}
+#endif
+
+int amdgpu_cgs_call_acpi_method(void *cgs_device,
+					uint32_t acpi_method,
+					uint32_t acpi_function,
+					void *pinput, void *poutput,
+					uint32_t output_count,
+					uint32_t input_size,
+					uint32_t output_size)
+{
+	struct cgs_acpi_method_argument acpi_input[2] = { {0}, {0} };
+	struct cgs_acpi_method_argument acpi_output = {0};
+	struct cgs_acpi_method_info info = {0};
+
+	acpi_input[0].type = CGS_ACPI_TYPE_INTEGER;
+	acpi_input[0].method_length = sizeof(uint32_t);
+	acpi_input[0].data_length = sizeof(uint32_t);
+	acpi_input[0].value = acpi_function;
+
+	acpi_input[1].type = CGS_ACPI_TYPE_BUFFER;
+	acpi_input[1].method_length = CGS_ACPI_MAX_BUFFER_SIZE;
+	acpi_input[1].data_length = input_size;
+	acpi_input[1].pointer = pinput;
+
+	acpi_output.type = CGS_ACPI_TYPE_BUFFER;
+	acpi_output.method_length = CGS_ACPI_MAX_BUFFER_SIZE;
+	acpi_output.data_length = output_size;
+	acpi_output.pointer = poutput;
+
+	info.size = sizeof(struct cgs_acpi_method_info);
+	info.field = CGS_ACPI_FIELD_METHOD_NAME | CGS_ACPI_FIELD_INPUT_ARGUMENT_COUNT;
+	info.input_count = 2;
+	info.name = acpi_method;
+	info.pinput_argument = acpi_input;
+	info.output_count = output_count;
+	info.poutput_argument = &acpi_output;
+
+	return amdgpu_cgs_acpi_eval_object(cgs_device, &info);
+}
+
 static const struct cgs_ops amdgpu_cgs_ops = {
 	amdgpu_cgs_gpu_mem_info,
 	amdgpu_cgs_gmap_kmem,
@@ -640,7 +1088,13 @@ static const struct cgs_ops amdgpu_cgs_ops = {
 	amdgpu_cgs_pm_request_clock,
 	amdgpu_cgs_pm_request_engine,
 	amdgpu_cgs_pm_query_clock_limits,
-	amdgpu_cgs_set_camera_voltages
+	amdgpu_cgs_set_camera_voltages,
+	amdgpu_cgs_get_firmware_info,
+	amdgpu_cgs_set_powergating_state,
+	amdgpu_cgs_set_clockgating_state,
+	amdgpu_cgs_get_active_displays_info,
+	amdgpu_cgs_call_acpi_method,
+	amdgpu_cgs_query_system_info,
 };
 
 static const struct cgs_os_ops amdgpu_cgs_os_ops = {

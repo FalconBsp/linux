@@ -64,6 +64,10 @@
 #include "oss/oss_2_0_d.h"
 #include "oss/oss_2_0_sh_mask.h"
 
+#include "amdgpu_amdkfd.h"
+
+#include "amdgpu_powerplay.h"
+
 /*
  * Indirect registers accessor
  */
@@ -836,7 +840,7 @@ static u32 cik_get_xclk(struct amdgpu_device *adev)
 {
 	u32 reference_clock = adev->clock.spll.reference_freq;
 
-	if (adev->flags & AMDGPU_IS_APU) {
+	if (adev->flags & AMD_IS_APU) {
 		if (RREG32_SMC(ixGENERAL_PWRMGT) & GENERAL_PWRMGT__GPU_COUNTER_CLK_MASK)
 			return reference_clock / 2;
 	} else {
@@ -1233,7 +1237,7 @@ static void cik_gpu_soft_reset(struct amdgpu_device *adev, u32 reset_mask)
 	if (reset_mask & AMDGPU_RESET_VMC)
 		srbm_soft_reset |= SRBM_SOFT_RESET__SOFT_RESET_VMC_MASK;
 
-	if (!(adev->flags & AMDGPU_IS_APU)) {
+	if (!(adev->flags & AMD_IS_APU)) {
 		if (reset_mask & AMDGPU_RESET_MC)
 			srbm_soft_reset |= SRBM_SOFT_RESET__SOFT_RESET_MC_MASK;
 	}
@@ -1409,7 +1413,7 @@ static void cik_gpu_pci_config_reset(struct amdgpu_device *adev)
 		dev_warn(adev->dev, "Wait for MC idle timed out !\n");
 	}
 
-	if (adev->flags & AMDGPU_IS_APU)
+	if (adev->flags & AMD_IS_APU)
 		kv_save_regs_for_reset(adev, &kv_save);
 
 	/* disable BM */
@@ -1427,7 +1431,7 @@ static void cik_gpu_pci_config_reset(struct amdgpu_device *adev)
 	}
 
 	/* does asic init need to be run first??? */
-	if (adev->flags & AMDGPU_IS_APU)
+	if (adev->flags & AMD_IS_APU)
 		kv_restore_regs_for_reset(adev, &kv_save);
 }
 
@@ -1568,7 +1572,7 @@ static void cik_pcie_gen3_enable(struct amdgpu_device *adev)
 	if (amdgpu_pcie_gen2 == 0)
 		return;
 
-	if (adev->flags & AMDGPU_IS_APU)
+	if (adev->flags & AMD_IS_APU)
 		return;
 
 	ret = drm_pcie_get_speed_cap_mask(adev->ddev, &mask);
@@ -1728,7 +1732,7 @@ static void cik_program_aspm(struct amdgpu_device *adev)
 		return;
 
 	/* XXX double check APUs */
-	if (adev->flags & AMDGPU_IS_APU)
+	if (adev->flags & AMD_IS_APU)
 		return;
 
 	orig = data = RREG32_PCIE(ixPCIE_LC_N_FTS_CNTL);
@@ -1917,7 +1921,7 @@ static const struct amdgpu_ip_block_version bonaire_ip_blocks[] =
 		.major = 7,
 		.minor = 0,
 		.rev = 0,
-		.funcs = &ci_dpm_ip_funcs,
+		.funcs = &amdgpu_pp_ip_funcs,
 	},
 	{
 		.type = AMD_IP_BLOCK_TYPE_DCE,
@@ -1985,7 +1989,7 @@ static const struct amdgpu_ip_block_version hawaii_ip_blocks[] =
 		.major = 7,
 		.minor = 0,
 		.rev = 0,
-		.funcs = &ci_dpm_ip_funcs,
+		.funcs = &amdgpu_pp_ip_funcs,
 	},
 	{
 		.type = AMD_IP_BLOCK_TYPE_DCE,
@@ -2053,7 +2057,7 @@ static const struct amdgpu_ip_block_version kabini_ip_blocks[] =
 		.major = 7,
 		.minor = 0,
 		.rev = 0,
-		.funcs = &kv_dpm_ip_funcs,
+		.funcs = &amdgpu_pp_ip_funcs,
 	},
 	{
 		.type = AMD_IP_BLOCK_TYPE_DCE,
@@ -2121,7 +2125,7 @@ static const struct amdgpu_ip_block_version mullins_ip_blocks[] =
 		.major = 7,
 		.minor = 0,
 		.rev = 0,
-		.funcs = &kv_dpm_ip_funcs,
+		.funcs = &amdgpu_pp_ip_funcs,
 	},
 	{
 		.type = AMD_IP_BLOCK_TYPE_DCE,
@@ -2189,7 +2193,7 @@ static const struct amdgpu_ip_block_version kaveri_ip_blocks[] =
 		.major = 7,
 		.minor = 0,
 		.rev = 0,
-		.funcs = &kv_dpm_ip_funcs,
+		.funcs = &amdgpu_pp_ip_funcs,
 	},
 	{
 		.type = AMD_IP_BLOCK_TYPE_DCE,
@@ -2448,14 +2452,21 @@ static int cik_common_suspend(void *handle)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 
+	amdgpu_amdkfd_suspend(adev);
+
 	return cik_common_hw_fini(adev);
 }
 
 static int cik_common_resume(void *handle)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
+	int r;
 
-	return cik_common_hw_init(adev);
+	r = cik_common_hw_init(adev);
+	if (r)
+		return r;
+
+	return amdgpu_amdkfd_resume(adev);
 }
 
 static bool cik_common_is_idle(void *handle)

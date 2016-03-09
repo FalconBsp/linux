@@ -83,7 +83,7 @@ static int kgd_hqd_sdma_destroy(struct kgd_dev *kgd, void *mqd,
 static const struct kfd2kgd_calls kfd2kgd = {
 	.init_gtt_mem_allocation = alloc_gtt_mem,
 	.free_gtt_mem = free_gtt_mem,
-	.get_vmem_size = get_vmem_size,
+/*	.get_vmem_size = get_vmem_size, */
 	.get_gpu_clock_counter = get_gpu_clock_counter,
 	.get_max_engine_clock_in_mhz = get_max_engine_clock_in_mhz,
 	.program_sh_mem_settings = kgd_program_sh_mem_settings,
@@ -679,7 +679,7 @@ static uint16_t get_fw_version(struct kgd_dev *kgd, enum kgd_engine_type type)
 		hdr = (const union radeon_firmware_header *) rdev->rlc_fw->data;
 		break;
 
-	case KGD_ENGINE_SDMA:
+	case KGD_ENGINE_SDMA1:
 		hdr = (const union radeon_firmware_header *)
 							rdev->sdma_fw->data;
 		break;

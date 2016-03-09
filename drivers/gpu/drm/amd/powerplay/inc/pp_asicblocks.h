@@ -1,7 +1,5 @@
 /*
- * Copyright 2008 Advanced Micro Devices, Inc.
- * Copyright 2008 Red Hat Inc.
- * Copyright 2009 Jerome Glisse.
+ * Copyright 2015 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -21,42 +19,29 @@
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  * OTHER DEALINGS IN THE SOFTWARE.
  *
- * Authors: Dave Airlie
- *          Alex Deucher
- *          Jerome Glisse
  */
+#ifndef PP_ASICBLOCKS_H
+#define PP_ASICBLOCKS_H
 
-/* this file defines the CHIP_  and family flags used in the pciids,
- * its is common between kms and non-kms because duplicating it and
- * changing one place is fail.
- */
-#ifndef AMDGPU_FAMILY_H
-#define AMDGPU_FAMILY_H
-/*
- * Supported ASIC types
- */
-enum amdgpu_asic_type {
-	CHIP_BONAIRE = 0,
-	CHIP_KAVERI,
-	CHIP_KABINI,
-	CHIP_HAWAII,
-	CHIP_MULLINS,
-	CHIP_TOPAZ,
-	CHIP_TONGA,
-	CHIP_CARRIZO,
-	CHIP_LAST,
+
+enum PHM_AsicBlock {
+	PHM_AsicBlock_GFX,
+	PHM_AsicBlock_UVD_MVC,
+	PHM_AsicBlock_UVD,
+	PHM_AsicBlock_UVD_HD,
+	PHM_AsicBlock_UVD_SD,
+	PHM_AsicBlock_Count
 };
 
-/*
- * Chip flags
- */
-enum amdgpu_chip_flags {
-	AMDGPU_ASIC_MASK = 0x0000ffffUL,
-	AMDGPU_FLAGS_MASK  = 0xffff0000UL,
-	AMDGPU_IS_MOBILITY = 0x00010000UL,
-	AMDGPU_IS_APU      = 0x00020000UL,
-	AMDGPU_IS_PX       = 0x00040000UL,
-	AMDGPU_EXP_HW_SUPPORT = 0x00080000UL,
+enum PHM_ClockGateSetting {
+	PHM_ClockGateSetting_StaticOn,
+	PHM_ClockGateSetting_StaticOff,
+	PHM_ClockGateSetting_Dynamic
+};
+
+struct phm_asic_blocks {
+	bool gfx : 1;
+	bool uvd : 1;
 };
 
 #endif

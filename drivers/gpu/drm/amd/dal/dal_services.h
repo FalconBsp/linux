@@ -90,7 +90,6 @@ void dal_unregister_interrupt(
  * GPU registers access
  *
  */
-#ifndef BUILD_DAL_TEST
 static inline uint32_t dal_read_reg(
 	struct dal_context *ctx,
 	uint32_t address)
@@ -105,9 +104,6 @@ static inline uint32_t dal_read_reg(
 #endif
 	return value;
 }
-#else
-uint32_t dal_read_reg(struct dal_context *ctx, uint32_t address);
-#endif
 
 static inline uint32_t get_reg_field_value_ex(
 	uint32_t reg_value,
@@ -139,7 +135,6 @@ static inline uint32_t set_reg_field_value_ex(
 		reg_name ## __ ## reg_field ## _MASK,\
 		reg_name ## __ ## reg_field ## __SHIFT)
 
-#ifndef BUILD_DAL_TEST
 static inline void dal_write_reg(
 	struct dal_context *ctx,
 	uint32_t address,
@@ -153,29 +148,23 @@ static inline void dal_write_reg(
 #endif
 	cgs_write_register(ctx->cgs_device, address, value);
 }
-#else
-void dal_write_reg(struct dal_context *ctx, uint32_t address, uint32_t value);
-#endif
 
 static inline uint32_t dal_read_index_reg(
 	struct dal_context *ctx,
-	uint32_t index_reg_offset,
-	uint32_t index,
-	uint32_t data_reg_offset)
+	enum cgs_ind_reg addr_space,
+	uint32_t index)
 {
-	dal_write_reg(ctx, index_reg_offset, index);
-	return dal_read_reg(ctx, data_reg_offset);
+
+	return cgs_read_ind_register(ctx->cgs_device,addr_space,index);
 }
 
 static inline void dal_write_index_reg(
 	struct dal_context *ctx,
-	uint32_t index_reg_offset,
+	enum cgs_ind_reg addr_space,
 	uint32_t index,
-	uint32_t data_reg_offset,
 	uint32_t value)
 {
-	dal_write_reg(ctx, index_reg_offset, index);
-	dal_write_reg(ctx, data_reg_offset, value);
+	cgs_write_ind_register(ctx->cgs_device,addr_space,index,value);
 }
 
 enum platform_method {
@@ -211,7 +200,6 @@ bool dal_get_platform_info(
 	struct platform_info_params *params);
 
 
-#ifndef BUILD_DAL_TEST
 static inline uint32_t dal_bios_cmd_table_para_revision(
 	struct dal_context *ctx,
 	uint32_t index)
@@ -228,11 +216,6 @@ static inline uint32_t dal_bios_cmd_table_para_revision(
 
 	return crev;
 }
-#else
-uint32_t dal_bios_cmd_table_para_revision(
-		struct dal_context *ctx,
-		uint32_t index);
-#endif
 
 /**************************************
  * Calls to Power Play (PP) component
@@ -364,17 +347,6 @@ bool dal_exec_bios_cmd_table(
 	uint32_t index,
 	void *params);
 
-#ifdef BUILD_DAL_TEST
-uint32_t dal_bios_cmd_table_para_revision(
-struct dal_context *ctx,
-	uint32_t index);
-
-bool dal_bios_cmd_table_revision(
-	struct dal_context *ctx,
-	uint32_t index,
-	uint8_t *frev,
-	uint8_t *crev);
-#endif
 
 /*
  *

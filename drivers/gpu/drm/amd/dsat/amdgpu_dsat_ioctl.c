@@ -19,7 +19,7 @@
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  * OTHER DEALINGS IN THE SOFTWARE.
  */
-
+#if !defined(BUILD_DC_CORE)
 #include <linux/firmware.h>
 #include <linux/module.h>
 
@@ -29,7 +29,7 @@
 #include "amdgpu_dsat_structs.h"
 
 #include "dal_services_types.h"
-#include "include/dal_interface.h"
+#include "dal_interface.h"
 #include "dsat.h"
 #include "amdgpu_dsat_ioctl.h"
 
@@ -711,3 +711,4 @@ cleanup:
 	}
 	return 0;
 }
+#endif

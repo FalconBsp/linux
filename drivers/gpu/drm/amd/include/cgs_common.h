@@ -24,6 +24,8 @@
 #ifndef _CGS_COMMON_H
 #define _CGS_COMMON_H
 
+#include "amd_shared.h"
+
 /**
  * enum cgs_gpu_mem_type - GPU memory types
  */
@@ -85,6 +87,41 @@ enum cgs_voltage_planes {
 	/* ... */
 };
 
+/*
+ * enum cgs_ucode_id - Firmware types for different IPs
+ */
+enum cgs_ucode_id {
+	CGS_UCODE_ID_SMU = 0,
+	CGS_UCODE_ID_SDMA0,
+	CGS_UCODE_ID_SDMA1,
+	CGS_UCODE_ID_CP_CE,
+	CGS_UCODE_ID_CP_PFP,
+	CGS_UCODE_ID_CP_ME,
+	CGS_UCODE_ID_CP_MEC,
+	CGS_UCODE_ID_CP_MEC_JT1,
+	CGS_UCODE_ID_CP_MEC_JT2,
+	CGS_UCODE_ID_GMCON_RENG,
+	CGS_UCODE_ID_RLC_G,
+	CGS_UCODE_ID_MAXIMUM,
+};
+
+enum cgs_system_info_id {
+	CGS_SYSTEM_INFO_ADAPTER_BDF_ID = 1,
+	CGS_SYSTEM_INFO_PCIE_GEN_INFO,
+	CGS_SYSTEM_INFO_PCIE_MLW,
+	CGS_SYSTEM_INFO_ID_MAXIMUM,
+};
+
+struct cgs_system_info {
+	uint64_t       size;
+	uint64_t       info_id;
+	union {
+		void           *ptr;
+		uint64_t        value;
+	};
+	uint64_t               padding[13];
+};
+
 /**
  * struct cgs_clock_limits - Clock limits
  *
@@ -96,7 +133,63 @@ struct cgs_clock_limits {
 	unsigned sustainable;	/**< Thermally sustainable frequency */
 };
 
+/**
+ * struct cgs_firmware_info - Firmware information
+ */
+struct cgs_firmware_info {
+	uint16_t		version;
+	uint16_t		feature_version;
+	uint32_t		image_size;
+	uint64_t		mc_addr;
+	void			*kptr;
+};
+
+struct cgs_mode_info {
+	uint32_t		refresh_rate;
+	uint32_t		ref_clock;
+	uint32_t		vblank_time_us;
+};
+
+struct cgs_display_info {
+	uint32_t		display_count;
+	uint32_t		active_display_mask;
+	struct cgs_mode_info *mode_info;
+};
+
 typedef unsigned long cgs_handle_t;
+
+#define CGS_ACPI_METHOD_ATCS          0x53435441
+#define CGS_ACPI_METHOD_ATIF          0x46495441
+#define CGS_ACPI_METHOD_ATPX          0x58505441
+#define CGS_ACPI_FIELD_METHOD_NAME                      0x00000001
+#define CGS_ACPI_FIELD_INPUT_ARGUMENT_COUNT             0x00000002
+#define CGS_ACPI_MAX_BUFFER_SIZE     256
+#define CGS_ACPI_TYPE_ANY                      0x00
+#define CGS_ACPI_TYPE_INTEGER               0x01
+#define CGS_ACPI_TYPE_STRING                0x02
+#define CGS_ACPI_TYPE_BUFFER                0x03
+#define CGS_ACPI_TYPE_PACKAGE               0x04
+
+struct cgs_acpi_method_argument {
+	uint32_t type;
+	uint32_t method_length;
+	uint32_t data_length;
+	union{
+		uint32_t value;
+		void *pointer;
+	};
+};
+
+struct cgs_acpi_method_info {
+	uint32_t size;
+	uint32_t field;
+	uint32_t input_count;
+	uint32_t name;
+	struct cgs_acpi_method_argument *pinput_argument;
+	uint32_t output_count;
+	struct cgs_acpi_method_argument *poutput_argument;
+	uint32_t padding[9];
+};
 
 /**
  * cgs_gpu_mem_info() - Return information about memory heaps
@@ -442,6 +535,40 @@ typedef int (*cgs_pm_query_clock_limits_t)(void *cgs_device,
  */
 typedef int (*cgs_set_camera_voltages_t)(void *cgs_device, uint32_t mask,
 					 const uint32_t *voltages);
+/**
+ * cgs_get_firmware_info - Get the firmware information from core driver
+ * @cgs_device: opaque device handle
+ * @type: the firmware type
+ * @info: returend firmware information
+ *
+ * Return: 0 on success, -errno otherwise
+ */
+typedef int (*cgs_get_firmware_info)(void *cgs_device,
+				     enum cgs_ucode_id type,
+				     struct cgs_firmware_info *info);
+
+typedef int(*cgs_set_powergating_state)(void *cgs_device,
+				  enum amd_ip_block_type block_type,
+				  enum amd_powergating_state state);
+
+typedef int(*cgs_set_clockgating_state)(void *cgs_device,
+				  enum amd_ip_block_type block_type,
+				  enum amd_clockgating_state state);
+
+typedef int(*cgs_get_active_displays_info)(
+					void *cgs_device,
+					struct cgs_display_info *info);
+
+typedef int (*cgs_call_acpi_method)(void *cgs_device,
+					uint32_t acpi_method,
+					uint32_t acpi_function,
+					void *pinput, void *poutput,
+					uint32_t output_count,
+					uint32_t input_size,
+					uint32_t output_size);
+
+typedef int (*cgs_query_system_info)(void *cgs_device,
+				struct cgs_system_info *sys_info);
 
 struct cgs_ops {
 	/* memory management calls (similar to KFD interface) */
@@ -478,7 +605,17 @@ struct cgs_ops {
 	cgs_pm_request_engine_t pm_request_engine;
 	cgs_pm_query_clock_limits_t pm_query_clock_limits;
 	cgs_set_camera_voltages_t set_camera_voltages;
-	/* ACPI (TODO) */
+	/* Firmware Info */
+	cgs_get_firmware_info get_firmware_info;
+	/* cg pg interface*/
+	cgs_set_powergating_state set_powergating_state;
+	cgs_set_clockgating_state set_clockgating_state;
+	/* display manager */
+	cgs_get_active_displays_info get_active_displays_info;
+	/* ACPI */
+	cgs_call_acpi_method call_acpi_method;
+	/* get system info */
+	cgs_query_system_info query_system_info;
 };
 
 struct cgs_os_ops; /* To be define in OS-specific CGS header */
@@ -501,7 +638,7 @@ struct cgs_device
 	CGS_CALL(gpu_mem_info,dev,type,mc_start,mc_size,mem_size)
 #define cgs_gmap_kmem(dev,kmem,size,min_off,max_off,kmem_handle,mcaddr)	\
 	CGS_CALL(gmap_kmem,dev,kmem,size,min_off,max_off,kmem_handle,mcaddr)
-#define cgs_gummap_kmem(dev,kmem_handle)	\
+#define cgs_gunmap_kmem(dev,kmem_handle)	\
 	CGS_CALL(gunmap_kmem,dev,keme_handle)
 #define cgs_alloc_gpu_mem(dev,type,size,align,min_off,max_off,handle)	\
 	CGS_CALL(alloc_gpu_mem,dev,type,size,align,min_off,max_off,handle)
@@ -509,7 +646,7 @@ struct cgs_device
 	CGS_CALL(free_gpu_mem,dev,handle)
 #define cgs_gmap_gpu_mem(dev,handle,mcaddr)	\
 	CGS_CALL(gmap_gpu_mem,dev,handle,mcaddr)
-#define cgs_gummap_gpu_mem(dev,handle)		\
+#define cgs_gunmap_gpu_mem(dev,handle)		\
 	CGS_CALL(gunmap_gpu_mem,dev,handle)
 #define cgs_kmap_gpu_mem(dev,handle,map)	\
 	CGS_CALL(kmap_gpu_mem,dev,handle,map)
@@ -559,5 +696,17 @@ struct cgs_device
 	CGS_CALL(pm_query_clock_limits,dev,clock,limits)
 #define cgs_set_camera_voltages(dev,mask,voltages)	\
 	CGS_CALL(set_camera_voltages,dev,mask,voltages)
+#define cgs_get_firmware_info(dev, type, info)	\
+	CGS_CALL(get_firmware_info, dev, type, info)
+#define cgs_set_powergating_state(dev, block_type, state)	\
+	CGS_CALL(set_powergating_state, dev, block_type, state)
+#define cgs_set_clockgating_state(dev, block_type, state)	\
+	CGS_CALL(set_clockgating_state, dev, block_type, state)
+#define cgs_get_active_displays_info(dev, info)	\
+	CGS_CALL(get_active_displays_info, dev, info)
+#define cgs_call_acpi_method(dev, acpi_method, acpi_function, pintput, poutput, output_count, input_size, output_size)	\
+	CGS_CALL(call_acpi_method, dev, acpi_method, acpi_function, pintput, poutput, output_count, input_size, output_size)
+#define cgs_query_system_info(dev, sys_info)	\
+	CGS_CALL(query_system_info, dev, sys_info)
 
 #endif /* _CGS_COMMON_H */

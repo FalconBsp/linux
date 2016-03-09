@@ -29,6 +29,7 @@
 #define KGD_KFD_INTERFACE_H_INCLUDED
 
 #include <linux/types.h>
+#include <linux/mm_types.h>
 
 struct pci_dev;
 
@@ -38,6 +39,27 @@ struct kfd_dev;
 struct kgd_dev;
 
 struct kgd_mem;
+
+struct kfd_cu_info {
+	uint32_t num_shader_engines;
+	uint32_t num_shader_arrays_per_engine;
+	uint32_t num_cu_per_sh;
+	uint32_t cu_active_number;
+	uint32_t cu_ao_mask;
+	uint32_t simd_per_cu;
+	uint32_t max_waves_per_simd;
+	uint32_t wave_front_size;
+	uint32_t max_scratch_slots_per_cu;
+	uint32_t lds_size;
+	uint32_t cu_bitmap[4][4];
+};
+
+/* For getting GPU local memory information from KGD */
+struct kfd_local_mem_info {
+	uint64_t local_mem_size;
+	uint32_t vram_width;
+	uint32_t mem_clk_max;
+};
 
 enum kgd_memory_pool {
 	KGD_POOL_SYSTEM_CACHEABLE = 1,
@@ -52,7 +74,8 @@ enum kgd_engine_type {
 	KGD_ENGINE_MEC1,
 	KGD_ENGINE_MEC2,
 	KGD_ENGINE_RLC,
-	KGD_ENGINE_SDMA,
+	KGD_ENGINE_SDMA1,
+	KGD_ENGINE_SDMA2,
 	KGD_ENGINE_MAX
 };
 
@@ -76,6 +99,19 @@ struct kgd2kfd_shared_resources {
 	size_t doorbell_start_offset;
 };
 
+/*
+ * alloc_memory_of_gpu memory flags should be identical to the flags
+ * on kfd_ioctl.h
+ */
+
+#define ALLOC_MEM_FLAGS_DGPU_HOST		(1 << 0)
+#define ALLOC_MEM_FLAGS_DGPU_DEVICE		(1 << 1)
+#define ALLOC_MEM_FLAGS_DGPU_SCRATCH	(1 << 2)
+#define ALLOC_MEM_FLAGS_APU_DEVICE		(1 << 3)
+#define ALLOC_MEM_FLAGS_APU_SCRATCH		(1 << 4)
+
+#define ALLOC_MEM_FLAGS_DGPU_AQL_QUEUE_MEM	(1 << 5)
+
 /**
  * struct kfd2kgd_calls
  *
@@ -84,7 +120,7 @@ struct kgd2kfd_shared_resources {
  *
  * @free_gtt_mem: Frees a buffer that was allocated on the gart aperture
  *
- * @get_vmem_size: Retrieves (physical) size of VRAM
+ * @get_local_mem_info: Retrieves information about GPU local memory
  *
  * @get_gpu_clock_counter: Retrieves GPU clock counter
  *
@@ -115,7 +151,16 @@ struct kgd2kfd_shared_resources {
  * @hqd_sdma_destroy: Destructs and preempts the SDMA queue assigned to that
  * SDMA hqd slot.
  *
+ * @map_memory_to_gpu: Allocates and pins BO, PD and all related PTs
+ *
+ * @unmap_memory_to_gpu: Releases and unpins BO, PD and all related PTs
+ *
  * @get_fw_version: Returns FW versions from the header
+ *
+ * @set_num_of_requests: Sets number of Peripheral Page Request (PPR) sent to
+ * IOMMU when address translation failed
+ *
+ * @get_cu_info: Retrieves activated cu info
  *
  * This structure contains function pointers to services that the kgd driver
  * provides to amdkfd driver.
@@ -128,10 +173,21 @@ struct kfd2kgd_calls {
 
 	void (*free_gtt_mem)(struct kgd_dev *kgd, void *mem_obj);
 
-	uint64_t (*get_vmem_size)(struct kgd_dev *kgd);
+	void(*get_local_mem_info)(struct kgd_dev *kgd,
+			struct kfd_local_mem_info *mem_info);
 	uint64_t (*get_gpu_clock_counter)(struct kgd_dev *kgd);
 
 	uint32_t (*get_max_engine_clock_in_mhz)(struct kgd_dev *kgd);
+
+	int (*create_process_vm)(struct kgd_dev *kgd, void **vm);
+	void (*destroy_process_vm)(struct kgd_dev *kgd, void *vm);
+
+	int (*create_process_gpumem)(struct kgd_dev *kgd, uint64_t va, size_t size, void *vm, struct kgd_mem **mem);
+	void (*destroy_process_gpumem)(struct kgd_dev *kgd, struct kgd_mem *mem);
+
+	uint32_t (*get_process_page_dir)(void *vm);
+
+	int (*open_graphic_handle)(struct kgd_dev *kgd, uint64_t va, void *vm, int fd, uint32_t handle, struct kgd_mem **mem);
 
 	/* Register access functions */
 	void (*program_sh_mem_settings)(struct kgd_dev *kgd, uint32_t vmid,
@@ -144,8 +200,12 @@ struct kfd2kgd_calls {
 	int (*init_pipeline)(struct kgd_dev *kgd, uint32_t pipe_id,
 				uint32_t hpd_size, uint64_t hpd_gpu_addr);
 
+	int (*init_interrupts)(struct kgd_dev *kgd, uint32_t pipe_id);
+	
+
 	int (*hqd_load)(struct kgd_dev *kgd, void *mqd, uint32_t pipe_id,
-			uint32_t queue_id, uint32_t __user *wptr);
+				uint32_t queue_id, uint32_t __user *wptr,
+				uint32_t page_table_base);
 
 	int (*hqd_sdma_load)(struct kgd_dev *kgd, void *mqd);
 
@@ -160,9 +220,51 @@ struct kfd2kgd_calls {
 
 	int (*hqd_sdma_destroy)(struct kgd_dev *kgd, void *mqd,
 				unsigned int timeout);
+				
+	int (*address_watch_disable)(struct kgd_dev *kgd);
+	int (*address_watch_execute)(struct kgd_dev *kgd,
+					unsigned int watch_point_id,
+					uint32_t cntl_val,
+					uint32_t addr_hi,
+					uint32_t addr_lo);
+	int (*wave_control_execute)(struct kgd_dev *kgd,
+					uint32_t gfx_index_val,
+					uint32_t sq_cmd);
+	uint32_t (*address_watch_get_offset)(struct kgd_dev *kgd,
+					unsigned int watch_point_id,
+					unsigned int reg_offset);
+	bool (*get_atc_vmid_pasid_mapping_valid)(
+					struct kgd_dev *kgd,
+					uint8_t vmid);
+	uint16_t (*get_atc_vmid_pasid_mapping_pasid)(
+					struct kgd_dev *kgd,
+					uint8_t vmid);
+	void (*write_vmid_invalidate_request)(struct kgd_dev *kgd,
+					uint8_t vmid);
+	int (*alloc_memory_of_gpu)(struct kgd_dev *kgd, uint64_t va,
+			size_t size, void *vm,
+			struct kgd_mem **mem, uint64_t *offset,
+			void **kptr, uint32_t flags);
+	int (*free_memory_of_gpu)(struct kgd_dev *kgd, struct kgd_mem *mem);
+	int (*map_memory_to_gpu)(struct kgd_dev *kgd, struct kgd_mem *mem);
+	int (*unmap_memory_to_gpu)(struct kgd_dev *kgd, struct kgd_mem *mem);
 
 	uint16_t (*get_fw_version)(struct kgd_dev *kgd,
 				enum kgd_engine_type type);
+
+	void (*set_num_of_requests)(struct kgd_dev *kgd,
+			uint8_t num_of_requests);
+	int (*alloc_memory_of_scratch)(struct kgd_dev *kgd,
+			uint64_t va, uint32_t vmid);
+	int (*write_config_static_mem)(struct kgd_dev *kgd, bool swizzle_enable,
+		uint8_t element_size, uint8_t index_stride, uint8_t mtype);
+	void (*get_cu_info)(struct kgd_dev *kgd,
+			struct kfd_cu_info *cu_info);
+	int (*mmap_bo)(struct kgd_dev *kgd, struct vm_area_struct *vma);
+	int (*map_gtt_bo_to_kernel)(struct kgd_dev *kgd,
+			struct kgd_mem *mem, void **kptr);
+	void (*set_vm_context_page_table_base)(struct kgd_dev *kgd, uint32_t vmid,
+			uint32_t page_table_base);
 };
 
 /**
@@ -198,6 +300,6 @@ struct kgd2kfd_calls {
 };
 
 bool kgd2kfd_init(unsigned interface_version,
-		const struct kgd2kfd_calls **g2f);
+		  const struct kgd2kfd_calls **g2f);
 
-#endif	/* KGD_KFD_INTERFACE_H_INCLUDED */
+#endif /* KGD_KFD_INTERFACE_H_INCLUDED */

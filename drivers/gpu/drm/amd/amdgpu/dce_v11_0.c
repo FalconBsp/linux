@@ -801,11 +801,11 @@ static u32 dce_v11_0_line_buffer_adjust(struct amdgpu_device *adev,
 			buffer_alloc = 2;
 		} else if (mode->crtc_hdisplay < 4096) {
 			mem_cfg = 0;
-			buffer_alloc = (adev->flags & AMDGPU_IS_APU) ? 2 : 4;
+			buffer_alloc = (adev->flags & AMD_IS_APU) ? 2 : 4;
 		} else {
 			DRM_DEBUG_KMS("Mode too big for LB!\n");
 			mem_cfg = 0;
-			buffer_alloc = (adev->flags & AMDGPU_IS_APU) ? 2 : 4;
+			buffer_alloc = (adev->flags & AMD_IS_APU) ? 2 : 4;
 		}
 	} else {
 		mem_cfg = 1;
@@ -3406,19 +3406,25 @@ static int dce_v11_0_crtc_irq(struct amdgpu_device *adev,
 
 	switch (entry->src_data) {
 	case 0: /* vblank */
-		if (disp_int & interrupt_status_offsets[crtc].vblank) {
+		if (disp_int & interrupt_status_offsets[crtc].vblank)
 			dce_v11_0_crtc_vblank_int_ack(adev, crtc);
-			if (amdgpu_irq_enabled(adev, source, irq_type)) {
-				drm_handle_vblank(adev->ddev, crtc);
-			}
-			DRM_DEBUG("IH: D%d vblank\n", crtc + 1);
+		else
+			DRM_DEBUG("IH: IH event w/o asserted irq bit?\n");
+
+		if (amdgpu_irq_enabled(adev, source, irq_type)) {
+			drm_handle_vblank(adev->ddev, crtc);
 		}
+		DRM_DEBUG("IH: D%d vblank\n", crtc + 1);
+
 		break;
 	case 1: /* vline */
-		if (disp_int & interrupt_status_offsets[crtc].vline) {
+		if (disp_int & interrupt_status_offsets[crtc].vline)
 			dce_v11_0_crtc_vline_int_ack(adev, crtc);
-			DRM_DEBUG("IH: D%d vline\n", crtc + 1);
-		}
+		else
+			DRM_DEBUG("IH: IH event w/o asserted irq bit?\n");
+
+		DRM_DEBUG("IH: D%d vline\n", crtc + 1);
+
 		break;
 	default:
 		DRM_DEBUG("Unhandled interrupt: %d %d\n", entry->src_id, entry->src_data);

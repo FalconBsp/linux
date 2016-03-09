@@ -26,7 +26,7 @@
  * missing DSAT specific code*/
 
 /* Declarations for dal interface accessors */
-
+#if !defined(BUILD_DC_CORE)
 #include <linux/firmware.h>
 #include <linux/module.h>
 
@@ -38,18 +38,18 @@
 #include "dal_services_types.h"
 #include "dal_services.h"
 
-#include "include/dal_interface.h"
-#include "include/adapter_service_interface.h"
-#include "include/timing_service_interface.h"
-#include "include/topology_mgr_interface.h"
-#include "include/timing_list_query_interface.h"
-#include "include/display_service_interface.h"
-#include "include/set_mode_interface.h"
-#include "include/display_path_interface.h"
-#include "include/controller_interface.h"
-#include "include/hw_sequencer_interface.h"
-#include "include/logger_interface.h"
-#include "include/adjustment_interface.h"
+#include "dal_interface.h"
+#include "adapter_service_interface.h"
+#include "timing_service_interface.h"
+#include "topology_mgr_interface.h"
+#include "timing_list_query_interface.h"
+#include "display_service_interface.h"
+#include "set_mode_interface.h"
+#include "display_path_interface.h"
+#include "controller_interface.h"
+#include "hw_sequencer_interface.h"
+#include "logger_interface.h"
+#include "adjustment_interface.h"
 
 #include "dsat.h"
 
@@ -843,3 +843,4 @@ bool dsat_display_mode_timing_get_list(
 	amdgpu_dm_release_dal_lock(dm);
 	return ret_val;
 }
+#endif
