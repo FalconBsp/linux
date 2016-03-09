@@ -47,7 +47,7 @@
 
 #define PSP_MP0_SW_INT_ACK_VALUE	0x00000001
 
-#define COMMAND_RESP_TIMEOUT		500	/* timeout in milliseconds */
+#define COMMAND_RESP_TIMEOUT		1000	/* timeout in milliseconds */
 
 extern int hdcpss_init(void *);
 

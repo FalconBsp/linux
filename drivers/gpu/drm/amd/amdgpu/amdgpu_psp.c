@@ -408,7 +408,7 @@ int g2p_comm_unregister_client(u32 client_type)
 	mutex_lock(&psp_data->psp_mutex);
 	psp_data->client_data[client_type] = NULL;
 	vfree(psp_data->client_data[client_type]);
-	mutex_lock(&psp_data->psp_mutex);
+	mutex_unlock(&psp_data->psp_mutex);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(g2p_comm_unregister_client);
@@ -459,11 +459,13 @@ int g2p_comm_send_command_buffer(void *cmd_buf, u32 cmd_size, u32 fence_val)
 
 	if (!cmd_buf) {
 		dev_err(adev->dev, "Command buffer is NULL\n");
+		mutex_unlock(&psp_data->psp_mutex);
 		return -EINVAL;
 	}
 
 	if (cmd_size > 128) {
 		dev_err(adev->dev, "Invalid command size\n");
+		mutex_unlock(&psp_data->psp_mutex);
 		return -EINVAL;
 	}
 
@@ -526,6 +528,7 @@ int g2p_comm_send_command_buffer(void *cmd_buf, u32 cmd_size, u32 fence_val)
 					(COMMAND_RESP_TIMEOUT));
 	if (!ret) {
 		dev_err(adev->dev, "Error - No response from PSP\n");
+		mutex_unlock(&psp_data->psp_mutex);
 		return -EINVAL;
 	}
 
