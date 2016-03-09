@@ -363,6 +363,7 @@ static ssize_t psp_trace_flag_write(struct file *filp, const char __user
 		return -EINVAL;
 	}
 
+	buff[count] = '\0';
 	if (strncpy_from_user(buff, user_buf, buf_size) < 0) {
 		dev_err(dev, " %s : strncpy_from_user failed\n", __func__);
 		return -EFAULT;
