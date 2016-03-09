@@ -57,3 +57,5 @@ obj-$(CONFIG_SRAM)		+= sram.o
 obj-$(CONFIG_ARCH_TEGRA)	+= tegra-fuse/
 CFLAGS_tegra-throughput.o	= -Werror
 obj-$(CONFIG_TEGRA_THROUGHPUT)	+= tegra-throughput.o
+obj-$(CONFIG_PSP_COMM_DRIVER_SUPPORT) += psp_comm/
+obj-$(CONFIG_TEE_DRIVER_SUPPORT) += tee/
