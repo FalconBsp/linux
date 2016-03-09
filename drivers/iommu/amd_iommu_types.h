@@ -39,6 +39,9 @@
 #define ALIAS_TABLE_ENTRY_SIZE		2
 #define RLOOKUP_TABLE_ENTRY_SIZE	(sizeof(void *))
 
+/* Length of the MMIO region for the AMD IOMMU */
+#define MMIO_REGION_LENGTH       0x4000
+
 /* Capability offsets used by the driver */
 #define MMIO_CAP_HDR_OFFSET	0x00
 #define MMIO_RANGE_OFFSET	0x0c
@@ -282,6 +285,12 @@
 #define PTE_PAGE_SIZE(pte) \
 	(1ULL << (1 + ffz(((pte) | 0xfffULL))))
 
+/*
+ * Takes a page-table level and returns the default page-size for this level
+ */
+#define PTE_LEVEL_PAGE_SIZE(level)			\
+	(1ULL << (12 + (9 * (level))))
+
 #define IOMMU_PTE_P  (1ULL << 0)
 #define IOMMU_PTE_TV (1ULL << 1)
 #define IOMMU_PTE_U  (1ULL << 59)
@@ -432,7 +441,6 @@ struct iommu_dev_data {
 	struct iommu_dev_data *alias_data;/* The alias dev_data */
 	struct protection_domain *domain; /* Domain the device is bound to */
 	atomic_t bind;			  /* Domain attach reference count */
-	struct iommu_group *group;	  /* IOMMU group for virtual aliases */
 	u16 devid;			  /* PCI Device ID */
 	bool iommu_v2;			  /* Device can make use of IOMMUv2 */
 	bool passthrough;		  /* Default for device is pt_domain */
@@ -577,6 +585,9 @@ struct amd_iommu {
 
 	/* default dma_ops domain for that IOMMU */
 	struct dma_ops_domain *default_dom;
+
+	/* IOMMU sysfs device */
+	struct device *iommu_dev;
 
 	/*
 	 * We can't rely on the BIOS to restore all values on reinit, so we

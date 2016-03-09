@@ -557,6 +557,7 @@
 #define  PCI_EXP_OBFF_WAKE	0x80000 /* Re-use WAKE# for OBFF */
 #define PCI_EXP_DEVCTL2		40	/* Device Control 2 */
 #define  PCI_EXP_DEVCTL2_ARI	0x20	/* Alternative Routing-ID */
+#define  PCI_EXP_DEVCTL2_ATOMICOP_REQ	0x0040	/* Allow AtomicOp Requests */
 #define  PCI_EXP_IDO_REQ_EN	0x100	/* ID-based ordering request enable */
 #define  PCI_EXP_IDO_CMP_EN	0x200	/* ID-based ordering completion enable */
 #define  PCI_EXP_LTR_EN		0x400	/* Latency tolerance reporting */

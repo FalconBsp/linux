@@ -21,14 +21,15 @@
 
 #include <linux/errno.h>
 #include <linux/err.h>
+#include <linux/of.h>
 #include <linux/types.h>
-#ifdef CONFIG_ARCH_TEGRA
 #include <linux/scatterlist.h>
-#endif
+#include <trace/events/iommu.h>
 
-#define IOMMU_READ	(1)
-#define IOMMU_WRITE	(2)
-#define IOMMU_CACHE	(4) /* DMA cache coherency */
+#define IOMMU_READ	(1 << 0)
+#define IOMMU_WRITE	(1 << 1)
+#define IOMMU_CACHE	(1 << 2) /* DMA cache coherency */
+#define IOMMU_NOEXEC	(1 << 3)
 
 struct iommu_ops;
 struct iommu_group;
@@ -50,6 +51,30 @@ struct iommu_domain_geometry {
 	bool force_aperture;       /* DMA only allowed in mappable range? */
 };
 
+/* Domain feature flags */
+#define __IOMMU_DOMAIN_PAGING	(1U << 0)  /* Support for iommu_map/unmap */
+#define __IOMMU_DOMAIN_DMA_API	(1U << 1)  /* Domain for use in DMA-API
+					      implementation              */
+#define __IOMMU_DOMAIN_PT	(1U << 2)  /* Domain is identity mapped   */
+
+/*
+ * This are the possible domain-types
+ *
+ *	IOMMU_DOMAIN_BLOCKED	- All DMA is blocked, can be used to isolate
+ *				  devices
+ *	IOMMU_DOMAIN_IDENTITY	- DMA addresses are system physical addresses
+ *	IOMMU_DOMAIN_UNMANAGED	- DMA mappings managed by IOMMU-API user, used
+ *				  for VMs
+ *	IOMMU_DOMAIN_DMA	- Internally used for DMA-API implementations.
+ *				  This flag allows IOMMU drivers to implement
+ *				  certain optimizations for these domains
+ */
+#define IOMMU_DOMAIN_BLOCKED	(0U)
+#define IOMMU_DOMAIN_IDENTITY	(__IOMMU_DOMAIN_PT)
+#define IOMMU_DOMAIN_UNMANAGED	(__IOMMU_DOMAIN_PAGING)
+#define IOMMU_DOMAIN_DMA	(__IOMMU_DOMAIN_PAGING |	\
+				 __IOMMU_DOMAIN_DMA_API)
+
 struct iommu_domain {
 	struct iommu_ops *ops;
 	void *priv;
@@ -58,8 +83,12 @@ struct iommu_domain {
 	struct iommu_domain_geometry geometry;
 };
 
-#define IOMMU_CAP_CACHE_COHERENCY	0x1
-#define IOMMU_CAP_INTR_REMAP		0x2	/* isolates device intrs */
+enum iommu_cap {
+	IOMMU_CAP_CACHE_COHERENCY,	/* IOMMU can enforce cache coherent DMA
+					   transactions */
+	IOMMU_CAP_INTR_REMAP,		/* IOMMU supports interrupt isolation */
+	IOMMU_CAP_NOEXEC,		/* IOMMU_NOEXEC flag */
+};
 
 enum iommu_attr {
 	DOMAIN_ATTR_GEOMETRY,
@@ -101,6 +130,8 @@ struct iommu_ops {
 #endif
 	size_t (*unmap)(struct iommu_domain *domain, unsigned long iova,
 		     size_t size);
+	size_t (*map_sg)(struct iommu_domain *domain, unsigned long iova,
+			 struct scatterlist *sg, unsigned int nents, int prot);
 	phys_addr_t (*iova_to_phys)(struct iommu_domain *domain, dma_addr_t iova);
 	int (*domain_has_cap)(struct iommu_domain *domain,
 			      unsigned long cap);
@@ -120,6 +151,10 @@ struct iommu_ops {
 	int (*domain_set_windows)(struct iommu_domain *domain, u32 w_count);
 	/* Get the numer of window per domain */
 	u32 (*domain_get_windows)(struct iommu_domain *domain);
+
+#ifdef CONFIG_OF_IOMMU
+	int (*of_xlate)(struct device *dev, struct of_phandle_args *args);
+#endif
 
 	unsigned long pgsize_bitmap;
 };
@@ -150,6 +185,9 @@ extern int iommu_map_sg(struct iommu_domain *domain, unsigned long iova,
 #endif
 extern size_t iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 		       size_t size);
+extern size_t default_iommu_map_sg(struct iommu_domain *domain, unsigned long iova,
+				struct scatterlist *sg,unsigned int nents,
+				int prot);
 extern phys_addr_t iommu_iova_to_phys(struct iommu_domain *domain, dma_addr_t iova);
 extern int iommu_domain_has_cap(struct iommu_domain *domain,
 				unsigned long cap);
@@ -178,11 +216,18 @@ extern int iommu_group_register_notifier(struct iommu_group *group,
 extern int iommu_group_unregister_notifier(struct iommu_group *group,
 					   struct notifier_block *nb);
 extern int iommu_group_id(struct iommu_group *group);
+extern struct iommu_group *iommu_group_get_for_dev(struct device *dev);
 
 extern int iommu_domain_get_attr(struct iommu_domain *domain, enum iommu_attr,
 				 void *data);
 extern int iommu_domain_set_attr(struct iommu_domain *domain, enum iommu_attr,
 				 void *data);
+struct device *iommu_device_create(struct device *parent, void *drvdata,
+				   const struct attribute_group **groups,
+				   const char *fmt, ...);
+void iommu_device_destroy(struct device *dev);
+int iommu_device_link(struct device *dev, struct device *link);
+void iommu_device_unlink(struct device *dev, struct device *link);
 
 /* Window handling function prototypes */
 extern int iommu_domain_window_enable(struct iommu_domain *domain, u32 wnd_nr,
@@ -229,6 +274,13 @@ static inline int report_iommu_fault(struct iommu_domain *domain,
 	return ret;
 }
 
+static inline size_t iommu_map_sg(struct iommu_domain *domain,
+				  unsigned long iova, struct scatterlist *sg,
+				  unsigned int nents, int prot)
+{
+	return domain->ops->map_sg(domain, iova, sg, nents, prot);
+}
+
 #else /* CONFIG_IOMMU_API */
 
 struct iommu_ops {};
@@ -240,6 +292,11 @@ static inline bool iommu_present(struct bus_type *bus)
 }
 
 static inline struct iommu_domain *iommu_domain_alloc(struct bus_type *bus)
+{
+	return NULL;
+}
+
+static inline struct iommu_group *iommu_group_get_by_id(int id)
 {
 	return NULL;
 }
@@ -267,6 +324,13 @@ static inline int iommu_map(struct iommu_domain *domain, unsigned long iova,
 
 static inline int iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 			      int gfp_order)
+{
+	return -ENODEV;
+}
+
+static inline size_t iommu_map_sg(struct iommu_domain *domain,
+				  unsigned long iova, struct scatterlist *sg,
+				  unsigned int nents, int prot)
 {
 	return -ENODEV;
 }
@@ -385,6 +449,27 @@ static inline int iommu_domain_set_attr(struct iommu_domain *domain,
 					enum iommu_attr attr, void *data)
 {
 	return -EINVAL;
+}
+
+static inline struct device *iommu_device_create(struct device *parent,
+					void *drvdata,
+					const struct attribute_group **groups,
+					const char *fmt, ...)
+{
+	return ERR_PTR(-ENODEV);
+}
+
+static inline void iommu_device_destroy(struct device *dev)
+{
+}
+
+static inline int iommu_device_link(struct device *dev, struct device *link)
+{
+	return -EINVAL;
+}
+
+static inline void iommu_device_unlink(struct device *dev, struct device *link)
+{
 }
 
 #endif /* CONFIG_IOMMU_API */
