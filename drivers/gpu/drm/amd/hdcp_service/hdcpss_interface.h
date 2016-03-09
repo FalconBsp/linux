@@ -26,6 +26,8 @@
 #ifndef __HDCPSS_INTERFACE_H__
 #define __HDCPSS_INTERFACE_H__
 
-void hdcpss_notify_hotplug_detect(int event, int display_index);
+void hdcpss_notify_hotplug_detect(struct amdgpu_device *adev, int event, int display_index);
+
+int hdcpss_get_encryption_level(struct hdcpss_data *hdcp, u32 display_index, int *save_encryption_level);
 
 #endif

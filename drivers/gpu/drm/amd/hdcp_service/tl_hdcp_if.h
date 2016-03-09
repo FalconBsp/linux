@@ -135,6 +135,8 @@ typedef enum _HDCP_CMD_ID
 #define HDCP_ENCRYPTED_DATA_SIZE             256
 #define HDCP2_MAX_NUM_OF_STREAMS             4   // Maximum streams supported. At the moment only two streams ( One Audio + One Video)
 #define HDCP2_DATA_INPUT_SIZE_16_IN_BYTES    16
+#define HDCP14_MAX_NUMBER_DOWNSTREAM_DEVICES 64
+#define HDCP14_SIZE_OF_KSV                   5
 
 //copied from KAPP HDCP interface
 // Command IDs.
@@ -604,8 +606,24 @@ typedef enum _HDCP_14_RESPONSE_CODE
     HDCP_14_STATUS_GENERIC_FAILURE           = 0x02,
     HDCP_14_STATUS_FAILED_ALLOCATING_SESSION = 0x03,
     HDCP_14_STATUS_FAILED_SETUP_TX              = 0x04,
-    HDCP_14_STATUS_TCI_BUFFER_NOT_SET_CORRECTLY = 0x05
+    HDCP_14_STATUS_TCI_BUFFER_NOT_SET_CORRECTLY = 0x05,
+    HDCP_14_STATUS_VHX_ERROR                    = 0x06,
+    HDCP_14_STATUS_SESSION_NOT_CLOSED_PROPERLY  = 0x07,
+    HDCP_14_STATUS_SRM_FAILURE                  = 0x08,
 } HDCP_14_RESPONSE_CODE;
+
+typedef enum _HDCP_AUTH_FAIL_INFO
+{
+    HDCP_AUTH_INFO_RESET_VALUE                      = 0,
+    HDCP_AUTH_INFO_SOFTWARE_DISABLED_AUTHENTICATION = 1,
+    HDCP_AUTH_INFO_AN_WRITTEN                       = 2,
+    HDCP_AUTH_INFO_INVALID_AKSV                     = 3,
+    HDCP_AUTH_INFO_INVALID_BKSV                     = 4,
+    HDCP_AUTH_INFO_RI_MISMATCH                      = 5,
+    HDCP_AUTH_INFO_THREE_CONSECUTIVE_PJ_MISMATCHES  = 6,
+    HDCP_AUTH_INFO_HPD_DISCONNECT                   = 7
+} HDCP_AUTH_FAIL_INFO;
+
 
 typedef enum _HDCP_14_CONNECTOR_TYPE
 {
@@ -639,8 +657,13 @@ typedef enum _HDCP_14_CONNECTOR_TYPE
          } FirstPartAuth;
 
          struct {
-             uint8_t  Bstatus[2];
-             uint8_t  KSVList[128 * 5];
+             union
+             {
+                 uint8_t  HdmiBStatus[2];
+                 uint8_t  DpBStatus[1];
+             };
+             uint8_t  BInfo[2];
+             uint8_t  KSVList[HDCP14_MAX_NUMBER_DOWNSTREAM_DEVICES * HDCP14_SIZE_OF_KSV];
              uint32_t KSVListSize;
              uint8_t  Pj;
              uint8_t  VPrime[20];
@@ -669,6 +692,7 @@ typedef enum _HDCP_14_CONNECTOR_TYPE
 
 	struct {
              uint32_t ProtectionLevel;
+             uint32_t HdcpAuthFailInfo;
          } GetProtectionLevel;
      };
 
