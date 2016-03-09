@@ -28,6 +28,7 @@
 #include <linux/hash.h>
 #include <linux/cpufreq.h>
 #include <linux/log2.h>
+#include <linux/dmi.h>
 
 #include "kfd_priv.h"
 #include "kfd_crat.h"
@@ -737,12 +738,48 @@ static void kfd_update_system_properties(void)
 	up_read(&topology_lock);
 }
 
+static void find_system_memory(const struct dmi_header *dm,
+	void *private)
+{
+	struct kfd_mem_properties *mem;
+	u16 mem_width, mem_clock;
+	struct kfd_topology_device *kdev =
+		(struct kfd_topology_device *)private;
+	const u8 *dmi_data = (const u8 *)(dm + 1);
+
+	if (dm->type == DMI_ENTRY_MEM_DEVICE && dm->length >= 0x15) {
+		mem_width = (u16)(*(const u16 *)(dmi_data + 0x6));
+		mem_clock = (u16)(*(const u16 *)(dmi_data + 0x11));
+		list_for_each_entry(mem, &kdev->mem_props, list) {
+			if (mem_width != 0xFFFF && mem_width != 0)
+				mem->width = mem_width;
+			if (mem_clock != 0)
+				mem->mem_clk_max = mem_clock;
+		}
+	}
+}
+/* kfd_add_non_crat_information - Add information that is not currently
+ *	defined in CRAT but is necessary for KFD topology
+ * @dev - topology device to which addition info is added
+ */
+static void kfd_add_non_crat_information(struct kfd_topology_device *kdev)
+{
+	/* Check if CPU only node. */
+	if (kdev->gpu == NULL) {
+		/* Add system memory information */
+		dmi_walk(find_system_memory, kdev);
+	}
+	/* TODO: For GPU node, rearrange code from kfd_topology_add_device */
+}
+
 int kfd_topology_init(void)
 {
 	void *crat_image = NULL;
 	size_t image_size = 0;
 	int ret;
 	struct list_head temp_topology_device_list;
+	int cpu_only_node = 0;
+	struct kfd_topology_device *kdev;
 
 	/* topology_device_list - Master list of all topology devices
 	 * temp_topology_device_list - temporary list created while parsing CRAT
@@ -765,9 +802,11 @@ int kfd_topology_init(void)
 	 *	CRAT. If no CRAT is available, it is assumed to be a CPU
 	 */
 	ret = kfd_create_crat_image_acpi(&crat_image, &image_size);
-	if (ret != 0)
+	if (ret != 0) {
 		ret = kfd_create_crat_image_virtual(&crat_image, &image_size,
 				COMPUTE_UNIT_CPU, NULL);
+		cpu_only_node = 1;
+	}
 
 	if (ret == 0)
 		ret = kfd_parse_crat_table(crat_image, &temp_topology_device_list);
@@ -790,6 +829,17 @@ int kfd_topology_init(void)
 	}
 	else
 		pr_err("Failed to update topology in sysfs ret=%d\n", ret);
+
+	/* For nodes with GPU, this information gets added
+	 * when GPU is detected (kfd_topology_add_device). */
+	if (cpu_only_node) {
+		/* Add additional information to CPU only node created above */
+		down_write(&topology_lock);
+		kdev = list_first_entry(&topology_device_list,
+				struct kfd_topology_device, list);
+		up_write(&topology_lock);
+		kfd_add_non_crat_information(kdev);
+	}
 
 err:
 	kfd_destroy_crat_image(crat_image);
@@ -862,6 +912,30 @@ static void kfd_notify_gpu_change(uint32_t gpu_id, int arrival)
 	 */
 }
 
+/* kfd_fill_mem_clk_max_info - Since CRAT doesn't have memory clock info,
+ *		patch this after CRAT parsing.
+ */
+static void kfd_fill_mem_clk_max_info(struct kfd_topology_device *dev)
+{
+	struct kfd_mem_properties *mem;
+	struct kfd_local_mem_info local_mem_info;
+
+	if (dev == NULL)
+		return;
+
+	/* Currently, amdgpu driver (amdgpu_mc) deals only with GPUs with
+	 * single bank of VRAM local memory.
+	 * for dGPUs - VCRAT reports only one bank of Local Memory
+	 * for APUs - If CRAT from ACPI reports more than one bank, then
+	 *	all the banks will report the same mem_clk_max information
+	 */
+	dev->gpu->kfd2kgd->get_local_mem_info(dev->gpu->kgd,
+		&local_mem_info);
+
+	list_for_each_entry(mem, &dev->mem_props, list)
+		mem->mem_clk_max = local_mem_info.mem_clk_max;
+}
+
 int kfd_topology_add_device(struct kfd_dev *gpu)
 {
 	uint32_t gpu_id;
@@ -919,6 +993,9 @@ int kfd_topology_add_device(struct kfd_dev *gpu)
 	dev->gpu_id = gpu_id;
 	gpu->id = gpu_id;
 
+	/* TODO: Move the following lines to function
+	 *	kfd_add_non_crat_information */
+
 	/* Fill-in additional information that is not available in CRAT but
 	 * needed for the topology */
 
@@ -927,12 +1004,14 @@ int kfd_topology_add_device(struct kfd_dev *gpu)
 
 	dev->node_props.vendor_id = gpu->pdev->vendor;
 	dev->node_props.device_id = gpu->pdev->device;
-	dev->node_props.location_id = (gpu->pdev->bus->number << 24) +
-			(gpu->pdev->devfn & 0xffffff);
+	dev->node_props.location_id = PCI_DEVID(gpu->pdev->bus->number,
+		gpu->pdev->devfn);
 	dev->node_props.max_engine_clk_fcompute =
 		dev->gpu->kfd2kgd->get_max_engine_clock_in_mhz(dev->gpu->kgd);
 	dev->node_props.max_engine_clk_ccompute =
 		cpufreq_quick_get_max(0) / 1000;
+
+	kfd_fill_mem_clk_max_info(dev);
 
 	switch (dev->gpu->device_info->asic_family) {
 	case CHIP_KAVERI:

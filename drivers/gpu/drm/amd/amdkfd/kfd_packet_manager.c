@@ -57,15 +57,27 @@ static void pm_calc_rlib_size(struct packet_manager *pm,
 {
 	unsigned int process_count, queue_count;
 	unsigned int map_queue_size;
+	unsigned int max_proc_per_quantum = 1;
 
-	BUG_ON(!pm || !rlib_size || !over_subscription);
+	struct kfd_dev	*dev = pm->dqm->dev;
+
+	BUG_ON(!pm || !rlib_size || !over_subscription || !dev);
 
 	process_count = pm->dqm->processes_count;
 	queue_count = pm->dqm->queue_count;
 
-	/* check if there is over subscription*/
+	/* check if there is over subscription
+	 * Note: the arbitration between the number of VMIDs and
+	 * hws_max_conc_proc has been done in
+	 * kgd2kfd_device_init().
+	 */
+
 	*over_subscription = false;
-	if ((process_count > 1) ||
+
+	if (dev->max_proc_per_quantum > 1)
+		max_proc_per_quantum = dev->max_proc_per_quantum;
+
+	if ((process_count > max_proc_per_quantum) ||
 		queue_count > PIPE_PER_ME_CP_SCHEDULING * QUEUES_PER_PIPE) {
 		*over_subscription = true;
 		pr_debug("kfd: over subscribed runlist\n");
@@ -102,11 +114,14 @@ static int pm_allocate_runlist_ib(struct packet_manager *pm,
 
 	pm_calc_rlib_size(pm, rl_buffer_size, is_over_subscription);
 
+	mutex_lock(&pm->lock);
+
 	retval = kfd_gtt_sa_allocate(pm->dqm->dev, *rl_buffer_size,
 					&pm->ib_buffer_obj);
 
 	if (retval != 0) {
 		pr_err("kfd: failed to allocate runlist IB\n");
+		mutex_unlock(&pm->lock);
 		return retval;
 	}
 
@@ -115,6 +130,8 @@ static int pm_allocate_runlist_ib(struct packet_manager *pm,
 
 	memset(*rl_buffer, 0, *rl_buffer_size);
 	pm->allocated = true;
+
+	mutex_unlock(&pm->lock);
 	return retval;
 }
 
@@ -674,8 +691,7 @@ fail_create_runlist:
 fail_acquire_packet_buffer:
 	mutex_unlock(&pm->lock);
 fail_create_runlist_ib:
-	if (pm->allocated == true)
-		pm_release_ib(pm);
+	pm_release_ib(pm);
 	return retval;
 }
 
@@ -813,3 +829,4 @@ void pm_release_ib(struct packet_manager *pm)
 	}
 	mutex_unlock(&pm->lock);
 }
+

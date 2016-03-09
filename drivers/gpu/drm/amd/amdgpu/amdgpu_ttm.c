@@ -206,7 +206,11 @@ static void amdgpu_evict_flags(struct ttm_buffer_object *bo,
 static int amdgpu_verify_access(struct ttm_buffer_object *bo, struct file *filp)
 {
 	struct amdgpu_bo *rbo = container_of(bo, struct amdgpu_bo, tbo);
-	if (filp == NULL)
+	/*
+	 * Don't verify access for KFD BO as it doesn't necessary has
+	 * KGD file pointer
+	 */
+	if (!rbo || rbo->is_kfd_bo || !filp)
 		return 0;
 
 	return drm_vma_node_verify_access(&rbo->gem_base.vma_node, filp);
@@ -875,6 +879,7 @@ int amdgpu_ttm_init(struct amdgpu_device *adev)
 	if (r) {
 		return r;
 	}
+
 	r = amdgpu_bo_reserve(adev->stollen_vga_memory, false);
 	if (r)
 		return r;
@@ -884,6 +889,7 @@ int amdgpu_ttm_init(struct amdgpu_device *adev)
 		amdgpu_bo_unref(&adev->stollen_vga_memory);
 		return r;
 	}
+
 	DRM_INFO("amdgpu: %uM of VRAM memory ready\n",
 		 (unsigned) (adev->mc.real_vram_size / (1024 * 1024)));
 	r = ttm_bo_init_mm(&adev->mman.bdev, TTM_PL_TT,
@@ -943,6 +949,7 @@ void amdgpu_ttm_fini(struct amdgpu_device *adev)
 	if (!adev->mman.initialized)
 		return;
 	amdgpu_ttm_debugfs_fini(adev);
+
 	if (adev->stollen_vga_memory) {
 		r = amdgpu_bo_reserve(adev->stollen_vga_memory, false);
 		if (r == 0) {
@@ -951,6 +958,7 @@ void amdgpu_ttm_fini(struct amdgpu_device *adev)
 		}
 		amdgpu_bo_unref(&adev->stollen_vga_memory);
 	}
+
 	ttm_bo_clean_mm(&adev->mman.bdev, TTM_PL_VRAM);
 	ttm_bo_clean_mm(&adev->mman.bdev, TTM_PL_TT);
 	ttm_bo_clean_mm(&adev->mman.bdev, AMDGPU_PL_GDS);

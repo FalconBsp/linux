@@ -65,7 +65,8 @@ static int open_graphic_handle(struct kgd_dev *kgd, uint64_t va, void *vm,
 				int fd, uint32_t handle, struct kgd_mem **mem);
 static int map_memory_to_gpu(struct kgd_dev *kgd, struct kgd_mem *mem,
 		void *vm);
-static int unmap_memory_from_gpu(struct kgd_dev *kgd, struct kgd_mem *mem);
+static int unmap_memory_from_gpu(struct kgd_dev *kgd, struct kgd_mem *mem,
+		void *vm);
 static int alloc_memory_of_gpu(struct kgd_dev *kgd, uint64_t va, size_t size,
 		void *vm, struct kgd_mem **mem,
 		uint64_t *offset, void **kptr, uint32_t flags);
@@ -422,6 +423,8 @@ static int kgd_hqd_sdma_load(struct kgd_dev *kgd, void *mqd)
 	struct vi_sdma_mqd *m;
 	uint32_t sdma_base_addr;
 	uint32_t temp, timeout = 2000;
+	uint32_t data;
+
 
 	m = get_sdma_mqd(mqd);
 	sdma_base_addr = get_sdma_base_addr(m);
@@ -437,12 +440,17 @@ static int kgd_hqd_sdma_load(struct kgd_dev *kgd, void *mqd)
 		msleep(10);
 		timeout -= 10;
 	}
-	if (m->sdma_engine_id)
-		REG_SET_FIELD(RREG32(mmSDMA1_GFX_CONTEXT_CNTL),
-			SDMA1_GFX_CONTEXT_CNTL, RESUME_CTX, 0);
-	else
-		REG_SET_FIELD(RREG32(mmSDMA0_GFX_CONTEXT_CNTL),
-			SDMA0_GFX_CONTEXT_CNTL, RESUME_CTX, 0);
+	if (m->sdma_engine_id) {
+		data = RREG32(mmSDMA1_GFX_CONTEXT_CNTL);
+		data = REG_SET_FIELD(data, SDMA1_GFX_CONTEXT_CNTL,
+				RESUME_CTX, 0);
+		WREG32(mmSDMA1_GFX_CONTEXT_CNTL, data);
+	} else {
+		data = RREG32(mmSDMA0_GFX_CONTEXT_CNTL);
+		data = REG_SET_FIELD(data, SDMA0_GFX_CONTEXT_CNTL,
+				RESUME_CTX, 0);
+		WREG32(mmSDMA0_GFX_CONTEXT_CNTL, data);
+	}
 
 	WREG32(sdma_base_addr + mmSDMA0_RLC0_DOORBELL, m->sdmax_rlcx_doorbell);
 	WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_RPTR, 0);
@@ -710,7 +718,8 @@ static int map_memory_to_gpu(struct kgd_dev *kgd, struct kgd_mem *mem, void *vm)
 	return -EFAULT;
 }
 
-static int unmap_memory_from_gpu(struct kgd_dev *kgd, struct kgd_mem *mem)
+static int unmap_memory_from_gpu(struct kgd_dev *kgd, struct kgd_mem *mem,
+		void *vm)
 {
 	return -EFAULT;
 }
