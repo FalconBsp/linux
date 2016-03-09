@@ -265,11 +265,25 @@ struct kfd_ioctl_free_memory_of_gpu_args {
 };
 
 struct kfd_ioctl_map_memory_to_gpu_args {
-	uint64_t handle;	/* to KFD */
+	uint64_t handle;			/* to KFD */
+};
+
+struct kfd_ioctl_map_memory_to_gpu_new_args {
+	uint64_t handle;			/* to KFD */
+	uint32_t *device_ids_array;		/* to KFD */
+	uint32_t device_ids_array_size;		/* to KFD */
+	uint32_t pad;
 };
 
 struct kfd_ioctl_unmap_memory_from_gpu_args {
 	uint64_t handle;	/* to KFD */
+};
+
+struct kfd_ioctl_unmap_memory_from_gpu_new_args {
+	uint64_t handle;	/* to KFD */
+	uint32_t *device_ids_array;             /* to KFD */
+	uint32_t device_ids_array_size;         /* to KFD */
+	uint32_t pad;
 };
 
 struct kfd_ioctl_open_graphic_handle_args {
@@ -305,6 +319,20 @@ struct kfd_ioctl_alloc_memory_of_gpu_new_args {
 	uint32_t gpu_id;	/* to KFD */
 	uint64_t mmap_offset;   /* from KFD */
 	uint32_t flags;
+};
+
+struct kfd_ioctl_get_process_apertures_new_args {
+	/* User allocated. Pointer to struct kfd_process_device_apertures
+	 * filled in by Kernel */
+	uint64_t kfd_process_device_apertures_ptr;
+
+	/* to KFD - indicates amount of memory present in
+	 *  kfd_process_device_apertures_ptr
+	 * from KFD - Number of entries filled by KFD.
+	 */
+	uint32_t num_of_nodes;
+
+	uint32_t pad;
 };
 
 #define AMDKFD_IOCTL_BASE 'K'
@@ -392,7 +420,15 @@ struct kfd_ioctl_alloc_memory_of_gpu_new_args {
 #define AMDKFD_IOC_SET_TRAP_HANDLER		\
 		AMDKFD_IOW(0x1a, struct kfd_ioctl_set_trap_handler_args)
 
+#define AMDKFD_IOC_MAP_MEMORY_TO_GPU_NEW		\
+		AMDKFD_IOWR(0x1b, struct kfd_ioctl_map_memory_to_gpu_new_args)
+#define AMDKFD_IOC_UNMAP_MEMORY_FROM_GPU_NEW	\
+		AMDKFD_IOWR(0x1c, struct kfd_ioctl_unmap_memory_from_gpu_new_args)
+
+#define AMDKFD_IOC_GET_PROCESS_APERTURES_NEW	\
+	AMDKFD_IOWR(0x1d, struct kfd_ioctl_get_process_apertures_new_args)
+
 #define AMDKFD_COMMAND_START		0x01
-#define AMDKFD_COMMAND_END		0x1b
+#define AMDKFD_COMMAND_END		0x1e
 
 #endif
