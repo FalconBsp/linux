@@ -2,7 +2,7 @@ menu "Display Engine Configuration"
 	depends on DRM && DRM_AMDGPU
 
 config DRM_AMD_DAL
-        bool "AMD DAL - Enable new display engine
+        bool "AMD DAL - Enable new display engine"
         help
           Choose this option if you want to use the new display engine
           support for AMDGPU.

@@ -159,21 +159,46 @@ static bool dp_11_process_transaction(
 	struct adapter_service *as,
 	struct hdcp_protection_message *message_info)
 {
+	uint32_t offset = 0;
+	uint32_t length = message_info->length;
+	bool result = false;
+
 	struct aux_command aux_command;
 	struct aux_payload aux_payload;
 
-	aux_payload.address = hdcp_dpcd_addrs[message_info->msg_id];
 	aux_payload.i2c_over_aux = false;
 	aux_payload.write = !hdcp_cmd_is_read[message_info->msg_id];
-	aux_payload.length = message_info->length;
-	aux_payload.data = message_info->data;
 
 	aux_command.number_of_payloads = 1;
 	aux_command.payloads = &aux_payload;
 	aux_command.defer_delay = 0;
 	aux_command.max_defer_write_retry = 0;
 
-	return dal_i2caux_submit_aux_command(i2caux, ddc, &aux_command);
+	while (length > 0) {
+		aux_payload.address =
+			hdcp_dpcd_addrs[message_info->msg_id] + offset;
+
+		if (length > DEFAULT_AUX_MAX_DATA_SIZE)
+			aux_payload.length = DEFAULT_AUX_MAX_DATA_SIZE;
+		else
+			aux_payload.length = length;
+
+		aux_payload.data = message_info->data + offset;
+
+		result =
+			dal_i2caux_submit_aux_command(
+				i2caux,
+				ddc,
+				&aux_command);
+
+		if (!result)
+			break;
+
+		length -= aux_payload.length;
+		offset += aux_payload.length;
+	}
+
+	return result;
 }
 
 static const struct protection_properties dp_11_protection = {

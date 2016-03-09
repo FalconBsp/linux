@@ -76,6 +76,8 @@
 
 #include "gpu_scheduler.h"
 #include "amdgpu_psp.h"
+#include "hdcpss.h"
+
 /*
  * Modules parameters.
  */
@@ -2107,6 +2109,9 @@ struct amdgpu_device {
 
 	/* display related functionality */
 	struct amdgpu_display_manager dm;
+
+	/* HDCP related functionality */
+	struct hdcpss_data	hdcp;
 
 	const struct amdgpu_ip_block_version *ip_blocks;
 	int				num_ip_blocks;

@@ -56,11 +56,6 @@ enum dc_i2c_status {
 	DC_I2C_STATUS__DC_I2C_STATUS_USED_BY_HW
 };
 
-enum dc_i2c_arbitration {
-	DC_I2C_ARBITRATION__DC_I2C_SW_PRIORITY_NORMAL,
-	DC_I2C_ARBITRATION__DC_I2C_SW_PRIORITY_HIGH
-};
-
 enum {
 	/* No timeout in HW
 	 * (timeout implemented in SW by querying status) */
@@ -265,30 +260,6 @@ static bool setup_engine(
 			DC_I2C_DDC1_ENABLE);
 
 		dal_write_reg(i2c_engine->base.ctx, addr, value);
-	}
-
-	/* Program HW priority
-	 * set to High - interrupt software I2C at any time
-	 * Enable restart of SW I2C that was interrupted by HW
-	 * disable queuing of software while I2C is in use by HW */
-	{
-		value = dal_read_reg(i2c_engine->base.ctx,
-				mmDC_I2C_ARBITRATION);
-
-		set_reg_field_value(
-			value,
-			0,
-			DC_I2C_ARBITRATION,
-			DC_I2C_NO_QUEUED_SW_GO);
-
-		set_reg_field_value(
-			value,
-			DC_I2C_ARBITRATION__DC_I2C_SW_PRIORITY_NORMAL,
-			DC_I2C_ARBITRATION,
-			DC_I2C_SW_PRIORITY);
-
-		dal_write_reg(i2c_engine->base.ctx,
-				mmDC_I2C_ARBITRATION, value);
 	}
 
 	return true;
@@ -921,6 +892,9 @@ static bool construct(
 	engine_dce110->reference_frequency =
 		(arg->reference_frequency * 2) / xtal_ref_div;
 
+	engine_dce110->base.base.funcs->set_speed(
+		&engine_dce110->base.base,
+		engine_dce110->base.original_speed);
 
 	return true;
 }

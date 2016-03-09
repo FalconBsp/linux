@@ -30,6 +30,10 @@
  */
 
 #include "include/i2caux_interface.h"
+
+#include "dce/dce_11_0_d.h"
+#include "dce/dce_11_0_sh_mask.h"
+
 #include "../engine.h"
 #include "../i2c_engine.h"
 #include "../i2c_sw_engine.h"
@@ -70,11 +74,6 @@
 #define FROM_ENGINE(ptr) \
 	FROM_I2C_ENGINE(container_of((ptr), struct i2c_engine, base))
 
-static void release_engine(
-	struct engine *engine)
-{
-}
-
 static void destruct(
 	struct i2c_sw_engine_dce110 *engine)
 {
@@ -93,10 +92,109 @@ static void destroy(
 	*engine = NULL;
 }
 
+const signed int ddc_hw_status_offset[] =
+{
+	mmDC_I2C_DDC1_HW_STATUS - mmDC_I2C_DDC1_HW_STATUS,
+	mmDC_I2C_DDC2_HW_STATUS - mmDC_I2C_DDC1_HW_STATUS,
+	mmDC_I2C_DDC3_HW_STATUS - mmDC_I2C_DDC1_HW_STATUS,
+	mmDC_I2C_DDC4_HW_STATUS - mmDC_I2C_DDC1_HW_STATUS,
+	mmDC_I2C_DDC5_HW_STATUS - mmDC_I2C_DDC1_HW_STATUS,
+	mmDC_I2C_DDC6_HW_STATUS - mmDC_I2C_DDC1_HW_STATUS,
+	mmDC_I2C_DDCVGA_HW_STATUS - mmDC_I2C_DDC1_HW_STATUS
+};
+
+#define mmDIG0_HDCP_I2C_CONTROL_0 0x4A4D
+#define mmDIG1_HDCP_I2C_CONTROL_0 0x4B4D
+#define mmDIG2_HDCP_I2C_CONTROL_0 0x4C4D
+
+const signed int hdcp_i2c_control_offset[] =
+{
+	mmDIG0_HDCP_I2C_CONTROL_0 - mmDIG0_HDCP_I2C_CONTROL_0,
+	mmDIG1_HDCP_I2C_CONTROL_0 - mmDIG0_HDCP_I2C_CONTROL_0,
+	mmDIG2_HDCP_I2C_CONTROL_0 - mmDIG0_HDCP_I2C_CONTROL_0,
+};
+
+#define HDCP_I2C_CONTROL_0__HDCP_I2C_DISABLE_MASK 0x00000001L
+#define HDCP_I2C_CONTROL_0__HDCP_I2C_DISABLE__SHIFT 0x00000000
+
+#define HDCP_I2C_CONTROL_0__HDCP_I2C_DDC_SELECT_MASK 0x00000700L
+#define HDCP_I2C_CONTROL_0__HDCP_I2C_DDC_SELECT__SHIFT 0x00000008
+
+enum { NUM_OF_HDCP_CONTROLS=3 };
+
+static void release_engine(
+	struct engine *engine)
+{
+	struct i2c_sw_engine_dce110 *sw_engine_dce110;
+	uint8_t i;
+	uint32_t addr;
+	uint32_t value;
+
+	sw_engine_dce110 = FROM_ENGINE(engine);
+
+	for (i = 0; i < NUM_OF_HDCP_CONTROLS; ++i) {
+		addr = mmDIG0_HDCP_I2C_CONTROL_0 + hdcp_i2c_control_offset[i];
+		value = dal_read_reg(sw_engine_dce110->base.base.base.ctx, addr);
+
+		if (get_reg_field_value(value, HDCP_I2C_CONTROL_0, HDCP_I2C_DISABLE) == 1 &&
+			get_reg_field_value(value, HDCP_I2C_CONTROL_0, HDCP_I2C_DDC_SELECT) == sw_engine_dce110->engine_id) {
+			set_reg_field_value(value, 0, HDCP_I2C_CONTROL_0, HDCP_I2C_DISABLE);
+			dal_write_reg(sw_engine_dce110->base.base.base.ctx, addr, value);
+			break;
+		}
+	}
+}
+
+static bool busy_with_hdcp_i2c(
+	struct i2c_engine *engine,
+	struct ddc *ddc_handle)
+{
+	struct i2c_sw_engine_dce110 *sw_engine_dce110;
+
+	uint32_t addr;
+	uint32_t value;
+	uint8_t i;
+	bool disabled = false;
+
+	sw_engine_dce110 = FROM_I2C_ENGINE(engine);
+
+	for (i = 0; i < NUM_OF_HDCP_CONTROLS; ++i) {
+		addr = mmDIG0_HDCP_I2C_CONTROL_0 + hdcp_i2c_control_offset[i];
+		value = dal_read_reg(engine->base.ctx, addr);
+
+		if (get_reg_field_value(value, HDCP_I2C_CONTROL_0, HDCP_I2C_DISABLE) == 0 &&
+			get_reg_field_value(value, HDCP_I2C_CONTROL_0, HDCP_I2C_DDC_SELECT) == sw_engine_dce110->engine_id) {
+			set_reg_field_value(value, 1, HDCP_I2C_CONTROL_0, HDCP_I2C_DISABLE);
+			dal_write_reg(engine->base.ctx, addr, value);
+			disabled = true;
+
+			break;
+		}
+	}
+
+	if (disabled) {
+		addr = mmDC_I2C_DDC1_HW_STATUS + ddc_hw_status_offset[sw_engine_dce110->engine_id];
+		value = dal_read_reg(engine->base.ctx, addr);
+
+		for (i = 0; (i < 4) && get_reg_field_value(value, DC_I2C_DDC1_HW_STATUS, DC_I2C_DDC1_HW_STATUS); ++i) {
+			dal_delay_in_microseconds(1000);
+			value = dal_read_reg(engine->base.ctx, addr);
+		}
+
+		if (get_reg_field_value(value, DC_I2C_DDC1_HW_STATUS, DC_I2C_DDC1_HW_STATUS))
+			return true;
+	}
+
+	return false;
+}
+
 static bool acquire_engine(
 	struct i2c_engine *engine,
 	struct ddc *ddc_handle)
 {
+	if (busy_with_hdcp_i2c(engine, ddc_handle))
+		return false;
+
 	return dal_i2caux_i2c_sw_engine_acquire_engine(engine, ddc_handle);
 }
 

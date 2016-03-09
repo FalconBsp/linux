@@ -16,6 +16,7 @@ ccflags-y := -Iinclude/drm -I$(FULL_AMD_PATH)/include/asic_reg \
 		-I$(FULL_AMD_PATH)/dsat \
 		-I$(FULL_AMD_PATH)/scheduler \
 		-I$(FULL_AMD_DAL_PATH)/amdgpu_dm \
+		-I$(FULL_AMD_PATH)/hdcp_service \
 		-I$(FULL_AMD_PATH)/powerplay/inc
 		
 amdgpu-y := amdgpu_drv.o

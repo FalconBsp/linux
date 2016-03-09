@@ -48,6 +48,9 @@
  * Post-requisites: headers required by this unit
  */
 
+#include "dce/dce_11_0_d.h"
+#include "dce/dce_11_0_sh_mask.h"
+
 /*
  * This unit
  */
@@ -219,7 +222,28 @@ static bool construct(
 		++i;
 	} while (i < ARRAY_SIZE(hw_aux_lines));
 
-	/*TODO Generic I2C SW and HW*/
+	/* Program HW priority
+	 * set to High - interrupt software I2C at any time
+	 * Enable restart of SW I2C that was interrupted by HW
+	 * disable queuing of software while I2C is in use by HW */
+	{
+		uint32_t addr = mmDC_I2C_ARBITRATION;
+		uint32_t value = dal_read_reg(dal_context, addr);
+
+		set_reg_field_value(
+			value,
+			0,
+			DC_I2C_ARBITRATION,
+			DC_I2C_NO_QUEUED_SW_GO);
+
+		set_reg_field_value(
+			value,
+			DC_I2C_ARBITRATION_SW_PRIORITY_NORMAL,
+			DC_I2C_ARBITRATION,
+			DC_I2C_SW_PRIORITY);
+
+		dal_write_reg(dal_context, addr, value);
+	}
 
 	return true;
 }

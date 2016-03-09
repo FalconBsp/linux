@@ -37,7 +37,6 @@
 #undef DEPRECATED
 
 #include "amdgpu_dm_types.h"
-#include "amdgpu_dm_hdcp.h"
 
 #include "include/dal_interface.h"
 #include "include/timing_service_types.h"
@@ -519,7 +518,7 @@ bool amdgpu_dm_mode_set(
 
 	dal_set_blanking(adev->dm.dal, acrtc->crtc_id, true);
 
-	hdcpss_notify_hotplug_detect(0, acrtc->crtc_id);
+	hdcpss_notify_hotplug_detect(adev, 0, acrtc->crtc_id);
 
 	/* the actual mode set call */
 	ret = dal_set_path_mode(adev->dm.dal, pms);
@@ -539,7 +538,7 @@ bool amdgpu_dm_mode_set(
 
 	dal_set_blanking(adev->dm.dal, acrtc->crtc_id, false);
 
-	hdcpss_notify_hotplug_detect(1, acrtc->crtc_id);
+	hdcpss_notify_hotplug_detect(adev, 1, acrtc->crtc_id);
 
 	/* Turn vblank on after reset */
 	drm_crtc_vblank_on(crtc);
@@ -604,7 +603,7 @@ bool amdgpu_dm_mode_reset(struct drm_crtc *crtc)
 		ret = dal_reset_path_mode(adev->dm.dal, 1, &display_index);
 		mutex_unlock(&adev->dm.dal_mutex);
 
-		hdcpss_notify_hotplug_detect(0, display_index);
+		hdcpss_notify_hotplug_detect(adev, 0, display_index);
 
 		DRM_DEBUG_KMS(
 			"Do reset mode for disp_index %d\n",
@@ -1487,48 +1486,30 @@ static ssize_t content_protection_status_show(
 	struct device_attribute *attr,
 	char *buf)
 {
-	struct drm_connector *connector = device->driver_data;
+	struct drm_connector *connector = dev_get_drvdata(device);
 	struct drm_device *dev = connector->dev;
 	struct amdgpu_device *adev = dev->dev_private;
-	uint64_t value;
+	struct amdgpu_connector *aconnector = to_amdgpu_connector(connector);
+	int value;
 	int ret;
 
-	ret = drm_object_property_get_value(
-		&connector->base,
-		adev->dm.cp_status_property,
-		&value);
+	ret = hdcpss_get_encryption_level(&adev->hdcp, aconnector->connector_id, &value);
 
 	if (ret)
 		return 0;
 
-	return snprintf(buf, PAGE_SIZE, "%lld\n", value);
+	ret = drm_object_property_set_value(
+		&connector->base,
+		adev->dm.cp_status_property,
+		value);
+
+	if (ret)
+		return 0;
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", value);
 }
 
 static DEVICE_ATTR_RO(content_protection_status);
-
-bool amdgpu_dm_update_cp_status_property(
-	struct amdgpu_display_manager *dm,
-	uint32_t display_idx,
-	bool is_enabled)
-{
-	struct amdgpu_connector *aconnector;
-	int r;
-
-	aconnector =
-		amdgpu_dm_find_connector_by_display_index(
-			dm->adev->ddev,
-			display_idx);
-
-	if (!aconnector)
-		return false;
-
-	r = drm_object_property_set_value(
-		&aconnector->base.base,
-		dm->cp_status_property,
-		is_enabled ? 1 : 0);
-
-	return r == 0;
-}
 
 int amdgpu_dm_connector_init(
 	struct amdgpu_display_manager *dm,
