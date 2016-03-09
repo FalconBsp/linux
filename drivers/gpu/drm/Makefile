@@ -37,6 +37,7 @@ obj-$(CONFIG_DRM_USB)   += drm_usb.o
 obj-$(CONFIG_DRM_TTM)	+= ttm/
 obj-$(CONFIG_DRM_TDFX)	+= tdfx/
 obj-$(CONFIG_DRM_R128)	+= r128/
+obj-$(CONFIG_HSA_AMD) += amd/amdkfd/
 obj-$(CONFIG_DRM_RADEON)+= radeon/
 obj-$(CONFIG_DRM_AMD_GNB_BUS)   += amd/bus/
 obj-$(CONFIG_DRM_AMDGPU)+= amd/amdgpu/
