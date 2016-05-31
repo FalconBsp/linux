@@ -1,0 +1,5 @@
+#!/bin/sh
+
+set -e
+scripts/config-modifiers/cm_targetdep_support.sh lite-trace "$@"
+

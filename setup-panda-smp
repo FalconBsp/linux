@@ -1,0 +1,11 @@
+#!/bin/sh
+
+scripts/setup_common.py --full-name="pandaboard" \
+                        --cross-compile="arm-linux-gnueabihf-" \
+                        --arch-name="arm" \
+                        --target-name="panda" \
+                        --fixup-kernel-headers="scripts/kernel_headers/default.fixup" \
+                        --defconfig-base="arch/arm/configs/panda_defconfig" \
+                        --build-instruction="make" \
+                        --image="arch/arm/boot/uImage" \
+                        "$@"

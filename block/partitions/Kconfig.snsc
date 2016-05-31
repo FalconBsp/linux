@@ -1,0 +1,5 @@
+comment "SNSC related options"
+	depends on SNSC
+
+config SNSC_PARTITION_MESSAGE_SILENT
+	bool "Suppress FileSystem Partition messages"

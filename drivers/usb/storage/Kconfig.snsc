@@ -1,0 +1,92 @@
+comment "SNSC related options"
+	depends on SNSC
+
+config SNSC_USB_STORAGE_TRANSPORT_RESET_FIRST
+	bool "First transport reset is tried, before port reset"
+	depends on SNSC
+	depends on USB_STORAGE
+	help
+	  According to BOT and CBI transport specifications,
+	  Port Reset should be used as the last means.
+
+	  for MSAC-US40(BOT) + MemoryStickPro
+
+config SNSC_USB_STORAGE_USE_GFP_NOWAIT_OR_ATOMIC
+	bool "Use GFP_NOWAIT or GFP_ATOMIC in a USB storage driver"
+	depends on SNSC
+	depends on USB_STORAGE
+	help
+	  To avoid a memory starvation with swap areas on a USB HDD,
+	  use GFP_NOWAIT or GFP_ATOMIC instead of GFP_NOIO
+	  in the USB storage driver.
+
+config SNSC_USB_STOR_PARAM_DID_ABORT_RETRY_MAX
+	bool "Introduce snsc_did_abort_retry to control DID_ABORT retry"
+	depends on SNSC
+	depends on USB_STORAGE
+
+config SNSC_USB_STORAGE_SCHED_OPTION
+	bool "Set scheduler policy/priority for dispatchers"
+	depends on SNSC
+	depends on USB_STORAGE
+	select SNSC_SET_THREAD_PRIORITY
+
+config SNSC_USB_STORAGE_SCHED_POLICY
+	int "Scheduler Policy(0=NORMAL, 1=FIFO, 2=RR)"
+	depends on SNSC_USB_STORAGE_SCHED_OPTION
+	default 0
+	help
+	  NORMAL  0 (PRIORITY=-20..19)
+	  FIFO    1 (PRIORITY=1..99)
+	  RR      2 (PRIORITY=1..99)
+	  BATCH   3 (PRIORITY=0)
+	  Another value does not change the schedule policy and priority.
+
+config SNSC_USB_STORAGE_SCHED_PRIORITY
+	int "Scheduler Priority(NORMAL:-20..19, FIFO/RR:1..99)"
+	depends on SNSC_USB_STORAGE_SCHED_OPTION
+	default 0
+	help
+	  DTG3G:    2(RR) (PRIORITY=21)
+	  SELECAO:  2(RR) (PRIORITY=21)
+	  DTGNEXUS: 2(RR) (PRIORITY=98)
+
+config SNSC_USB_STORAGE_ADDITIONAL_PROC_INFO
+	bool "USB Mass Storage additional proc info"
+	depends on SNSC
+	depends on USB_STORAGE
+
+config SNSC_USB_STORAGE_ADDITIONAL_UNUSUAL_DEVS
+	bool "Enable to operations for additional unusual devices"
+	depends on SNSC
+	depends on USB_STORAGE
+
+config SNSC_USB_STOR_ENABLE_SYNCHRONIZE_CACHE_SUPPORT
+	bool "Enable SYNCHRONIZE CACHE command for USB Mass Storage"
+	depends on SNSC
+	depends on USB_STORAGE
+	select SNSC_SCSI_SD_CHK_SYNCHRONIZE_CACHE_SUPPORT
+
+config SNSC_USB_STOR_MAX_SECTORS_OPTION
+	bool "Set default max_sectors"
+	depends on SNSC
+	depends on USB_STORAGE
+
+config SNSC_USB_STOR_MAX_SECTORS
+	int "default max_sectors"
+	depends on SNSC_USB_STOR_MAX_SECTORS_OPTION
+	default 128
+	help
+	  In many kinds of devices, it seems that max_sectors=128
+	  results in better performance than 240(default).
+
+          If you want to know more detail about max_sectors 240,
+	  please check below URL.
+	    http://www.linux-usb.org/FAQ.html
+            Q: What is max_sectors and how should I use it?
+
+config SNSC_USB_STOR_UEVENT_CMD_TIMEOUT
+	bool "Send an uevent when command timed out"
+	depends on SNSC
+	depends on USB_STORAGE
+	default n

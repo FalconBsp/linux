@@ -1,0 +1,83 @@
+#
+# Industrial I/O subsystem configuration
+#
+menu "IIO staging drivers"
+	depends on IIO
+
+source "drivers/staging/iio/accel/Kconfig"
+source "drivers/staging/iio/adc/Kconfig"
+source "drivers/staging/iio/addac/Kconfig"
+source "drivers/staging/iio/cdc/Kconfig"
+source "drivers/staging/iio/frequency/Kconfig"
+source "drivers/staging/iio/gyro/Kconfig"
+source "drivers/staging/iio/impedance-analyzer/Kconfig"
+source "drivers/staging/iio/light/Kconfig"
+source "drivers/staging/iio/magnetometer/Kconfig"
+source "drivers/staging/iio/meter/Kconfig"
+source "drivers/staging/iio/resolver/Kconfig"
+source "drivers/staging/iio/trigger/Kconfig"
+
+config IIO_DUMMY_EVGEN
+       tristate
+
+config IIO_SIMPLE_DUMMY
+       tristate "An example driver with no hardware requirements"
+       help
+	 Driver intended mainly as documentation for how to write
+	 a driver. May also be useful for testing userspace code
+	 without hardware.
+
+if IIO_SIMPLE_DUMMY
+
+config IIO_SIMPLE_DUMMY_EVENTS
+       boolean "Event generation support"
+       select IIO_DUMMY_EVGEN
+       help
+         Add some dummy events to the simple dummy driver.
+
+config IIO_SIMPLE_DUMMY_BUFFER
+       boolean "Buffered capture support"
+       depends on IIO_KFIFO_BUF
+       help
+         Add buffered data capture to the simple dummy driver.
+
+endif # IIO_SIMPLE_DUMMY
+
+config IIO_SIMPLE_SIM
+       tristate "IIO simulator"
+       depends on !IIO_SIMPLE_DUMMY
+       select IIO_BUFFER
+       select IIO_KFIFO_BUF
+       help
+         Enable IIO simulator
+
+if IIO_SIMPLE_SIM
+
+config IIO_SIMPLE_SIM_BUFFER
+       boolean "Buffered capture support"
+       depends on IIO_KFIFO_BUF
+       default y
+       help
+         Enable buffered capture support in simulator
+
+config IIO_SIMPLE_SIM_HARDWARE_BUFFER_MODE
+       boolean "Hardware buffer mode simulation support"
+       depends on IIO_SIMPLE_SIM_BUFFER
+       default y
+       help
+         If enabled, hardware buffer mode simulation is activated.
+         If disabled, hardware trigger mode simulation is activated.
+
+config IIO_SIMPLE_SIM_HARDWARE_BUFFER_SIZE
+       int "Simulated hardware buffer size"
+       depends on IIO_SIMPLE_SIM_HARDWARE_BUFFER_MODE
+       default 4096
+       range 2 4096
+       help
+         Simulated FIFO size for hardware buffer mode.
+         This value should be the power of 2; otherwise the behavior will be
+         unexpected.
+
+endif # IIO_SIMPLE_SIM
+
+endmenu

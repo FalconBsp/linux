@@ -1,0 +1,2 @@
+comment "SNSC Configurations"
+	depends on SNSC

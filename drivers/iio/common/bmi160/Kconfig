@@ -1,0 +1,46 @@
+#
+# BMI160 common library
+#
+
+if IIO_BMI160_ACCEL_3AXIS || IIO_BMI160_GYRO_3AXIS || IIO_BMI160_ACCEL_GYRO_6AXIS
+
+menu "BMI160 IIO common"
+
+config IIO_BMI160_I2C
+	tristate
+
+config IIO_BMI160_SPI
+	tristate
+
+config IIO_BMI160_CORE
+	tristate
+	select IIO_BMI160_I2C if I2C
+	select IIO_BMI160_SPI if SPI_MASTER
+
+config IIO_BMI160_CONTINUE_UNKNOWN_REG_CHIPID
+	bool "Continue if the value of CHIPID register is unknown"
+	default y
+	help
+	  In the datasheet, some descrptions define the value of CHIPID register to
+	  be 0xd0, and others describe it is TBD. Actually, there is a chip which
+	  contains 0xd1 as the value. If yes, when unknown value is read as the
+	  CHIPID on probing, warning message is displayed and probing device is
+	  continued.
+
+config IIO_BMI160_DIRECT_BURST_READ
+	bool "Burst read extension in direct mode"
+	default y
+	help
+	  Supports burst read of X, Y and Z axis of sensor(s) data in direct mode.
+
+config IIO_BMI160_USE_GPIO_IRQ
+	bool "Use GPIO for IRQ"
+	default y
+
+config IIO_BMI160_SKIP_FIFO_FULL_CHECK
+	bool "Skip checking FIFO full status"
+	default n
+
+endmenu
+
+endif

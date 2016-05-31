@@ -1,0 +1,22 @@
+comment "SNSC related options"
+	depends on SNSC
+
+config SNSC_USB_MESSAGE_SILENT
+	bool "Suppress USB messages"
+	depends on SNSC
+	depends on USB
+	select SNSC_BLOCK_MESSAGE_SILENT
+	select SNSC_PARTITION_MESSAGE_SILENT
+	select SNSC_SCSI_MESSAGE_SILENT
+
+config SNSC_USB_QUICK_BOOT
+	bool "Shorten boot time initialization"
+	depends on SNSC
+	depends on USB
+	select SNSC_USB_HOST_QUICK_BOOT
+
+config SNSC_USB_SINGLE_STEP_CTRL
+	bool "Send conrol transfer step by step"
+	depends on SNSC
+	depends on USB
+	default n

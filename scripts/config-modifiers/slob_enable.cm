@@ -1,0 +1,7 @@
+#!/bin/sh
+
+scripts/setconfig.py -f - <<EOF
+CONFIG_SLAB=n
+CONFIG_SLOB=y
+CONFIG_SLUB=n
+EOF

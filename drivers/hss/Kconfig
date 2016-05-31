@@ -1,0 +1,37 @@
+#
+# HSS configuration
+#
+
+menu "SNSC Hierarchical Suspend Set (HSS)"
+
+config SNSC_HSS
+	bool "HSS core"
+	depends on PM
+	---help---
+	  HSS enables that conforming drivers can be called in the
+	  specified order regarding their parent/children relation ship.
+
+	  If unsure, say N
+
+config SNSC_HSS_DEBUG
+        depends on SNSC_HSS
+	depends on SYSFS
+	bool "Enable sysfs entries for HSS"
+	---help---
+	  This enables support for sysdev entries which contain
+	  sevaral internal values of each HSS node. Note that enabling
+          this option involves the increase of code/data size.
+
+          If unsure, say N
+
+config SNSC_HSS_VERBOSE_OUTPUT
+       depends on SNSC_HSS
+       bool "Verbose output of the node state changes"
+       ---help---
+         This enable the verbose output for what the HSS core does on
+         each nodes.
+         Disabling this saves the code size.
+
+         If unsure, say N
+endmenu
+

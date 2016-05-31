@@ -1,0 +1,21 @@
+Source: perf
+Section: kernel
+Priority: optional
+Maintainer: SCEL Developer < >
+Build-Depends: debhelper (>= 8.0.0), python-dev, libgtk2.0-dev,
+ libslang2-dev, libunwind8-dev, libnuma-dev, flex, bison,
+ libaudit-dev, libdw-dev, binutils-dev, asciidoc
+Standards-Version: 3.9.4
+Homepage: <insert the upstream URL, if relevant>
+#Vcs-Git: git://git.debian.org/collab-maint/perf.git
+#Vcs-Browser: http://git.debian.org/?p=collab-maint/perf.git;a=summary
+
+Package: perf
+Architecture: any
+Depends: ${misc:Depends}, perl-base, python, libgtk2.0-0, libslang2,
+ libunwind8, libnuma1, libdw1, libaudit1
+Description: A system-wide profile and per application profiler
+ The performance counter subsystem is a system wide profiler. With
+ performance counter subsystem, the profile of system including user-space
+ and every individual application can be obtained.
+ Performance counter subsystem consists of

@@ -1,0 +1,32 @@
+if BLOCK
+
+menu "SNSC Configurations"
+
+comment "SNSC related options"
+	depends on SNSC
+
+config SNSC_BLOCK_K3D
+	bool "Enable k3d (Kernel Disk Detection Daemon)"
+	depends on SNSC
+	default y
+	select SNSC_USB_STOR_REMOVABLE_ALL
+
+config SNSC_BLOCK_K3D_INTERVAL
+	int "Default interval duration to check media status (millisecond)"
+	depends on SNSC
+	depends on SNSC_BLOCK_K3D
+	default 1000
+
+config SNSC_BLOCK_CHECK_DISK
+	bool "Enable to check disk for block device file"
+	depends on SNSC
+	depends on SNSC_BLOCK_K3D
+
+config SNSC_BLOCK_MESSAGE_SILENT
+ 	bool "Suppress Block messages"
+	depends on (64BIT || LBDAF)
+
+
+endmenu
+
+endif # BLOCK

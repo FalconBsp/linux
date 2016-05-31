@@ -1,0 +1,9 @@
+#
+# SNSC related configurations
+#
+
+config SNSC_PM_SCHED_NORMAL_AT_FREEZE
+	bool "Change scheduling policy to normal at freezing tasks"
+	depends on SNSC
+	depends on PM_SLEEP
+	default n

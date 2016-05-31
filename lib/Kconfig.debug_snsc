@@ -1,0 +1,6 @@
+menu "SNSC Configurations"
+
+comment "SNSC debug options"
+	depends on SNSC
+
+endmenu

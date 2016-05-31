@@ -1,0 +1,75 @@
+comment "SNSC related options"
+	depends on SNSC
+
+config SNSC_USB_ROOT_HUB_ONLY
+	bool "Disable external USB hubs"
+	depends on SNSC
+	depends on USB
+
+config SNSC_USB_PORT_INIT_CTRL_GET_TIMEOUT_OPTION
+	bool "Enable to set timeout for device descriptor fetch at port initialization."
+	depends on SNSC
+	depends on USB
+	default y
+
+config SNSC_USB_HUB_ADD_OC_STATUS_ATTR
+	bool "Add Over-Current Status attribute for each hub."
+	depends on SNSC
+	depends on USB
+	default n
+	help
+	  This attribute shows over-current status as a bitmap.
+	  Bit 1-31 are assgigned for each port.
+	  Bit 0 is assigned for a hub basis.
+
+config SNSC_USB_HUB_ADD_OC_STATUS_ATTR_OC_CHANGE
+	bool "Treat Over-Current Change as Over-Current Status."
+	depends on SNSC_USB_HUB_ADD_OC_STATUS_ATTR
+	default n
+
+config SNSC_USB_HUB_UEVENT_OC_CHANGE
+	bool "Notfiy Over-Current Change uevent for each hub."
+	depends on SNSC
+	depends on USB && HOTPLUG
+	default n
+	help
+	  This attribute shows over-current change as a bitmap.
+	  Bit 1-31 are assgigned for each port.
+	  Bit 0 is assigned for a hub basis.
+
+config SNSC_USB_HUB_PORT_OC_RECOVERY_AFTER_UEVENT
+	bool "Recover the hub port power from over-current status after uevent."
+	depends on SNSC
+	depends on USB && SNSC_USB_HUB_UEVENT_OC_CHANGE
+	default n
+	help
+	  This config adds module_param(hub_oc_recovery_wait) to set
+	  USB hub over-curent recovery wait time [ms] before enable port power.
+	  0 means waiting forever i.e. not power on.
+
+config SNSC_USB_HUB_PORT_INIT_TIMEOUT_NO_RETRY
+	bool "Abort retry if timeout has occurred in hub port init process."
+	depends on SNSC
+	depends on USB
+
+config SNSC_USB_PORT_INIT_CTRL_GET_TIMEOUT
+	int "Timeout(msec) for device descriptor fetch at port initialization."
+	depends on SNSC_USB_PORT_INIT_CTRL_GET_TIMEOUT_OPTION
+	default 10000
+	help
+	  5000 msec is default timeout value in linux kernel,
+	  but some devices can't response in 5000 msec.
+	  DSC-P2 sometimes needs about 7000 msec,
+	  so CE Linux kernel sets this timeout to 10000 msec.
+
+config SNSC_USB_HUB_CONFIRM_RX_DETECT_AT_PORT_DISABLE
+	bool "Confirm the port is Rx.Detect state when disable the port"
+	depends on SNSC
+	depends on USB
+	default y
+	help
+	  This config confirms the USB3.0 port is set to Rx.Detect state
+	  during port disabling. If the port failed to set Rx.Detect,
+	  the port cannot detect any device connects or disconnects.
+	  For example, the port of AMD A88X HC could not be set to
+	  Rx.Detect without this config.

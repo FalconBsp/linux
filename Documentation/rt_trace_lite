@@ -1,0 +1,465 @@
+________________________________________________________________________________
+
+
+
+LIGHT WEIGHT IRQ off and preempt off latency timing
+
+
+The light (sometimes referred to as "lite") weight latency timing
+instrumentation configuration options are found in the "Kernel hacking"
+configuration menu.  Light Weight is a relative term; when minimal
+timing options are chosen the overhead is much less than the overhead
+of the "Interrupts-off critical section latency timing" configuration option
+(CONFIG_CRITICAL_IRQSOFF_TIMING).  If all of the timing and debugging options
+are enabled then the reported latencies will become significantly larger.
+
+
+
+The configuration options in the "Kernel hacking" menu are:
+
+  DEBUG TOOL: enable debug_*_rt_trace_*()
+  ---------------------------------------
+
+    If you say Y, the debug_*_rt_trace_enter() and
+    enable debug_*_rt_trace_exit() functionality is compiled into the
+    kernel.  These are debug functions that a kernel developer might want
+    to call to measure time intervals.  There are normally no callers of
+    these functions in the kernel source.
+
+    See Documentation/rt_trace_templates for snippets of code to use for
+    declaring, initializing, and calling these functions.
+
+    For histograms say Y to "latency timing DEBUG info" and
+    "latency timing DEBUG info - histogram".
+
+
+    The measurements are read from:
+
+       /proc/rt_debug_1
+       /proc/rt_debug_2
+       /proc/rt_debug_3
+       /proc/rt_debug_4
+       /proc/rt_debug_5
+
+    All of the measurements are enabled by a single file:
+
+       echo 1 >/proc/sys/kernel/rt_debug_enable
+
+    All of the measurements are disabled by a single file:
+
+       echo 0 >/proc/sys/kernel/rt_debug_enable
+
+    The measurements are reset by:
+
+       echo 0 > /proc/rt_debug_1
+       echo 0 > /proc/rt_debug_2
+       echo 0 > /proc/rt_debug_3
+       echo 0 > /proc/rt_debug_4
+       echo 0 > /proc/rt_debug_5
+
+
+
+  DEBUG TOOL: debug_5_rt_trace_*() - PMU counter
+  ----------------------------------------------
+
+    Collect and report PMU data for code instrumented by
+    debug_5_rt_trace_enter() and debug_5_rt_trace_exit().  This data appears
+    in /proc/rt_debug_5.
+
+    Two PMU events are measured.  The events to be measured are set up by
+    writing a four digit hex value to /proc/mark_with_pmu.  The first two
+    digits are the first PMU event and the next two digits are the second
+    PMU event.
+
+    Note that /proc/mark_with_pmu also selects which PMU events are collected
+    for latency reports when the config option: "latency timing DEBUG
+    info - MARKS + PMU counter" is selected.
+
+    For example, if you want to select 0x01 for event0 and 0x08 for event1:
+
+        echo 0108 > /proc/mark_with_pmu
+
+    The PMU events selected are not loaded into the PMU, and the PMU is not
+    enabled until the "start" command is written to /proc/mark_with_pmu:
+
+        echo "start" > /proc/mark_with_pmu
+
+    The PMU can be disabled with the "stop" command:
+
+        echo "stop" > /proc/mark_with_pmu
+
+    To disable evt0_div_evt1
+      echo evt0_div_evt1 0 >/proc/mark_with_pmu
+
+    To enable evt0_div_evt1
+      echo evt0_div_evt1 1 >/proc/mark_with_pmu
+
+      If evt0_div_evt1 is enabled:
+
+        - The reported values for PMU event 0 are measured PMU event 0
+          divided by measured PMU event 1.  This applies to the min, avg, max,
+          and histogram values reported for PMU event 0.
+
+        - The raw  values of event 0 and 1 will be used to calculate the
+          event0 / event1, which is reported as PMU event 0.  Offset and
+          scale will not be applied before calculating event0 / event1.
+
+        - If the value of PMU event 1 is zero, then event0 / event1 is
+          undefined.  However, it will be recorded as BIN_PMU_MAX (4095).
+
+    All PMU setup (writes to /proc/mark_with_pmu), including "start", should
+    be completed before starting the debug_5_rt_trace_enter() and
+    debug_5_rt_trace_exit() measurement.
+
+
+
+  DEBUG TOOL: debug_5_rt_trace_*() - PMU counter - histogram
+  ----------------------------------------------------------
+
+    If you say Y, the debug_5_rt_trace_enter and debug_5_rt_trace_exit()
+    PMU counter reports in /proc/rt_debug_5 will include histogram data.
+
+    If you say N, the instrumentation overhead is reduced and less memory
+    is used.
+
+    The PMU histograms bins range from 0 to BIN_PMU_MAX (4095).  The actual
+    range of values to be captured for a given debugging set up may be much
+    larger than 4095.  The measured values can be scaled to fit into the
+    available bins.  The bin number is calculated from the measured value as:
+
+      (value - offset) / scale
+
+    The default offset is zero.
+    The default scale is one.
+
+    Measured values larger than BIN_PMU_MAX (4095) are placed in bin number
+    BIN_PMU_MAX, so any non-zero value in this bin may be a count of overflow
+    value(s).
+
+    The histogram bin numbers in /proc/rt_debug_5 are adjusted to reflect the
+    current values offset and scale (which may be different than the values
+    when the data was collected).
+
+    Offset and scale are set separately for PMU cycle count (ccnt),
+    PMU event 0, and PMU event 1:
+
+      echo scale_ccnt INTEGER > /proc/mark_with_pmu
+      echo scale_0    INTEGER > /proc/mark_with_pmu
+      echo scale_1    INTEGER > /proc/mark_with_pmu
+
+      echo offset_ccnt INTEGER > /proc/mark_with_pmu
+      echo offset_0    INTEGER > /proc/mark_with_pmu
+      echo offset_1    INTEGER > /proc/mark_with_pmu
+
+
+
+  DEBUG TOOL: debug_5_rt_trace_*() - PMU counter - trace
+  ----------------------------------------------------------
+
+    If you say Y, the PMU counter reports in /proc/rt_debug_5 will include
+    a trace event for each debug_5_rt_trace_enter() and debug_5_rt_trace_exit()
+    pair.  The trace events report the change in value (delta) of each PMU
+    counter between debug_5_rt_trace_enter() and debug_5_rt_trace_exit().
+
+    If you say N, the instrumentation overhead is reduced and less memory
+    is used.
+
+    See Documentation/rt_trace_templates for information about user
+    defined and modified fields in the trace event.
+
+
+
+  DEBUG info - irq duration
+  -------------------------
+
+    If you say Y, the time spent in irq handlers is measured with
+    microsecond accuracy.
+
+    A summary of all irqs, including histogram data, can be read from:
+
+       /proc/irqs_time
+
+       (For histograms say Y to "latency timing DEBUG info" and
+       "latency timing DEBUG info - histogram".)
+
+    Per irq metrics can be read from:
+
+       /proc/irq_stat
+
+       (Histograms are not available in /proc/irq_stat.)
+
+    The measurements are enabled by:
+
+        echo 1 > /proc/sys/kernel/irqs_time_enable
+
+    The measurements are disabled by:
+
+        echo 0 > /proc/sys/kernel/irqs_time_enable
+
+    The measurements are reset by:
+
+        echo 0 > /proc/irqs_time
+        echo 0 > /proc/irq_stat
+
+
+
+  LIGHT WEIGHT IRQ off latency timing
+  ---------------------------------------------------
+
+    If you say Y, the time spent in irqs off, irqs or preempt off, and
+    preempt off sections is measured with microsecond accuracy.
+
+    The irqs_preempt_off files will not exist if you do not also say Y to
+    LIGHT WEIGHT preempt off latency timing.
+
+    The measurements are read from:
+
+       /proc/irqs_off
+       /proc/irqs_preempt_off
+
+    The measurements are enabled by:
+
+        echo 1 > /proc/sys/kernel/irqs_off_enable
+        echo 1 > /proc/sys/kernel/irqs_preempt_off_enable
+
+    The measurements are disabled by:
+
+        echo 0 > /proc/sys/kernel/irqs_off_enable
+        echo 0 > /proc/sys/kernel/irqs_preempt_off_enable
+
+    The measurements are reset by:
+
+        echo 0 > /proc/irqs_off
+        echo 0 > /proc/irqs_off_preempt
+
+    More information about some of the path traversed during the maximum
+    irqs-off section is available if option CRITICAL_IRQSOFF_TIMING is
+    selected instead of this option, but at the cost of additional
+    overhead.
+
+
+
+  LIGHT WEIGHT preempt off latency timing
+  ---------------------------------------------------
+
+    If you say Y, the time spent in irqs off, irqs or preempt off, and
+    preempt off sections is measured with microsecond accuracy.
+
+    The irqs_preempt_off files will not exist if you do not also say Y to
+    LIGHT WEIGHT irq off latency timing.
+
+    The measurements are read from:
+
+       /proc/preempt_off
+       /proc/irqs_preempt_off
+
+    The measurements are enabled by:
+
+        echo 1 > /proc/sys/kernel/preempt_off_enable
+        echo 1 > /proc/sys/kernel/irqs_preempt_off_enable
+
+    The measurements are disabled by:
+
+        echo 0 > /proc/sys/kernel/preempt_off_enable
+        echo 0 > /proc/sys/kernel/irqs_preempt_off_enable
+
+    The measurements are reset by:
+
+        echo 0 > /proc/irqs_preempt
+        echo 0 > /proc/irqs_off_preempt
+
+    More information about some of the path traversed during the maximum
+    irqs-off section is available if option CRITICAL_IRQSOFF_TIMING is
+    selected instead of this option, but at the cost of additional
+    overhead.
+
+
+
+  latency timing DEBUG info
+  -------------------------
+
+    Measuring the overhead of irqs off, irqs or preempt off, and preempt
+    off sections along with the information helpful to debug the causes
+    of these latencies adds a large amount of overhead to the system,
+    and greatly inflates the values of the metrics.
+
+    If you say N, the reported values will be much closer to what is
+    actually achieved with the instrumentation not enabled.
+
+    If you say Y, useful information to characterize latencies and debug
+    the cause of latencies is included in the reports:
+
+        - histogram data for latencies (if you also say Y for "latency
+          timing DEBUG info - histogram")
+
+        - start and end program counters for each new maximum latency
+
+          WARNING: logging program counters may lead to an oops.  See the
+          config option "Do not allow stack traces past an exception frame"
+          for information on how to prevent the oops.
+
+    If you say Y, a stack dump via printk() can be generated at the
+    point of enabling irqs, irqs/preempt, or preempt when a new maximum
+    is achieved on the selected cpu, and the maxiumum is greater than a
+    specified threshold.
+
+    Only one cpu at a time can be selected for stack dumps.  To select
+    cpu "CPU" (where CPU is an integer):
+
+        echo CPU > /proc/sys/kernel/irqs_dump_cpu
+
+    A stack dump for maximum > USEC (where "USEC" is an integer) is
+    enabled by:
+
+        echo USEC > /proc/sys/kernel/irqs_off_dump_threshold
+        echo USEC > /proc/sys/kernel/irqs_preempt_off_dump_threshold
+        echo USEC > /proc/sys/kernel/preempt_off_dump_threshold
+
+    A stack dump is disabled by:
+
+        echo 0 > /proc/sys/kernel/irqs_off_dump_threshold
+        echo 0 > /proc/sys/kernel/irqs_preempt_off_dump_threshold
+        echo 0 > /proc/sys/kernel/preempt_off_dump_threshold
+
+    WARNING: Enabling stack dumps may lead to an oops.  See the config
+    option "Do not allow stack traces past an exception frame" for
+    information on how to prevent the oops.
+
+
+  latency timing DEBUG info - histogram
+  -------------------------------------
+
+    If you say Y, the latency reports and the irq duration reports will
+    include histogram data.
+
+    If you say N, the instrumentation overhead is reduced and less memory
+    is used.
+
+
+  latency timing DEBUG info - deeper call stack
+  ---------------------------------------------
+
+    The latency reports may include start and end program counters for
+    each new maximum latency.  If you say Y here, the depth of the
+    stack of callers is increased.  The instrumentation overhead will
+    be increased.
+
+
+  latency timing DEBUG info - MARKS - irq
+  ---------------------------------------
+
+    The latency reports may include start and end program counters for
+    each new maximum latency.  If you say Y here, some additional trace
+    points between the start and end will also be reported, along with
+    time stamps.
+
+    The trace points are related to IRQs, including IPIs and local timers.
+
+
+  latency timing DEBUG info - MARKS + PMU counter
+  -----------------------------------------------
+
+    The latency reports include values of PMU such as cycle count or
+    event monitor. This is ARM only.
+
+    To setup event monitor:
+      If you want to set event like event0 is 0x01 and event1 is 0x08,
+
+        echo 0108 > /proc/mark_with_pmu
+
+    To start counter:
+
+        echo "start" > /proc/mark_with_pmu
+
+    To stop counter:
+
+        echo "stop" > /proc/mark_with_pmu
+
+    To read current event setting of pmu:
+
+        cat /proc/mark_with_pmu
+
+
+  latency timing DEBUG info - MARKS - irq detail
+  ----------------------------------------------
+
+    If you say Y here, many additional trace points between the start
+    and end will also be reported, along with time stamps.
+    It may increase overhead of measurement tool.
+
+
+  Do not allow stack traces past an exception frame
+  -------------------------------------------------
+
+    If modules are built without frame pointers then unwinding a stack
+    past an exception into the module will be unpredictable, and may
+    result in a crash.  If you say Y here, stack unwinds will not
+    continue past an exception frame.
+
+    This option should not normally be needed because your modules were
+    compiled with your kernel's configuration, weren't they???
+
+
+
+
+trace_off_mark() is meant to be used by a kernel developer as a performance
+debugging aid.  Calls to this function can be temporarily added to the
+kernel to help diagnose the cause of long latencies.  Information from the
+trace mark is included in the latency reports for each new maximum
+encountered.
+
+Calls to trace_off_mark() should not normally be present in the production
+kernel source unless they can be switched off by a config option.
+
+The trace_off_mark() report format (with an example line of data) is:
+
+      --address of caller of trace_off_mark()---  --hexadecimal---- --decimal--
+usec  hex      symbolic+offset/function size      data1    data2    data1 data2
+----- -------- ---------------------------------  -------- -------- ----- -----
+
+  101 c06220f8 __exception_text_start+0xf8/0x20c       520       9e  1312 158
+
+
+   usec is the elapsed usec since the beginning of the latency.
+
+   symbolic name may sometimes be incorrect
+
+   data1 and data2 are printed as both hexadecimal and decimal for convenience.
+
+
+
+An example of using trace_off_mark() is in:
+
+   patches/svsd/fix/RT-irqsoff-lite-marks-20081023.patch
+
+In this example, the calls to trace_off_mark() can be enabled by the config
+option "latency timing DEBUG info - MARKS - irq"
+(CONFIG_SNSC_LITE_IRQSOFF_DEBUG_MARK_IRQ).
+
+The arguments to trace_off_mark(), data1 and data2, can be any unsigned long
+value that is of interest to the person debugging.  The convention in this
+example is to provide a unique constant as data1 that identifies the location
+of the caller:
+
+data1  calling function     data2                 comment
+-----  -------------------  --------------------  ------------------------------
+
+0x100  send_ipi_message     msg [1]               beginning
+
+0x200  do_local_timer       zero                  beginning
+0x2ff  do_local_timer       zero                  end
+
+0x300  ipi_call_function    func() to be called   before func()
+0x3ff  ipi_call_function    zero                  after  func()
+
+0x400  do_IPI               nextmsg [1]           top of the IPI processing loop
+0x4ff  do_IPI               zero                  after  the IPI processing loop
+
+0x510  generic_handle_irq   irq number            before IRQ handler
+0x520  generic_handle_irq   irq number            after  IRQ handler
+
+
+Notes:
+
+   [1] msg and nextmsg are: enum ipi_msg_type, which for ARM can be found
+       in arch/arm/kernel/smp.c

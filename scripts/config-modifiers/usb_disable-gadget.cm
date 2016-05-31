@@ -1,0 +1,5 @@
+#!/bin/sh
+
+scripts/setconfig.py -f - <<EOF
+CONFIG_USB_GADGET=n
+EOF

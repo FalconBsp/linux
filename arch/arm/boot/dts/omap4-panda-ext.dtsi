@@ -1,0 +1,107 @@
+/*
+ * Copyright 2014 Sony Corporation
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+&mcspi1 {
+	bmi160 {
+		/* accelerometer & gyroscope */
+		compatible = "bosch,bmi160";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+		/* GPIO 155 */
+		gpios = <&gpio5 27 GPIO_ACTIVE_HIGH>;
+	};
+	hifc_spi {
+		compatible = "hifc_spi";
+		spi-max-frequency = <409600>;
+		reg = <1>;
+		spi-cpha;
+		/* trigger io  = 39 */
+		hifc-trigger-io = <39>;
+	};
+};
+
+&i2c4 {
+	ak8963@0c{
+		/* magnetometer */
+		compatible = "asahi-kasei,ak8963";
+		reg = <0x0c>;
+	};
+	/*
+	 * Currently the default I2C4 frequency that is configured for 400KHZ
+	 * is too quick to be supported by CXD5602, so if you want to use the
+	 * I2C4 as the transmission interface in CXD5602, the I2C4 speed
+	 * should be set to 100KHZ or less.
+	 */
+	hifc_i2c@24 {
+		compatible = "hifc_i2c";
+		reg = <0x24>;
+		/* trigger io  = 39 */
+		hifc-trigger-io = <39>;
+	};
+};
+
+&omap4_pmx_core {
+	pinctrl-0 = <
+			&twl6030_pins
+			&twl6040_pins
+			&mcpdm_pins
+			&mcbsp1_pins
+			&dss_hdmi_pins
+			&tpd12s015_pins
+			&hsusbb1_pins
+			/*
+			 * aboves are needed to be maintained same to
+			 * the original omap4-panda-common.dtsi.
+			 */
+			&bmi160_pins
+			&mcspi1_pins
+			&hifc_pins
+			&j6gpio_pins
+	>;
+
+	bmi160_pins: pinmux_bmi160_pins {
+		pinctrl-single,pins = <
+			/* gpio_155: 0x4a10'015c - 0x4a10'0040 */
+			0x11c (PIN_INPUT_PULLUP | MUX_MODE3)
+		>;
+	};
+
+	hifc_pins: gpio_hifc_pmx {
+		pinctrl-single,pins = <
+			0x1e (PIN_INPUT_PULLDOWN | MUX_MODE3)	/* gpio_39 */
+		>;
+	};
+
+	mcspi1_pins: pinmux_mcspi1_pins {
+		pinctrl-single,pins = <
+			0xf2 (PIN_INPUT | MUX_MODE0)		/*  mcspi1_clk.mcspi1_clk */
+			0xf4 (PIN_INPUT | MUX_MODE0)		/*  mcspi1_somi.mcspi1_somi */
+			0xf6 (PIN_INPUT | MUX_MODE0)		/*  mcspi1_simo.mcspi1_simo */
+			0xf8 (PIN_INPUT | MUX_MODE0)		/*  mcspi1_cs0.mcspi1_cs0 */
+		>;
+	};
+
+	j6gpio_pins: pinmux_j6gpio_pins {
+		pinctrl-single,pins = <
+			0x10 (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_32 */
+			0x12 (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_33 */
+			0x14 (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_34 */
+			0x16 (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_35 */
+			0x18 (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_36 */
+			0x1a (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_37 */
+			0x1c (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_38 */
+			0x34 (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_50 */
+			0x36 (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_51 */
+			0x3c (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_54 */
+			0x3e (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_55 */
+			0x40 (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_56 */
+			0x46 (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_59 */
+			0x4a (PIN_INPUT_PULLUP | MUX_MODE3) /* gpio_61 */
+		>;
+	};
+};

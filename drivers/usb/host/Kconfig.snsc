@@ -1,0 +1,43 @@
+comment "SNSC related options"
+	depends on SNSC
+
+config SNSC_USB_HOST_QUICK_BOOT
+	bool "Shorten boot time initialization"
+	depends on SNSC
+	depends on SNSC_USB_QUICK_BOOT
+
+comment "EHCI HCD (USB 2.0) related options"
+	depends on SNSC
+	depends on USB_EHCI_HCD
+
+config SNSC_USB_EHCI_OVERRIDE_PWRON2PWRGOOD
+	bool "Override default EHCI PwrOn2PwrGOOD"
+        depends on SNSC
+	depends on USB_EHCI_HCD
+	depends on SNSC_USB_HOST_QUICK_BOOT
+
+config SNSC_USB_EHCI_PWRON2PWRGOOD
+	int "Delay time after port power on (ms)"
+	depends on SNSC_USB_EHCI_OVERRIDE_PWRON2PWRGOOD
+	default "20"
+
+comment "OHCI HCD related options"
+	depends on SNSC
+	depends on USB_OHCI_HCD
+
+config SNSC_USB_OHCI_OVERRIDE_PWRON2PWRGOOD
+	bool "Override default OHCI PwrOn2PwrGOOD"
+        depends on SNSC
+	depends on USB_OHCI_HCD
+	depends on SNSC_USB_HOST_QUICK_BOOT
+
+config SNSC_USB_OHCI_PWRON2PWRGOOD
+	int "Delay time after port power on (ms)"
+	depends on SNSC_USB_OHCI_OVERRIDE_PWRON2PWRGOOD
+	default "20"
+
+config SNSC_USB_RH_PORT_POWER_CONTROL_XHCI_WITH_PAIR
+bool "Control root hub port power with pair for xhci."
+	depends on SNSC
+	depends on USB_XHCI_HCD
+	default n

@@ -1,0 +1,49 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+export DH_VERBOSE=1
+
+# These are used for cross-compiling and for saving the configure script
+# from having to guess our platform (since we know it already)
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+build:
+	touch build
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -rf build
+	rm -rf debian/perf
+	$(MAKE) clean
+	dh_clean
+
+binary-arch: build
+	rm -rf debian/tmp
+	rm -rf debian/perf
+	# Make perf
+	$(MAKE) NO_LIBPERL=0 NO_LIBPYTHON=0 NO_NEWT=0 NO_SLANG=0  NO_GTK2=0  NO_LIBUNWIND=0 \
+                NO_LIBNUMA=0 NO_LIBAUDIT=0 NO_DWARF=0 NO_DEMANGLE=0
+	$(MAKE) man
+	# Install perf
+	install -d debian/perf/usr/bin
+	install -p -m 777 perf debian/perf/usr/bin/perf_mini
+	install -p -m 777 perf-archive debian/perf/usr/bin/perf_mini-archive
+	install -d debian/perf/usr/share/doc/perf_mini
+	cat debian/copyright | sed -e "s&#OSNAME#&$(OSNAME)&g" \
+		> debian/perf/usr/share/doc/perf_mini/copyright
+	chmod 644 debian/perf/usr/share/doc/perf_mini/copyright
+	install -p -m 644 debian/changelog debian/perf/usr/share/doc/perf_mini/
+	gzip -9 debian/perf/usr/share/doc/perf_mini/changelog
+	install -d debian/perf/DEBIAN
+	cd debian/perf && \
+		md5sum `find usr -type f` > DEBIAN/md5sums
+	dh_strip -pperf
+	dh_compress -pperf
+	dh_fixperms -pperf
+	dh_shlibdeps -pperf
+	dh_gencontrol -pperf
+	dh_builddeb -pperf
+
+binary: binary-arch
+.PHONY: clean binary-arch binary

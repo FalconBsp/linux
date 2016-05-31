@@ -1,0 +1,64 @@
+#
+# SNSC related configurations
+#
+
+config SNSC_NLVER_CUSTOMVER_ENABLE
+       bool 'Use custom kernel version'
+       depends on SNSC
+
+config SNSC_NLVER_CUSTOMVER
+       string 'Custom kernel version'
+       depends on SNSC_NLVER_CUSTOMVER_ENABLE
+       depends on SNSC
+
+config SNSC_NLVER_REPOSITORYVERSION_AUTO
+       bool 'Embed git/arch repository revision'
+       depends on SNSC
+
+config SNSC_NLVER_NBLVER
+       bool 'Add support of NBL version'
+       depends on SNSC
+       depends on SNSC_NBLARGS
+       default n
+
+config SNSC_DEFERRED_INITCALLS
+	bool 'Support for deferred initcalls'
+	depends on SNSC
+	depends on ARM
+	default n
+
+config SNSC_DEFERRED_INITCALLS_SCSI
+	bool 'Enable deferred initcalls for SCSI'
+	depends on SNSC_DEFERRED_INITCALLS
+	depends on SCSI
+	default n
+
+config SNSC_DEFERRED_INITCALLS_GROUP_BLK_DEV_SD
+	int 'Group number for SCSI disk driver (0-31)'
+	depends on SNSC_DEFERRED_INITCALLS_SCSI
+	depends on BLK_DEV_SD
+	default 16
+
+config SNSC_DEFERRED_INITCALLS_USB
+	bool 'Enable deferred initcalls for USB'
+	depends on SNSC_DEFERRED_INITCALLS
+	depends on USB
+	default n
+
+config SNSC_DEFERRED_INITCALLS_GROUP_USB_HCD
+	int 'Group number for USB Host Controller drivers (0-31)'
+	depends on SNSC_DEFERRED_INITCALLS_USB
+	depends on USB_EHCI_HCD || USB_OHCI_HCD
+	default 16
+
+config SNSC_DEFERRED_INITCALLS_GROUP_USB_STORAGE
+	int 'Group number for USB Storage driver (0-31)'
+	depends on SNSC_DEFERRED_INITCALLS_USB
+	depends on USB_STORAGE
+	default 16
+
+config SNSC_DEFERRED_INITCALLS_GROUP_USB_VIDEO_CLASS
+	int 'Group number for USB Video Class driver (0-31)'
+	depends on SNSC_DEFERRED_INITCALLS_USB
+	depends on USB_VIDEO_CLASS
+	default 16

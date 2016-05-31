@@ -1,0 +1,71 @@
+comment "SNSC instrumentation options"
+	depends on SNSC
+
+config SNSC_BOOT_TIME
+	bool  'Boot time analysis'
+	depends on SNSC
+
+choice
+	prompt "Boot time version"
+	depends on SNSC
+	depends on SNSC_BOOT_TIME
+	default SNSC_BOOT_TIME_VERSION_2
+
+config SNSC_BOOT_TIME_VERSION_1
+	bool "Boot time version 1"
+	depends on SNSC_BOOT_TIME
+	help
+		This version does not support the configurable max comment
+	  	length and the ringbuffer.
+
+config SNSC_BOOT_TIME_VERSION_2
+	bool "Boot time version 2"
+	depends on SNSC_BOOT_TIME
+	help
+		This version supports the configurable max comment length
+		and the ringbuffer.
+endchoice
+
+config SNSC_BOOT_TIME_MAX_COMMENT
+	int 'Max comment length for boot time'
+	depends on SNSC
+	depends on SNSC_BOOT_TIME
+	depends on SNSC_BOOT_TIME_VERSION_2
+	range 24 128
+  	default 24
+	help
+		The value of SNSC_BOOT_TIME_MAX_COMMENT should be
+		4bytes aligned.
+
+config SNSC_BOOT_TIME_RINGBUFFER
+	bool 'use the boot time ringbuffer mode'
+	depends on SNSC
+	depends on SNSC_BOOT_TIME
+	depends on SNSC_BOOT_TIME_VERSION_2
+	default n
+
+config SNSC_BOOT_TIME_USE_NBLARGS
+	bool 'Use NBLArgs for boot time save area'
+	depends on SNSC
+	depends on SNSC_NBLARGS
+	depends on SNSC_BOOT_TIME
+
+config SNSC_DEFAULT_BOOT_TIME_BASE
+	hex 'Default base addresss of boot time save area'
+	depends on SNSC
+	depends on SNSC_BOOT_TIME
+	default 0x80800000 if ARCH_MX3
+	default 0x80000100 if ARCH_OMAP
+	default 0x00800000 if ARCH_REALVIEW
+	default 0x80800000 if ARCH_NE1
+	default 0x40002000 if ARCH_EMXX
+	default 0x5FFFDFFF if ARCH_SUNXI
+	default 0x30000000 if X86
+	default 0x10000100 if ARCH_ZYNQ
+	default 0x80000100 if ARCH_TEGRA
+
+config SNSC_DEFAULT_BOOT_TIME_SIZE
+	hex 'Default size of boot time save area'
+	depends on SNSC
+	depends on SNSC_BOOT_TIME
+	default 0x2000

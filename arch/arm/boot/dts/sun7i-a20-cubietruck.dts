@@ -1,0 +1,148 @@
+/*
+ * Copyright 2013 Oliver Schinagl
+ *
+ * Oliver Schinagl <oliver@schinagl.nl>
+ *
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
+ *
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
+ */
+
+/dts-v1/;
+/include/ "sun7i-a20.dtsi"
+
+/ {
+	model = "Cubietech Cubietruck";
+	compatible = "cubietech,cubietruck", "allwinner,sun7i-a20";
+
+	soc@01c00000 {
+
+		mmc0: mmc@01c0f000 {
+                	pinctrl-names = "default";
+                	pinctrl-0 = <&mmc0_pins_a>, <&mmc0_cd_pin_reference_design>;
+			vmmc-supply = <&reg_vcc3v3>;
+                	bus-width = <4>;
+                	cd-gpios = <&pio 7 1 0>; /* PH1 */
+                	cd-inverted;
+                	status = "okay";
+                };
+		sunxi_ehci_1: sun-ehci@0x01c14000 {
+			vbus-supply = <&regulator_usb_vbus_1>;
+			status = "okay";
+		};
+
+		sunxi_ehci_2: sun-ehci@0x01c1c000 {
+			vbus-supply = <&regulator_usb_vbus_2>;
+			status = "okay";
+		};
+
+		pinctrl@01c20800 {
+			led_pins_cubietruck: led_pins@0 {
+				allwinner,pins = "PH7", "PH11", "PH20", "PH21";
+				allwinner,function = "gpio_out";
+				allwinner,drive = <0>;
+				allwinner,pull = <0>;
+			};
+
+			usb_vbus_pin_1: usb_vbus1@01c28000 {
+				allwinner,pins = "PH6";
+				allwinner,function = "gpio_out";
+				allwinner,drive = <0>;
+				allwinner,pull = <2>;
+			};
+
+			usb_vbus_pin_2: usb_vbus2@01c28000 {
+				allwinner,pins = "PH3";
+				allwinner,function = "gpio_out";
+				allwinner,drive = <0>;
+				allwinner,pull = <2>;
+			};
+
+		};
+
+		uart0: serial@01c28000 {
+			pinctrl-names = "default";
+			pinctrl-0 = <&uart0_pins_a>;
+			status = "okay";
+		};
+
+		gmac: ethernet@01c50000 {
+			pinctrl-names = "default";
+			pinctrl-0 = <&gmac_pins_rgmii>;
+			snps,phy-addr = <1>;
+			phy-mode = "rgmii";
+			status = "okay";
+		};
+
+		gmac: ethernet@01c50000 {
+			pinctrl-names = "default";
+			pinctrl-0 = <&gmac_pins_rgmii>;
+			snps,phy-addr = <1>;
+			phy-mode = "rgmii";
+			status = "okay";
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&led_pins_cubietruck>;
+
+		blue {
+			label = "cubietruck:blue:usr";
+			gpios = <&pio 7 21 0>;
+		};
+
+		orange {
+			label = "cubietruck:orange:usr";
+			gpios = <&pio 7 20 0>;
+		};
+
+		white {
+			label = "cubietruck:white:usr";
+			gpios = <&pio 7 11 0>;
+		};
+
+		green {
+			label = "cubietruck:green:usr";
+			gpios = <&pio 7 7 0>;
+		};
+	};
+
+	regulators {
+		compatible = "simple-bus";
+		pinctrl-names = "default";
+
+		regulator_usb_vbus_1: usb-vbus1 {
+			compatible = "regulator-fixed";
+			pinctrl-names = "default";
+			pinctrl-0 = <&usb_vbus_pin_1>;
+			regulator-name = "usb-vbus_1";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5000000>;
+			enable-active-high;
+			gpio = <&pio 7 6 0>;
+		};
+
+		regulator_usb_vbus_2: usb-vbus2 {
+			compatible = "regulator-fixed";
+			pinctrl-names = "default";
+			pinctrl-0 = <&usb_vbus_pin_2>;
+			regulator-name = "usb-vbus_2";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5000000>;
+			enable-active-high;
+			gpio = <&pio 7 3 0>;
+		};
+	};
+
+	reg_vcc3v3: vcc3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+	};
+};

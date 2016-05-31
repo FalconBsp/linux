@@ -1,0 +1,482 @@
+#!/usr/bin/perl
+
+# Copyright (C) 2010 Sony Corporation of America, Frank Rowand
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; version 2 of the License.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Suite 500, Boston, MA 02110, USA.
+
+
+$VUFX = "100811c";
+
+
+#use strict 'vars'; # need to declare variables as "my" if enabled
+use strict 'refs';
+use strict subs;
+
+
+# strip off everything before final "/"
+(undef, $script_name) = split(/^.*\//, $0);
+
+
+use Getopt::Long;
+
+
+#______________________________________________________________________________
+sub usage {
+
+# ***** when editing, be careful to not put tabs in the string printed:
+
+	print
+"
+
+usage:
+
+  $script_name [file[...]]
+
+   [-begin_gmt TIME]   ignore periods before TIME (gmt timezone)
+   [-begin_loc TIME]   ignore periods before TIME (local timezone)
+   [-begin_msec MSEC]  ignore periods before MSEC msec
+   [-end_gmt TIME]     ignore periods after TIME (gmt timezone)
+   [-end_loc TIME]     ignore periods after TIME (local timezone)
+   [-end_msec MSEC]    ignore periods after MSEC msec
+   [-extract NUM]      extract {ts, value} pairs, in rate/second.  NUM is the
+                       number of the data value field.
+   [-field_name NUM]   print the name of field number NUM
+   [-field_num NAME]   print the number of the field named NAME
+   [-help]             print program usage and exit
+   [-max_field]        print the largest field NUM in the header field tags
+   [-min_field]        print the smallest field NUM in the header field tags
+   [-nr_cpus]          print the nr_cpus tag from the header
+   [-period_msec]      print the period_nsec tag from the header
+   [-ts_date]          include the yyyy/mm/dd in -ts_gmt and -ts_loc
+   [-ts_field]         print the field NUM of the timestamp field
+   [-ts_gmt]           print the period time as gmt dd/mm/yy hh:mm:ss.mmm
+   [-ts_loc]           print the period time as local dd/mm/yy hh:mm:ss.mmm
+   [-ts_rel]           print the period time as sec.msec relative to start
+   [-version]          print program version and exit
+
+
+  Process migration_trace_lite trace file (from /debug/migration_trace/trace
+  or /sys/kernel/debug/migration_trace/trace).
+
+
+  NOTES
+
+  Flags can be prefixed with either '-' or '--'.
+
+  For --begin_gmt, --begin_loc, --end_gmt, and --end_loc TIME is specified
+  (in quotes) as: yyyy/mm/dd hh:mm:ss.mmm.
+
+
+";
+
+	return {};
+}
+
+
+
+#______________________________________________________________________________
+#______________________________________________________________________________
+
+if (!GetOptions(
+	"begin_gmt=s"				=> \$filter_begin_gmt,
+	"begin_loc=s"				=> \$filter_begin_loc,
+	"begin_msec=i"				=> \$filter_begin_msec,
+	"end_gmt=s"					=> \$filter_end_gmt,
+	"end_loc=s"					=> \$filter_end_loc,
+	"end_msec=i"				=> \$filter_end_msec,
+	"extract=i"					=> \$extract_field_num,
+	"field_name=i"				=> \$print_field_name,
+	"field_num=s"				=> \$print_field_num,
+	"header_version"			=> \$print_header_version,
+	"help"						=> \$help,
+	"max_field"					=> \$print_max_field,
+	"min_field"					=> \$print_min_field,
+	"nr_cpus"					=> \$print_nr_cpus,
+	"period_msec"				=> \$print_period_msec,
+	"ts_date"					=> \$print_ts_date,
+	"ts_field"					=> \$print_ts_field,
+	"ts_gmt"						=> \$print_ts_gmt,
+	"ts_loc"						=> \$print_ts_loc,
+	"ts_rel"						=> \$print_ts_rel,
+	"version"					=> \$version,
+	)) {
+	print STDERR "\nERROR processing command line options\n\n";
+	print STDERR "For help, type '$script_name --help'\n\n";
+
+	exit 1;
+}
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if ($help){
+
+	&usage;
+
+	exit 1;
+}
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if ($version) {
+	print STDERR "\n$script_name  $VUFX\n\n";
+	print STDERR "\n";
+
+	exit 0;
+}
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+if (defined($extract_field_num) &&
+	 ((defined($print_ts_gmt) + defined($print_ts_loc) + defined($print_ts_rel)) != 1)
+	) {
+
+	# default to --ts_rel
+	$print_ts_rel = 1;
+}
+
+# options to extract info from the headers
+$header_mode =
+
+	defined($print_field_name ) +
+	defined($print_field_num  ) +
+	defined($print_max_field  ) +
+	defined($print_min_field  ) +
+	defined($print_period_msec) +
+	defined($print_nr_cpus    ) +
+	defined($print_ts_field   ) +
+	defined($print_version    )
+	;
+
+$option_count =
+
+	defined($extract_field_num) +
+
+	defined($print_field_name ) +
+	defined($print_field_num  ) +
+	defined($print_max_field  ) +
+	defined($print_min_field  ) +
+	defined($print_period_msec) +
+	defined($print_nr_cpus    ) +
+	defined($print_ts_field   ) +
+	defined($print_version    )
+	;
+
+if ($option_count > 1) {
+	print STDERR "\n";
+	print STDERR "ERROR: more than one header item requested\n";
+	print STDERR "\n";
+
+	exit 1;
+}
+
+
+# field will be extracted from a zero base indexed array
+$extract_field_num--;
+
+
+#______________________________________________________________________________
+#______________________________________________________________________________
+
+#
+# scan through input files (STDIN or list of files on command line)
+#
+
+$new_file = 1;
+
+LINE:
+while ($line = <ARGV>) {
+
+	if ($new_file) {
+		$new_file = 0;
+		$filename = $ARGV;
+	}
+
+	next LINE if ($line =~ /^\s*$/);					# skip blank lines
+
+	# ------  comments, tags
+
+	if ($line =~ /^\s*#/) {
+
+		# -- validate version
+
+		if ($line =~ /^\s*#\s*version\s+/) {
+
+			$trace_fmt_version = $line;
+			$trace_fmt_version =~ s/^\s*#\s*version\s+//;
+
+			($tfv_major, $tfv_minor, $tfv_fix) = split(/\./, $trace_fmt_version);
+
+			$ok_major = 1;
+			$ok_minor = 0;
+
+			if ($tfv_major != $ok_major) {
+				print STDERR "\n";
+				print STDERR "ERROR: file $filename format version is new\n";
+				print STDERR "       format version is $trace_fmt_version\n";
+				print STDERR "       Able to partially process format format $ok_major.x.x\n";
+				print STDERR "\n";
+
+				exit 1;
+			}
+		}
+
+
+		# -- extract header fields
+
+		$line =~ s/^\s*#\s*//;
+		($tag) = split(/\s+/, $line);
+
+		# the "?" gives minimal match
+		$line =~ s/.*?\s+//;
+
+		($data_1, $data_2) = split(/\s+/, $line);
+
+		if ($tag eq "field") {
+
+			if (defined($print_field_name) && ($data_1 == $print_field_name)) {
+				$line =~ s/.*?\s+//;
+				print "$line";
+				exit 0;
+			}
+
+			if (defined($print_field_num) && ($data_2 eq $print_field_num)) {
+				$line =~ s/.*?\s+//;
+				print "$data_1\n";
+				exit 0;
+			}
+
+			if ($data_1 > $max_field_num) {
+				$max_field_num = $data_1;
+			}
+
+			if (!defined($min_field_num) ||($data_1 < $min_field_num)) {
+				$min_field_num = $data_1;
+			}
+
+
+		} elsif ($tag eq "gettimeofday") {
+
+			# the "+ 0.5" in $gtod_start_msec is simple round
+			$gtod_start_sec  = $data_1;
+			$gtod_start_usec = $data_2;
+			$gtod_start_msec = int(($gtod_start_usec / 1000.0) + 0.5) / 1000.0;
+			$gtod_start      = $gtod_start_sec + $gtod_start_msec;
+
+
+		} elsif ($tag eq "nr_cpus") {
+
+			if (defined($print_nr_cpus)) {
+				print "$data_1\n";
+				exit 0;
+			}
+
+		} elsif ($tag eq "period_msec") {
+
+			$period_msec = $data_1;
+
+			if (defined($print_period_msec)) {
+				print "$data_1\n";
+				exit 0;
+			}
+
+		} elsif ($tag eq "ts_field") {
+
+			$ts_field_num = $data_1 - 1;
+			if (defined($print_ts_field)) {
+				print "$data_1\n";
+				exit 0;
+			}
+
+		} elsif ($tag eq "version") {
+
+			if (defined($print_header_version)) {
+				print "$data_1\n";
+				exit 0;
+			}
+		}
+
+
+		next LINE;
+	}
+
+
+	# ------  AFTER: comments, tags
+
+	if (!defined($post_header_checks)) {
+
+		$post_header_checks = 1;
+
+
+		if ($header_mode) {
+
+			if ($print_max_field && defined($max_field_num)) {
+
+				print "$max_field_num\n";
+				exit 0;
+			}
+
+			if ($print_min_field && defined($min_field_num)) {
+
+				print "$min_field_num\n";
+				exit 0;
+			}
+
+			print STDERR "\n";
+			print STDERR "ERROR: item not found\n";
+			print STDERR "\n";
+
+			exit 1;
+		}
+
+
+		if ($extract_field_num < ($min_field_num - 1)) {
+
+			print STDERR "\n";
+			print STDERR "ERROR: --extract field < minimum field\n";
+			print STDERR "\n";
+
+			exit 1;
+		}
+
+
+		if ($extract_field_num > ($max_field_num - 1)) {
+
+			print STDERR "\n";
+			print STDERR "ERROR: --extract field > maximum field\n";
+			print STDERR "\n";
+
+			exit 1;
+		}
+
+
+		if (!defined($period_msec)) {
+
+			print STDERR "\n";
+			print STDERR "ERROR: missing header: period_msec\n";
+			print STDERR "\n";
+
+			exit 1;
+		}
+
+		$period_sec = $period_msec / 1000;
+	}
+
+
+	# ------  extract fields
+
+	$line =~ s/^\s+//;
+	@fields = split(/\s+/, $line);
+
+	$ts = $fields[$ts_field_num];
+
+	$ts_as_msec = int($ts * 1000);
+
+	# -- time filters
+
+	if (defined($filter_begin_msec) && ($filter_begin_msec > $ts_as_msec)) {
+		next LINE;
+	}
+	if (defined($filter_end_msec) && ($filter_end_msec < $ts_as_msec)) {
+		last LINE;
+	}
+
+
+	$gtod      = $ts + $gtod_start;
+	$gtod_sec  = int($gtod);
+	$gtod_msec = (($gtod - $gtod_sec) * 1000) + 0.5; # + 0.5 gives simple round
+
+
+	if (defined($filter_begin_gmt) || defined($filter_end_gmt)) {
+
+		($sec, $min, $hour, $mday, $mon, $year) = gmtime($gtod_sec);
+
+		$date = sprintf("%04d/%02d/%02d %02d:%02d:%02d.%03d",
+							 $year + 1900, $mon + 1, $mday,
+							 $hour, $min, $sec, $gtod_msec);
+
+		if (defined($filter_begin_gmt) && ($filter_begin_gmt gt $date)) {
+			next LINE;
+		}
+		if (defined($filter_end_gmt)   && ($filter_end_gmt   lt $date)) {
+			last LINE;
+		}
+	}
+
+	if (defined($filter_begin_loc) || defined($filter_end_loc)) {
+
+		($sec, $min, $hour, $mday, $mon, $year) = localtime($gtod_sec);
+
+		$date = sprintf("%04d/%02d/%02d %02d:%02d:%02d.%03d",
+							 $year + 1900, $mon + 1, $mday,
+							 $hour, $min, $sec, $gtod_msec);
+
+		if (defined($filter_begin_loc) && ($filter_begin_loc gt $date)) {
+			next LINE;
+		}
+		if (defined($filter_end_loc)   && ($filter_end_loc   lt $date)) {
+			last LINE;
+		}
+	}
+
+
+	# -- print
+
+	if (defined($print_ts_gmt)) {
+		($sec, $min, $hour, $mday, $mon, $year) = gmtime($gtod_sec);
+
+		if (defined($print_ts_date)) {
+			printf("%04d/%02d/%02d ", $year + 1900, $mon + 1, $mday);
+		}
+		printf("%02d:%02d:%02d.%03d ", $hour, $min, $sec, $gtod_msec);
+	}
+
+	if (defined($print_ts_loc)) {
+		($sec, $min, $hour, $mday, $mon, $year) = localtime($gtod_sec);
+
+		if (defined($print_ts_date)) {
+			printf("%04d/%02d/%02d ", $year + 1900, $mon + 1, $mday);
+		}
+		printf("%02d:%02d:%02d.%03d ", $hour, $min, $sec, $gtod_msec);
+	}
+
+	if (defined($print_ts_rel)) {
+		printf("%.3f", $fields[$ts_field_num]);
+	}
+
+	printf(" %.2f\n", $fields[$extract_field_num] / $period_sec);
+
+
+} continue {
+
+
+	if (eof(ARGV)) {
+
+		$new_file = 1;
+
+		close ARGV;  # resets $. (line count) to 1
+	}
+
+}
+
+
+
+
+#______________________________________________________________________________
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#_______________________________________________________________________________
+# vi config follows:
+
+# ~/.exrc must contain "set modelines" for tabs to be set automatically
+# ex:set tabstop=3 shiftwidth=3 sts=0:

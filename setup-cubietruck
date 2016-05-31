@@ -1,0 +1,11 @@
+#!/bin/sh
+
+scripts/setup_common.py --full-name="cubietruck-board" \
+                        --cross-compile="arm-linux-gnueabihf-" \
+                        --arch-name="arm" \
+                        --target-name="cubietruck" \
+                        --fixup-kernel-headers="scripts/kernel_headers/default.fixup" \
+                        --defconfig-base="arch/arm/configs/cubietruck_defconfig" \
+                        --build-instruction="make" \
+                        --image="arch/arm/boot/uImage" \
+                        "$@"

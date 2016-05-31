@@ -1,0 +1,34 @@
+#
+# Accelerometer and gyroscope drivers
+#
+menu "Accelerometers and gyroscopes"
+
+config IIO_BMI160_ACCEL_GYRO_6AXIS
+	tristate "BMI160 accelerometer and gyroscope 6-Axis Driver"
+	depends on (I2C || SPI_MASTER) && SYSFS
+	select IIO_BMI160_CORE
+	select IIO_BMI160_ACCEL_GYRO_I2C_6AXIS if (I2C)
+	select IIO_BMI160_ACCEL_GYRO_SPI_6AXIS if (SPI_MASTER)
+	select IIO_KFIFO_BUF if (IIO_BUFFER)
+	help
+	  Say yes here to build support for a BMI160 accelerometer and gyroscope
+
+	  This driver can also be built as a module. If so, will be created
+	  these modules:
+	  - bmi160_accel_gyro (core functions for the driver [it is mandatory]);
+	  - bmi160_accel_gyro_i2c (necessary for the I2C devices [optional*]);
+	  - bmi160_accel_gyro_spi (necessary for the SPI devices [optional*]);
+
+	  (*) one of these is necessary to do something.
+
+config IIO_BMI160_ACCEL_GYRO_I2C_6AXIS
+	tristate
+	depends on IIO_BMI160_ACCEL_GYRO_6AXIS
+	depends on IIO_BMI160_I2C
+
+config IIO_BMI160_ACCEL_GYRO_SPI_6AXIS
+	tristate
+	depends on IIO_BMI160_ACCEL_GYRO_6AXIS
+	depends on IIO_BMI160_SPI
+
+endmenu

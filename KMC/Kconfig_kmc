@@ -1,0 +1,81 @@
+#
+# PARTNER-Jet Linux support patch by KMC
+#
+# Ver2.0	08.04.14
+# Ver2.01	08.07.22	depends keyword "on"
+#
+
+menu 'PARTNER Debugging'
+
+config KMC_PATCH
+    bool "Enable patch for PARTNER debug"
+    default n
+    depends on ARM
+    select DEBUG_INFO
+
+config KMC_DEBUG_ON_QEMU
+    bool "kernel running on qemu simulator (ARM only)"
+    default n
+    depends on KMC_PATCH && ARM
+
+config KMC_DEBUG_FOR_ANDROID
+    bool "debug mode for android"
+    default n
+    depends on KMC_PATCH
+    select KMC_NO_USER_PATCH
+
+config KMC_MODULE_DEBUG
+    bool "Loadable module debug by PARTNER-Jet"
+    default n
+    depends on KMC_PATCH && MODULES
+
+config KMC_NO_USER_PATCH
+    bool "include userland debug patch"
+    default n
+    depends on KMC_PATCH
+
+config KMC_NOTIFY_UPDATE_CONTEXTID
+    bool "Enable H/W breakpoints for user space processes"
+    default n
+    depends on KMC_PATCH && ARM
+
+config KMC_USE_BT
+    bool "use PARTNER GigaTrace(PARTNER-Jet M40, ...)"
+    default n
+    depends on KMC_PATCH
+
+config KMC_EVENTTRACKER_SUPPORT
+    bool "enable PARNTER-Jet Event Tracker"
+    default n
+    depends on KMC_PATCH
+
+config KMC_EVT_USE_ARM_GLOBAL_TIMER
+    bool "use ARM Cortex-A9 MPCore Global Timer"
+    default n
+    depends on KMC_EVENTTRACKER_SUPPORT && ARM
+
+config KMC_EVENTTRACKER_RTM
+    bool "event data is only from CPU's trace"
+    default n
+    depends on KMC_EVENTTRACKER_SUPPORT && KMC_USE_BT
+
+config KMC_EVENTTRACKER_LOG_SIZE
+    int "max event count (x1024, set is 1, 2, 4, 8, 16, 32, 64, .....)"
+    depends on KMC_EVENTTRACKER_SUPPORT && !KMC_EVENTTRACKER_RTM
+    default 4
+
+config KMC_EVENTTRACKER_PNAME_SIZE
+    int "max process&thread name count(x256, set 2^n(1,2,4,8,16,32,64,....))"
+    depends on KMC_EVENTTRACKER_SUPPORT
+    default 4
+
+    menu 'PARTNER Extend menu'
+        depends on KMC_PATCH
+
+        config KMC_PARTNER_COLLECT_THREAD_OFF
+        bool "OFF:PARTNER THREAD COLLECTING"
+        default n
+
+    endmenu
+
+endmenu

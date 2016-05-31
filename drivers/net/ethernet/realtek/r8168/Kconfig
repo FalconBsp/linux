@@ -1,0 +1,40 @@
+config R8168
+	tristate "Realtek 8168 gigabit ethernet support"
+	depends on PCI
+	select CRC32
+	select NET_CORE
+	select MII
+	---help---
+	  Say Y here if you have a Realtek 8168 PCI Gigabit Ethernet adapter.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called r8168.
+
+if R8168
+
+config R8168_ENABLE_REALWOW_SUPPORT
+	bool
+	default n
+
+config R8168_ENABLE_DASH_SUPPORT
+	bool
+	default n
+
+config R8168_CONFIG_DOWN_SPEED_100
+	bool
+	default n
+
+config R8168_CONFIG_ASPM
+	bool
+	default y
+
+config R8168_ENABLE_S5WOL
+	bool
+	default y
+
+config R8168_ENABLE_EEE
+	bool
+	default n
+
+endif # R8168
+

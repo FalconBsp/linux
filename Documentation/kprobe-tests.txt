@@ -1,0 +1,1279 @@
+------------------------------------------------------------------------
+Title	: Kernel Probes test modules
+------------------------------------------------------------------------
+
+Kprobes is a kernel debugging technique. This can be tested using kernel
+modules. These kernel module will hook the user defined pre handler, post
+handler and fault handler to the probed point.
+
+When configuring the kernel using make menuconfig/xconfig/oldconfig,
+ensure that CONFIG_KPROBES is set to "y".  Under "Instrumentation
+Support", look for "Kprobes".
+
+And also ensure that CONFIG_SAMPLES is set to "y" under "Kernel hacking" menu
+and then set CONFIG_SAMPLE_KPROBES to "m" in order to build all kprobes sample
+kernel modules
+
+To load and unload Kprobes-based instrumentation modules, make sure
+"Loadable module support" (CONFIG_MODULES) and "Module unloading"
+(CONFIG_MODULE_UNLOAD) are set to "y".
+
+To enable the debugfs configuration option in the .config follow as below
+CONFIG_DEBUG_FS = y
+(OR) if menuconfig is used select the following
+Kernel hacking --->
+	[*]    Debug Filesystem
+
+The Kprobes modules are:
+
+- samples/kprobes/k-00x.c ( x = 1,2....9 )
+
+
+1. k-001.c
+
+A Kprobe with probe point to the kernel function 'do_fork'.
+This will test the working of KPROBES support.
+
+DESCRIPTION:
+It has a kernel probe 'k_001_kpr' of the type `struct kprobe`.
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler    : k_001_before_hook
+2. Kprobe's post-handler   : k_001_after_hook
+
+And the probed address is : k_001_kpr.symbol_name = "do_fork"; 
+
+When this module is inserted using insmod, it registers the k_001_kpr
+using 'register_kprobe(&k_001_kpr)'.
+
+When the address of a kernel routine 'do_fork' is hit, Kprobes calls
+user defined pre handler 'k_001_before_hook()'. As part of the this
+function call it dumps the stack using dump_stack() and also shows
+the register content at that point using k_001_show_allregs().
+
+After the probed instruction single-stepped, Kprobes calls the post
+handler 'k_001_after_hook()'. This also does the same dump_stack and
+shows the register content at that point using k_001_show_allregs().
+
+While unloading the module using rmmod(), it deregisters the k_001_kpr
+using 'unregister_kprobe()'.
+
+
+2. k-002.c
+
+OBJECTIVE   :
+Multiple Kprobes with the same probe point for the kernel function
+'do_fork'.
+
+DESCRIPTION :
+	It has two kernel probes 'k_002_kp1 and k_002_kp2' of the type
+`struct kprobe`.
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler for k_002_kp1	: k_002_before_hook
+2  Kprobe's post-handler for k_002_kp1	: k_002_after_hook
+3. Kprobe's pre-handler for k_002_kp2	: k_002_pre_handler
+4. Kprobe's post-handler for k_002_kp2	: k_002_post_handler
+
+And the probed address for k_002_kp1 is : k_002_kp1.symbol_name = "do_fork"; 
+And the probed address for k_002_kp2 is : k_002_kp1.symbol_name = "do_fork";
+
+When this module is inserted using insmod, it registers the k_002_kp1 and
+k_002_kp2 using 'register_kprobe()'.
+
+When the address of a kernel routine 'do_fork' is hit, Kprobes calls
+user defined pre handlers 'k_002_pre_handler' and 'k_002_before_hook'.
+
+After the probed instruction single-stepped, Kprobes calls the post
+handlers 'k_002_post_handler' and 'k_002_after_hook()'.
+
+While unloading the module using rmmod(), it deregisters the k_002_kp1
+and k_002_kp2 using 'unregister_kprobe()'.
+
+
+3. k-003.c
+
+OBJECTIVE   :
+Multiple kprobes with the different probe point for the kernel function
+'do_fork' and 'sys_gettimeofday'.
+
+DESCRIPTION :
+It has two kernel probes 'k_003_kp1 and k_003_kp2' of the type
+`struct kprobe`.
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler for k_003_kp1	: k_003_before_hook
+2  Kprobe's post-handler for k_003_kp1	: k_003_after_hook
+3. Kprobe's pre-handler for k_003_kp2	: k_003_pre_handler
+4. kprobe's post-handler for k_003_kp2	: k_003_post_handler
+
+And the probed address for k_003_kp1 is : k_003_kp1.symbol_name = "do_fork"; 
+And for k_003_kp2 is : k_003_kp2.symbol_name("sys_gettimeofday").
+
+When this module is inserted using insmod, it registers the k_003_kp1 and
+k_003_kp2 using 'register_kprobe()'.
+
+When the address of a kernel routine 'do_fork' is hit, Kprobes calls
+user defined pre handlers 'k_003_before_hook'.
+
+When the address of a kernel routine 'sys_gettimeofday' is hit, Kprobes
+calls user defined pre handlers 'k_003_pre_handler'.
+
+After the probed instruction single-stepped, Kprobes calls the post
+handlers 'k_003_post_handler' and 'k_003_after_hook()' for each probed
+address.
+
+While unloading the module using rmmod(), it deregisters the k_003_kp1
+and k_003_kp2 using 'unregister_kprobe()'.
+
+
+4. k-004.c
+
+Kprobes with the fault handler for the kernel function 'sys_gettimeofday'.
+
+DESCRIPTION:
+It has a kernel probe 'k_004_kpr' of the type `struct kprobe`.
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler    : k_004_before_hook
+2. Kprobe's post-handler   : k_004_after_hook
+3. Kprobe's fault-handler  : k_004_fault_probe
+
+And the probed address is : k_004_kpr.symbol_name= "sys_gettimeofday";
+
+When this module is inserted using insmod, it registers the k_004_kpr
+using 'register_kprobe(&k_004_kpr)'.
+
+When the address of a kernel routine 'sys_gettimeofday' is hit, Kprobes
+calls user defined pre handler 'k_004_before_hook()'. As part of the this
+function call it dumps the stack using dump_stack() and also shows the
+register content at that point using k_004_show_allregs().
+And also pre handler k_004_before_hook() tries to genearate a fault by
+doing put_user() for a null buffer.
+
+When this fault is hit, Kprobe calls kprobe's fault handler 'k_004_fault_probe'.
+After the probed instruction single-stepped, Kprobes calls the post handler
+'k_004_after_hook()'. This also does the same dump_stack and shows the
+register content at that point using k_004_show_allregs().
+
+While unloading the module using rmmod(), it deregisters the k_004_kpr using
+'unregister_kprobe()'.
+
+
+5. k-005.c
+
+A Kprobe with probe point to the kernel function sys_read.
+
+DESCRIPTION:
+It has a kernel probe 'k_005_kpr' of the type `struct kprobe`.
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler    : k_005_before_hook
+2. Kprobe's post-handler   : k_005_after_hook
+
+And the probed address is : k_005_kpr.symbol_name = "sys_read";
+
+When this module is inserted using insmod, it registers the k_005_kpr
+using 'register_kprobe(&k_005_kpr)'.
+
+When the address of a kernel routine 'sys_read' is hit, Kprobes
+calls user defined pre handler 'k_005_before_hook()'.
+
+After the probed instruction single-stepped, Kprobes calls the post
+handler 'k_005_after_hook()'. This will increases the count variable
+'k_005_kr_kprobe_read_cnt' by one.
+
+While unloading the module using rmmod(), it deregisters the k_005_kpr
+using 'unregister_kprobe()' and also prints the total number of read count.
+
+
+6. k-006.c
+
+A Kprobe with probe point to the kernel function sys_write.
+
+DESCRIPTION:
+It has a kernel probe 'k_006_kpr' of the type `struct kprobe`.
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler    : k_006_before_hook
+2. Kprobe's post-handler   : k_006_after_hook
+
+And the probed address is : k_006_kpr.symbol_name = "sys_write"; 
+
+When this module is inserted using insmod, it registers the k_006_kpr
+using 'register_kprobe(&k_006_kpr)'.
+
+When the address of a kernel routine 'sys_read' is hit, Kprobes calls
+user defined pre handler 'k_006_before_hook()'.
+
+After the probed instruction single-stepped, Kprobes calls the post
+handler 'k_006_after_hook()'. This will increases the count variable
+'k_006_kr_kprobe_write_cnt' by one.
+
+While unloading the module using rmmod(), it deregisters the k_006_kpr
+using 'unregister_kprobe()' and also prints the total number of write
+count.
+
+
+7. k-007.c
+
+Kprobes with probe points to the kernel functions __kmalloc and kfree.
+
+DESCRIPTION :
+It has two kernel probes 'k_007_kp and k_007_kp1' of the type
+`struct kprobe`.
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler for k_007_kp	: k_007_kmalloc_hndlr
+2. Kprobe's pre-handler for k_007_kp1	: k_007_kfree_hndlr
+
+And the probed address for k_007_kp is : k_007_kp.symbol_name = "__kmalloc".
+And the probed address for k_007_kp1 is: k_007_kp1.symbol_name = "kfree".
+
+When this module is inserted using insmod, it registers the k_007_kp and
+k_007_kp1 using 'register_kprobe()'.
+
+When the address of a kernel routine '__kmalloc' is hit, Kprobes calls
+user defined pre handlers 'k_007_kmalloc_hndlr'. This will increases
+the count variable 'k_007_kmalloc_count' by one.
+
+When the address of a kernel routine 'free' is hit, Kprobes calls user
+defined pre handlers 'k_007_kfree_hndlr'. This will increases the
+count variable 'k_007_kfree_count' by one.
+
+After the pre handler excution it does the single-stepping of the
+probed instruction.
+
+While unloading the module using rmmod(), it deregisters the k_003_kp
+and k_003_kp1 using 'unregister_kprobe()' and also prints the total
+number of __kmalloc and kfree counts.
+
+
+8. k-008.c
+
+A Kprobe with a probe point to the kernel function do_gettimeofday,
+with an empty pre-handler which can be used to measure the Kprobes
+overhead.
+
+DESCRIPTION:
+It has a kernel probe 'k_008_kp1' of the type `struct kprobe`.
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler    : k_008_pre_handler
+
+And the probed address is : k_008_kp1.symbol_name="do_gettimeofday".
+
+When this module is inserted using insmod, it registers the k_008_kp1
+using 'register_kprobe(&k_008_kp1)'.
+
+When the address of a kernel routine 'do_gettimeofday' is hit, Kprobes
+calls user defined empty pre handler 'k_008_pre_handler()'.
+
+After the pre handler excution it does the single-stepping of the probed
+instruction.
+
+While unloading the module using rmmod(), it deregisters the k_008_kp1
+using 'unregister_kprobe()'.
+
+
+9. k-009.c
+
+A Kprobe with a probe point to the kernel function do_gettimeofday,
+with the empty pre-handler and post-handler which can be used to
+measure the Kprobes overhead.
+
+DESCRIPTION:
+It has a kernel probe 'k_009_kp1' of the type `struct kprobe`.
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler    : k_009_pre_handler
+2. Kprobe's post-handler   : k_009_post_handler
+
+And the probed address is : k_009_kp1.symbol_name="do_gettimeofday".
+
+When this module is inserted using insmod, it registers the k_009_kp1
+using 'register_kprobe(&k_009_kp1)'.
+
+When the address of a kernel routine 'do_gettimeofday' is hit, Kprobes
+calls user defined empty pre handler 'k_009_pre_handler()'.
+
+After the probed instruction single-stepped, Kprobes calls the empty post
+handler 'k_009_post_handler'.
+
+While unloading the module using rmmod(), it deregisters the k_009_kp1
+using 'unregister_kprobe()'.
+
+-------------------------------------------------------------------------
+Title	: Jumper Probes test modules
+-------------------------------------------------------------------------
+Jprobes is a kernel debugging technique. This can be tested using kernel
+modules. These kernel modules will hook the user defined handler
+to the probed point.
+
+When configuring the kernel using make menuconfig/xconfig/oldconfig,
+ensure that CONFIG_KPROBES is set to "y".  Under "Instrumentation
+Support", look for "Kprobes".
+
+And also ensure that CONFIG_SAMPLES is set to "y" under "Kernel hacking" menu
+and then set CONFIG_SAMPLE_KPROBES to "m" in order to build all jprobes sample
+kernel modules
+
+To load and unload Kprobes-based instrumentation modules, make sure
+"Loadable module support" (CONFIG_MODULES) and "Module unloading"
+(CONFIG_MODULE_UNLOAD) are set to "y".
+
+To enable the debugfs configuration option in the .config follow as below
+CONFIG_DEBUG_FS = y
+(OR) if menuconfig is used select the following
+Kernel hacking --->
+	[*]    Debug Filesystem
+
+
+The Jprobes modules are:
+
+- samples/kprobes/jp-test-00x.c ( x = 1,2....5 )
+- samples/kprobes/jp-kp-test-00x.c ( x = 1,2....5 )
+
+1. jp-test-001.c
+
+A Jprobe with probe point to the kernel function 'do_fork'.
+
+DESCRIPTION:
+It has a jprobe 'my_jprobe.kp.symbol_name' of the type 
+`static struct jprobe`.
+
+This module has user defined proxy routine having the same arguments as
+actual routine:
+1. Jprobe's proxy routine : jdo_fork
+
+The probed address is : my_jprobe.kp.symbol_name = "do_fork";
+
+When this module is inserted using insmod, it registers the my_jprobe
+using 'register_jprobe(&my_jprobe)'.
+
+When the address of a kernel routine 'do_fork' is hit, Jprobes calls
+user defined proxy routine 'jdo_fork'. As part of this function call it 
+dumps the stack contents using dump_stack() and also shows
+the register contents at that point using show_allregs().
+
+When it is done, the handler calls jprobe_return() to switch to the 
+probed function.
+
+While unloading the module using rmmod(), it deregisters my_jprobe 
+using 'unregister_jprobe()'.
+
+2. jp-test-002.c
+
+A Jprobe with probe point to the kernel function 'do_gettimeofday'.
+
+DESCRIPTION:
+It has a jprobe 'my_jprobe.kp.symbol_name' of the type 
+`static struct jprobe`.
+
+This module has user defined proxy routine having the same arguments as
+actual routine:
+1. Jprobe's proxy routine : jdo_gettimeofday
+
+The probed address is : my_jprobe.kp.symbol_name = "do_gettimeofday";
+
+When this module is inserted using insmod, it registers the my_jprobe
+using 'register_jprobe(&my_jprobe)'.
+
+When the address of a kernel routine 'do_gettimeofday' is hit, Jprobes 
+calls user defined proxy routine 'jdo_gettimeofday'. As part of this 
+function call it dumps the stack contents using dump_stack().
+
+When it is done, the handler calls jprobe_return() to switch to the 
+probed function.
+
+While unloading the module using rmmod(), it deregisters my_jprobe 
+
+3. jp-test-003.c
+
+A Jprobe with probe point to the kernel function 'sys_gettimeofday'.
+
+DESCRIPTION:
+It has a jprobe 'my_jprobe.kp.symbol_name' of the type 
+`static struct jprobe`.
+
+This module has user defined proxy routine having the same arguments as
+actual routine:
+1. Jprobe's proxy routine : jsys_gettimeofday
+
+The probed address is : my_jprobe.kp.symbol_name = "sys_gettimeofday";
+
+When this module is inserted using insmod, it registers the my_jprobe
+using 'register_jprobe(&my_jprobe)'.
+
+When the address of a kernel routine 'sys_gettimeofday' is hit, Jprobes 
+calls user defined proxy routine 'jsys_gettimeofday'. As part of this 
+function call it dumps the stack contents using dump_stack().
+
+When it is done, the handler calls jprobe_return() to switch to the 
+probed function.
+
+While unloading the module using rmmod(), it deregisters my_jprobe 
+
+4. jp-test-004.c
+
+A Jprobe with probe point to the kernel function 'sys_read'.
+
+DESCRIPTION:
+It has a jprobe 'my_jprobe.kp.symbol_name' of the type 
+`static struct jprobe`.
+
+This module has user defined proxy routine having the same arguments as
+actual routine:
+1. Jprobe's proxy routine : jsys_read
+
+The probed address is : my_jprobe.kp.symbol_name = "sys_read";
+
+When this module is inserted using insmod, it registers the my_jprobe
+using 'register_jprobe(&my_jprobe)'.
+
+When the address of a kernel routine 'sys_read' is hit, Jprobes 
+calls user defined proxy routine 'jsys_read'.
+
+When it is done, the handler calls jprobe_return() to switch to the 
+probed function.
+
+While unloading the module using rmmod(), it deregisters my_jprobe 
+
+5. jp-test-005.c
+
+A Jprobe with probe point to the kernel function 'sys_write'.
+
+DESCRIPTION:
+It has a jprobe 'my_jprobe.kp.symbol_name' of the type 
+`static struct jprobe`.
+
+This module has user defined proxy routine having the same arguments as
+actual routine:
+1. Jprobe's proxy routine : jsys_write
+
+The probed address is : my_jprobe.kp.symbol_name = "sys_write";
+
+When this module is inserted using insmod, it registers the my_jprobe
+using 'register_jprobe(&my_jprobe)'.
+
+When the address of a kernel routine 'sys_write' is hit, Jprobes 
+calls user defined proxy routine 'jsys_write'.
+
+When it is done, the handler calls jprobe_return() to switch to the 
+probed function.
+
+While unloading the module using rmmod(), it deregisters my_jprobe 
+
+6. jp-kp-test-001.c
+
+A Jprobe and a kprobe with probe point to the kernel function 'do_fork'.
+
+DESCRIPTION:
+1. It has a jprobe 'my_jprobe.kp.symbol_name' of the type 
+   `static struct jprobe`.
+2. It has a kprobe 'kp.symbol_name' of the type 
+   `static struct kprobe`.
+
+This module has user defined proxy routine having the same arguments as
+actual routine:
+1. Jprobe's proxy routine : jdo_fork
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler    : kprobe_pre_handler
+2. Kprobe's post-handler   : kprobe_post_handler
+
+And the probed address is : 
+kp.symbol_name="do_fork".
+my_jprobe.kp.symbol_name="do_fork".
+
+When this module is inserted using insmod, it registers the kp
+using 'register_kprobe(&kp)'.
+
+When the address of a kernel routine 'do_fork' is hit, Kprobes calls
+user defined pre handler 'kprobe_pre_handler()'. As part of this
+function call it dumps the stack using dump_stack() and also shows
+the register content at that point using show_allregs().
+
+Next the jprobe handler gets called which is the user specified proxy
+routine having the same arguments as that of the original routine. As
+part of this function call it dumps the stack using dump_stack() and
+also the register content at that point using show_allregs(). The proxy
+routine then calls the jprobe_return() to switch to the probed
+function.
+
+After the probed instruction single-stepped, Kprobes calls the post
+handler 'kprobe_post_handler()'. As part of this function call it dumps
+the stack using dump_stack() and also shows the register content at that 
+point using show_allregs().
+
+While unloading the module using rmmod(), it deregisters the 'my_jprobe', 
+'kp' using 'unregister_jprobe' and 'unregister_kprobe()' respectively.
+
+7. jp-kp-test-002.c
+
+A Jprobe and a kprobe with probe point to the kernel function 'do_gettimeofday'.
+
+DESCRIPTION:
+1. It has a jprobe 'my_jprobe.kp.symbol_name' of the type 
+   `static struct jprobe`.
+2. It has a kprobe 'kp.symbol_name' of the type 
+   `static struct kprobe`.
+
+This module has user defined proxy routine having the same arguments as
+actual routine:
+1. Jprobe's proxy routine : jdo_gettimeofday
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler    : kprobe_pre_handler
+2. Kprobe's post-handler   : kprobe_post_handler
+
+And the probed address is : 
+my_jprobe.kp.symbol_name="do_gettimeofday".
+kp.symbol_name="do_gettimeofday".
+
+When this module is inserted using insmod, it registers the kp
+using 'register_kprobe(&kp)'.
+
+When the address of a kernel routine 'do_gettimeofday' is hit, Kprobes calls
+user defined pre handler 'kprobe_pre_handler()'. As part of this
+function call it dumps the stack using dump_stack() and also shows
+the register content at that point using show_allregs().
+
+Next the jprobe handler gets called which is the user specified proxy
+routine having the same arguments as that of the original routine. As
+part of this function call it dumps the stack using dump_stack() and
+also the register content at that point using show_allregs(). The proxy
+routine then calls the jprobe_return() to switch to the probed
+function.
+
+After the probed instruction single-stepped, Kprobes calls the post
+handler 'kprobe_post_handler()'. As part of this function call it dumps
+the stack using dump_stack() and also shows the register content at that 
+point using show_allregs().
+
+While unloading the module using rmmod(), it deregisters the 'my_jprobe', 
+'kp' using 'unregister_jprobe' and 'unregister_kprobe()' respectively.
+
+8. jp-kp-test-003.c
+
+A Jprobe and a kprobe with probe point to the kernel function 'sys_gettimeofday'.
+
+DESCRIPTION:
+1. It has a jprobe 'my_jprobe.kp.symbol_name' of the type 
+   `static struct jprobe`.
+2. It has a kprobe 'kp.symbol_name' of the type 
+   `static struct kprobe`.
+
+This module has user defined proxy routine having the same arguments as
+actual routine:
+1. Jprobe's proxy routine : jsys_gettimeofday
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler    : kprobe_pre_handler
+2. Kprobe's post-handler   : kprobe_post_handler
+
+And the probed address is : 
+my_jprobe.kp.symbol_name="syss_gettimeofday".
+kp.symbol_name="syss_gettimeofday".
+
+When this module is inserted using insmod, it registers the kp
+using 'register_kprobe(&kp)'.
+
+When the address of a kernel routine 'sys_gettimeofday' is hit, Kprobes calls
+user defined pre handler 'kprobe_pre_handler()'. As part of this
+function call it dumps the stack using dump_stack() and also shows
+the register content at that point using show_allregs().
+
+Next the jprobe handler gets called which is the user specified proxy
+routine having the same arguments as that of the original routine. As
+part of this function call it dumps the stack using dump_stack() and
+also the register content at that point using show_allregs(). The proxy
+routine then calls the jprobe_return() to switch to the probed
+function.
+
+After the probed instruction single-stepped, Kprobes calls the post
+handler 'kprobe_post_handler()'. As part of this function call it dumps
+the stack using dump_stack() and also shows the register content at that 
+point using show_allregs().
+
+While unloading the module using rmmod(), it deregisters the 'my_jprobe', 
+'kp' using 'unregister_jprobe' and 'unregister_kprobe()' respectively.
+
+9. jp-kp-test-004.c
+
+A Jprobe and a kprobe with probe point to the kernel function 'sys_read'.
+
+DESCRIPTION:
+1. It has a jprobe 'my_jprobe.kp.symbol_name' of the type 
+   `static struct jprobe`.
+2. It has a kprobe 'kp.symbol_name' of the type 
+   `static struct kprobe`.
+
+This module has user defined proxy routine having the same arguments as
+actual routine:
+1. Jprobe's proxy routine : jsys_read
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler    : kprobe_pre_handler
+2. Kprobe's post-handler   : kprobe_post_handler
+
+And the probed address is : 
+my_jprobe.kp.symbol_name="sys_read".
+kp.symbol_name="sys_read".
+
+When this module is inserted using insmod, it registers the kp
+using 'register_kprobe(&kp)'.
+
+When the address of a kernel routine 'sys_read' is hit, Kprobes calls
+user defined pre handler 'kprobe_pre_handler()'. As part of this
+function call it dumps the stack using dump_stack() and also shows
+the register content at that point using show_allregs().
+
+Next the jprobe handler gets called which is the user specified proxy
+routine having the same arguments as that of the original routine. As
+part of this function call it dumps the stack using dump_stack() and
+also the register content at that point using show_allregs(). The proxy
+routine then calls the jprobe_return() to switch to the probed
+function.
+
+After the probed instruction single-stepped, Kprobes calls the post
+handler 'kprobe_post_handler()'. As part of this function call it dumps
+the stack using dump_stack() and also shows the register content at that 
+point using show_allregs().
+
+While unloading the module using rmmod(), it deregisters the 'my_jprobe', 
+'kp' using 'unregister_jprobe' and 'unregister_kprobe()' respectively.
+
+10. jp-kp-test-005.c
+
+A Jprobe and a kprobe with probe point to the kernel function 'sys_write'.
+
+DESCRIPTION:
+1. It has a jprobe 'my_jprobe.kp.symbol_name' of the type 
+   `static struct jprobe`.
+2. It has a kprobe 'kp.symbol_name' of the type 
+   `static struct kprobe`.
+
+This module has user defined proxy routine having the same arguments as
+actual routine:
+1. Jprobe's proxy routine : jsys_write
+
+This module has user defined handlers as follows:
+1. Kprobe's pre-handler    : kprobe_pre_handler
+2. Kprobe's post-handler   : kprobe_post_handler
+
+And the probed address is : 
+my_jprobe.kp.symbol_name="sys_write".
+kp.symbol_name="sys_write".
+
+When this module is inserted using insmod, it registers the kp
+using 'register_kprobe(&kp)'.
+
+When the address of a kernel routine 'sys_write' is hit, Kprobes calls
+user defined pre handler 'kprobe_pre_handler()'. As part of this
+function call it dumps the stack using dump_stack() and also shows
+the register content at that point using show_allregs().
+
+Next the jprobe handler gets called which is the user specified proxy
+routine having the same arguments as that of the original routine. As
+part of this function call it dumps the stack using dump_stack() and
+also the register content at that point using show_allregs(). The proxy
+routine then calls the jprobe_return() to switch to the probed
+function.
+
+After the probed instruction single-stepped, Kprobes calls the post
+handler 'kprobe_post_handler()'. As part of this function call it dumps
+the stack using dump_stack() and also shows the register content at that 
+point using show_allregs().
+
+While unloading the module using rmmod(), it deregisters the 'my_jprobe', 
+'kp' using 'unregister_jprobe' and 'unregister_kprobe()' respectively.
+
+---------------------------------------------------------------------------
+Title	: Kernel Return Probes test modules
+---------------------------------------------------------------------------
+
+Kretprobes is a kernel debugging technique. This can be tested using kernel
+modules. These kernel modules will hook the user defined handler
+to the probed point.
+
+When configuring the kernel using make menuconfig/xconfig/oldconfig,
+ensure that CONFIG_KPROBES is set to "y".  Under "Instrumentation
+Support", look for "Kprobes".
+
+And also ensure that CONFIG_SAMPLES is set to "y" under "Kernel hacking" menu
+and then set CONFIG_SAMPLE_KPROBES to "m" in order to build all kretprobes sample
+kernel modules
+
+To load and unload Kprobes-based instrumentation modules, make sure
+"Loadable module support" (CONFIG_MODULES) and "Module unloading"
+(CONFIG_MODULE_UNLOAD) are set to "y".
+
+To enable the debugfs configuration option in the .config follow as below
+CONFIG_DEBUG_FS = y
+(OR) if menuconfig is used select the following
+Kernel hacking --->
+	[*]    Debug Filesystem
+
+The Kretprobes modules are:
+
+- samples/kprobes/kretp-test-00x.c ( x = 1,....4 )
+- samples/kprobes/kretp-kp-test-00x.c ( x = 1,....4 )
+- samples/kprobes/kretp-kp-jp-test-00x.c ( x = 1,2 )
+
+1. kretp-test-001.c
+
+A Kretprobe with probe point to the kernel function 'sys_open'.
+
+DESCRIPTION:
+It has a kretprobe 'my_kretprobe' of the type `static struct kretprobe`.
+
+This module has user defined return handler.
+1. Kretprobe handler  : ret_handler
+
+The probed address is : my_kretprobe.kp.symbol_name = "sys_open";
+
+When this module is inserted using insmod, it registers the my_kretprobe
+using 'register_kretprobe(&my_kretprobe)'.
+
+When the probed routine 'sys_open' returns some value the kretprobe handler
+gets the value and as part of this function call it prints the return value
+and dumps the stack contents using dump_stack(). 
+
+While unloading the module using rmmod(), it deregisters the 'my_kretprobe',
+using 'unregister_kretprobe()'.
+
+2. kretp-test-002.c
+
+A Kretprobe with probe point to the kernel function 'sys_close'.
+
+DESCRIPTION:
+It has a kretprobe 'my_kretprobe' of the type `static struct kretprobe`.
+
+This module has user defined return handler
+1. Kretprobe handler  : ret_handler
+
+The probed address is : my_kretprobe.kp.symbol_name = "sys_close";
+
+When this module is inserted using insmod, it registers the my_kretprobe
+using 'register_kretprobe(&my_kretprobe)'.
+
+When the probed routine 'sys_close' returns some value the kretprobe handler
+gets the value and as part of this function call it prints the return value
+and dumps the stack contents using dump_stack(). 
+
+While unloading the module using rmmod(), it deregisters the 'my_kretprobe',
+using 'unregister_kretprobe()'.
+
+3. kretp-test-003.c
+
+A Kretprobe with probe point to the kernel function 'sys_read'.
+
+DESCRIPTION:
+It has a kretprobe 'my_kretprobe' of the type `static struct kretprobe`.
+
+This module has user defined return handler
+1. Kretprobe handler  : ret_handler
+
+The probed address is : my_kretprobe.kp.symbol_name = "sys_read";
+
+When this module is inserted using insmod, it registers the my_kretprobe
+using 'register_kretprobe(&my_kretprobe)'.
+
+When the probed routine 'sys_read' returns some value the kretprobe handler
+gets the value and as part of this function call it prints the return value
+and dumps the stack contents using dump_stack(). 
+
+While unloading the module using rmmod(), it deregisters the 'my_kretprobe',
+using 'unregister_kretprobe()'.
+
+4. kretp-test-004.c
+
+A Kretprobe with probe point to the kernel function 'sys_write'.
+
+DESCRIPTION:
+It has a kretprobe 'my_kretprobe' of the type `static struct kretprobe`.
+
+This module has user defined return handler
+1. Kretprobe handler  : ret_handler
+
+The probed address is : my_kretprobe.kp.symbol_name = "sys_write";
+
+When this module is inserted using insmod, it registers the my_kretprobe
+using 'register_kretprobe(&my_kretprobe)'.
+
+When the probed routine 'sys_write' returns some value the kretprobe handler
+gets the value and as part of this function call it prints the return value
+and dumps the stack contents using dump_stack(). 
+
+While unloading the module using rmmod(), it deregisters the 'my_kretprobe',
+using 'unregister_kretprobe()'.
+
+5. kretp-kp-test-001.c
+
+A Kretprobe with probe point to the kernel function 'sys_open'.
+
+DESCRIPTION:
+It has a kretprobe 'my_kretprobe' of the type `static struct kretprobe`
+and a kprobe 'k_001_kpr' of the type `static struct kprobe`.
+
+This module has user defined return handler and kprobe pre and post handlers
+1. Kretprobe handler  : ret_handler
+2. kprobe pre handler : k_001_before_hook
+3. kprobe post handler : k_001_after_hook
+
+The probed address is : 
+my_kretprobe.kp.symbol_name = "sys_open";
+k_001_kpr.symbol_name = "sys_open";
+
+When this module is inserted using insmod, it registers the my_kretprobe
+using 'register_kretprobe(&my_kretprobe)' and k_001_kpr using
+'register_kprobe(&k_001_kpr)'.
+
+When the probed routine 'sys_open' is invoked the kprobe's pre and post
+handlers get executed first and as part of the handlers execution the stack 
+contents and registers contents gets printed.
+
+Then the return value of the probed function will be accessed by the return
+handler and the return values are displayed.
+
+While unloading the module using rmmod(), it deregisters the 'my_kretprobe',
+using 'unregister_kretprobe()' and 'k_001_kpr' using 'unregister_kprobe'.
+
+6. kretp-kp-test-002.c
+
+A Kretprobe with probe point to the kernel function 'sys_close'.
+
+DESCRIPTION:
+It has a kretprobe 'my_kretprobe' of the type `static struct kretprobe`
+and a kprobe 'k_002_kpr' of the type `static struct kprobe`.
+
+This module has user defined return handler and kprobe pre and post handlers
+1. Kretprobe handler  : ret_handler
+2. kprobe pre handler : k_002_before_hook
+3. kprobe post handler : k_002_after_hook
+
+The probed address is : 
+my_kretprobe.kp.symbol_name = "sys_close";
+k_002_kpr.symbol_name = "sys_close";
+
+When this module is inserted using insmod, it registers the my_kretprobe
+using 'register_kretprobe(&my_kretprobe)' and k_002_kpr using
+'register_kprobe(&k_002_kpr)'.
+
+When the probed routine 'sys_close' is invoked the kprobe's pre and post
+handlers get executed first and as part of the handlers execution the stack 
+contents and registers contents gets printed.
+
+Then the return value of the probed function will be accessed by the return
+handler and the return values are displayed.
+
+While unloading the module using rmmod(), it deregisters the 'my_kretprobe',
+using 'unregister_kretprobe()' and 'k_002_kpr' using 'unregister_kprobe'.
+
+7. kretp-kp-test-003.c
+
+A Kretprobe with probe point to the kernel function 'sys_read'.
+
+DESCRIPTION:
+It has a kretprobe 'my_kretprobe' of the type `static struct kretprobe`
+and a kprobe 'k_003_kpr' of the type `static struct kprobe`.
+
+This module has user defined return handler and kprobe pre and post handlers
+1. Kretprobe handler  : ret_handler
+2. kprobe pre handler : k_003_before_hook
+3. kprobe post handler : k_003_after_hook
+
+The probed address is : 
+my_kretprobe.kp.symbol_name = "sys_read";
+k_003_kpr.symbol_name = "sys_read";
+
+When this module is inserted using insmod, it registers the my_kretprobe
+using 'register_kretprobe(&my_kretprobe)' and k_003_kpr using
+'register_kprobe(&k_003_kpr)'.
+
+When the probed routine 'sys_read' is invoked the kprobe's pre and post
+handlers get executed first and as part of the handlers execution the stack 
+contents and registers contents gets printed.
+
+Then the return value of the probed function will be accessed by the return
+handler and the return values are displayed.
+
+While unloading the module using rmmod(), it deregisters the 'my_kretprobe',
+using 'unregister_kretprobe()' and 'k_003_kpr' using 'unregister_kprobe'.
+
+8. kretp-kp-test-004.c
+
+A Kretprobe with probe point to the kernel function 'sys_write'.
+
+DESCRIPTION:
+It has a kretprobe 'my_kretprobe' of the type `static struct kretprobe`
+and a kprobe 'k_004_kpr' of the type `static struct kprobe`.
+
+This module has user defined return handler and kprobe pre and post handlers
+1. Kretprobe handler  : ret_handler
+2. kprobe pre handler : k_004_before_hook
+3. kprobe post handler : k_004_after_hook
+
+The probed address is : 
+my_kretprobe.kp.symbol_name = "sys_write";
+k_004_kpr.symbol_name = "sys_write";
+
+When this module is inserted using insmod, it registers the my_kretprobe
+using 'register_kretprobe(&my_kretprobe)' and k_004_kpr using
+'register_kprobe(&k_004_kpr)'.
+
+When the probed routine 'sys_write' is invoked the kprobe's pre and post
+handlers get executed first and as part of the handlers execution the stack 
+contents and registers contents gets printed.
+
+Then the return value of the probed function will be accessed by the return
+handler and the return values are displayed.
+
+While unloading the module using rmmod(), it deregisters the 'my_kretprobe',
+using 'unregister_kretprobe()' and 'k_004_kpr' using 'unregister_kprobe'.
+
+9. kretp-kp-jp-test-001.c
+
+A Kretprobe with probe point to the kernel function 'sys_open'.
+
+DESCRIPTION:
+It has a kretprobe 'my_kretprobe' of the type `static struct kretprobe`
+and a kprobe 'k_001_kpr' of the type `static struct kprobe`.
+
+This module has user defined return handler, kprobe pre and post handlers
+and jprobe handler.
+1. Kretprobe handler  : ret_handler
+2. kprobe pre handler : k_001_before_hook
+3. kprobe post handler : k_001_after_hook
+4. jprobe handler : jsys_open
+
+The probed address is : 
+my_kretprobe.kp.symbol_name = "sys_open";
+k_001_kpr.symbol_name = "sys_open";
+my_jprobe.kp.symbol_name = "sys_open";
+
+When this module is inserted using insmod, it registers the my_kretprobe
+using 'register_kretprobe(&my_kretprobe)', k_001_kpr using 
+'register_kprobe(&k_001_kpr)' and my_jprobe using
+'register_jprobe(&my_jprobe)'.
+
+When the probed routine 'sys_open' is invoked the following is the order in
+which the handlers get executed.
+1. kprobe's pre handler
+2. jprobe handler
+3. kprobe's post handler
+4. Kretprobe handler
+
+As part of the above handlers execution, the stack and register contents are
+displayed.
+
+While unloading the module using rmmod(), it deregisters the 'my_kretprobe',
+using 'unregister_kretprobe()', 'k_001_kpr' using 'unregister_kprobe' and
+'my_jprobe' using 'unregister_jprobe'.
+
+10. kretp-kp-jp-test-002.c
+
+A Kretprobe with probe point to the kernel function 'sys_close'.
+
+DESCRIPTION:
+It has a kretprobe 'my_kretprobe' of the type `static struct kretprobe`
+and a kprobe 'k_002_kpr' of the type `static struct kprobe`.
+
+This module has user defined return handler, kprobe pre and post handlers
+and jprobe handler.
+1. Kretprobe handler  : ret_handler
+2. kprobe pre handler : k_002_before_hook
+3. kprobe post handler : k_002_after_hook
+4. jprobe handler : jsys_close
+
+The probed address is : 
+my_kretprobe.kp.symbol_name = "sys_close";
+k_002_kpr.symbol_name = "sys_close";
+my_jprobe.kp.symbol_name = "sys_close";
+
+When this module is inserted using insmod, it registers the my_kretprobe
+using 'register_kretprobe(&my_kretprobe)', k_002_kpr using 
+'register_kprobe(&k_002_kpr)' and my_jprobe using
+'register_jprobe(&my_jprobe)'.
+
+When the probed routine 'sys_close' is invoked the following is the order in
+which the handlers get executed.
+1. kprobe's pre handler
+2. jprobe handler
+3. kprobe's post handler
+4. Kretprobe handler
+
+As part of the above handlers execution, the stack and register contents are
+displayed.
+
+While unloading the module using rmmod(), it deregisters the 'my_kretprobe',
+using 'unregister_kretprobe()', 'k_002_kpr' using 'unregister_kprobe' and
+'my_jprobe' using 'unregister_jprobe'.
+
+------------------------------------------------------------
+Building and Installing the Kernel test modules
+------------------------------------------------------------
+The following steps should be followed on the host side to build and
+install the kernel test modules.
+
+1. Build the modules using the following command line
+
+   make ARCH=$arch CROSS_COMPILE=/usr/local/$arch-sony-linux/devel/bin \
+       /$arch-sony-linux-dev- modules
+
+2. Export the INSTALL_MOD_PATH to Install the modules on the NFS as shown
+
+   export INSTALL_MOD_PATH=/exports/$arch/cur
+
+3. Install the modules using the following command line
+
+   make ARCH=$arch CROSS_COMPILE=/usr/local/$arch-sony-linux/devel/bin \
+        /$arch-sony-linux-dev- modules_install
+
+   After doing the above steps the kernel test modules will be
+   installed in the following directory on the target.
+
+   "/lib/modules/"uname -r"/kernel/samples/kprobes/"
+
+4. On the target, copy the kernel test modules to the current directory,
+   where the user programs are going to be executed.
+
+Example:
+   # cd /home/tester/user-tests
+   # cp /lib/modules/2.6.16.52-alp/kernel/samples/kprobes/k-005.ko .
+
+------------------------------------------------------------
+USER LEVEL TEST PROGRAMS FOR KPROBES, JPROBES AND KRETPROBES
+------------------------------------------------------------
+Building and executing the tests:
+
+1. cd samples/kprobes/user-tests in the top level kernel source
+   directory.
+2. ./kprobe-user-tests-build.sh <arch> run the script to build
+   the tests. The argument <arch> is either arm, mips, powerpc
+   or i386.
+3. Copy the user-tests to the target.
+
+Example:
+   # cp -r user-tests /exports/$arch/cur/home/tester
+
+4. Execute the tests on the target as follows.
+   # cd /home/tester/user-tests
+   # ./u-005
+
+--------------------------------------------------
+Title	: Kprobes user level test programs details
+--------------------------------------------------
+
+1. u-005.c
+
+A user program to read a 1KB to the buffer from a file every time
+and increments the count for each read.
+
+This will count number of read() called, and also this testcase will
+take care of inserting and removing k-005 module.
+
+Steps:
+ 1. Build the kernel with kprobes enabled
+ 2. Run the program as ./u-005
+ 3. Insertion of the module k-005.ko is done by the program u-005.c
+ 4. Program u-005  will come out by removing of the module k-005.ko
+
+This test gives user read count.
+
+2. u-006.c
+
+A user program which writes 1KB to a file from the buffer every
+time and increments the count for each write.
+
+This will count number of write() called, and also this testcase will
+take care of inserting and removing k-006 module.
+
+Steps:
+ 1. Build the kernel with kprobes enabled
+ 2. Run the program as ./u-006
+ 3. Insertion of the module k-006.ko is done by the program u-006.c
+ 4. Program u-006  will come out by removing of the module k-006.ko
+
+This test gives user write count.
+
+3. u-007.c
+
+A user program which calls malloc and free for 50 times.
+
+This will verify that the kprobe handler debugs the particular address
+successfully, and the pre handler and post handler are getting executed
+The test gives the number of malloc/free calls done to the kernel.
+This testcase will also take care of inserting and removing k-007 module.
+
+Steps:
+ 1. Build the kernel with kprobes enabled
+ 2. Run the program as ./u-007
+ 3. Insertion of the module k-007.ko is done by the program u-007.c
+ 4. Program u-007 will come out by removing of the module k-007.ko
+
+The memory related functions are reentrant in nature, and hence it should
+be proved without using any locks.
+
+4. u-008.c
+
+A user program to measure the time taken to execute gettimeofday.
+
+This test will give the time taken to execute gettimeofday
+in terms of seconds, nanoseconds and microseconds for each call.
+
+To measure the overhead :
+------------------------
+1. First run the user program u-008 without inserting the kernel module k-008.
+2. And for the second time insert the kernel module k-008, then execute the
+   user program u-008
+3. The difference will give the minimum overhead caused by the kprobes support
+
+Steps:
+ 1. Build the kernel with kprobes enabled
+ 2. This test needs to be executed two time
+        2.1 To get the time taken to run the program without kprobes
+                2.1.1 run ./u-008
+        2.2 To get the time taken to run the program with kprobes
+                2.2.1 insert the kernel module k-008.ko as insmod k-008.ko
+                2.2.2 Execute the user program as ./u-008
+                2.2.3 Remove the kernel module k-008.ko as rmmod k-008.ko
+
+5. u-009.c
+
+A test program to measure time taken to execute gettimeofday()
+
+This test should give the time taken to execute gettimeofday
+interms of seconds, nanoseconds and microseconds for each call.
+
+To measure the overhead :
+------------------------
+1. First run the user program u-009 without inserting the kernel module k-009.
+2. And for the second time insert the kernel module k-009,then execute the
+user
+   program u-009
+3. The difference will give the overhead due to pre-handler and post-handler
+
+Steps:
+ 1. Build the kernel with kprobes enabled
+ 2. This test needs to be executed two time
+        2.1 To get the time taken to run the program without kprobes
+                2.1.1 ./u-009
+        2.2 To get the time taken to run the program with kprobes
+                2.2.1 insert the kernel module k-009.ko as insmod k-009.ko
+                2.2.2 Execute the user program as ./u-009
+                2.2.3 Remove the kernel module k-009.ko as rmmod k-009.ko
+
+-----------------------------------------------------
+Title	: Kretprobes user level test programs details
+-----------------------------------------------------
+
+1. kretp-user-test-valid-001-002.c
+
+User level test program to generate return values by making valid calls to the
+functions open, close, mkdir, opendir, closedir, rmdir and unlink.
+
+This test generates return values by doing valid calls to the APIs. The values
+returned by these APIs will be displayed in the kretprobe's return handler
+when the return probe is registered for do_sys_open and sys_close functions.
+
+This testcase is used along with the kretp-test-001.ko and kretp-test-002.ko
+
+Steps:
+ 1. Build the kernel with kprobes enabled
+ 2. Insert the module using command "insmod kretprobe-test-001.ko and
+    kretprobe-test-002.ko"
+ 3. Run ./kretp-user-test-valid-001-002
+
+2. kretp-user-test-invalid-001-002.c
+
+User level test program to generate errors by making invalid calls to the
+functions open, close, and opendir.
+
+This test generates errors by doing invalid calls to the APIs. The values
+returned by these APIs will be displayed in the kretprobe's return handler
+when the return probe is registered for sys_open and sys_close functions.
+
+This testcase is used along with the kretp-test-001.ko and kretp-test-002.ko
+
+Steps:
+ 1. Build the kernel with kprobes enabled
+ 2. Insert the module using command "insmod kretprobe-test-001.ko and
+    kretprobe-test-002.ko"
+ 3. Run ./kretp-user-test-invalid-001-002
+
+3. kretp-user-test-003.c
+
+Simple user level test program that generates error in read API.
+
+This test generates error by doing calls to the read API for reading a
+write only file. The value returned by this API will be displayed in the
+kretprobe's return handler when the return probe is registered for sys_read
+function.
+
+This test verifies that a kretprobe can be used to debug sys_read function's
+return values.
+
+This testcase is used along with the kretp-test-003.ko.
+
+Steps:
+ 1. Build the kernel with kprobes enabled
+ 2. Insert the modules as shown below
+    "insmod kretp-test-003.ko"
+ 3. ./kretp-user-test-003, run the user level testcase.
+ 4. Remove the module as shown below
+    "rmmod kretp-test-003.ko"
+
+4. kretp-user-test-004.c
+
+Simple user level test program that generates error in write API.
+
+This test generates error by doing call to the write API for writing into a
+read only file. The value returned by this API will be displayed in the
+kretprobe's return handler when the return probe is registered for sys_write
+function.
+
+This test verifies that a kretprobe can be used to debug sys_write function's
+return values.
+
+Steps:
+ 1. Build the kernel with kprobes enabled
+ 2. Insert the modules as shown below
+    "insmod kretp-test-004.ko"
+ 3. ./kretp-user-test-004 ,run the user level testcase.
+ 4. Remove the module as shown below
+    "rmmod kretp-test-004.ko"
+
+5. kretp-kp-user-test-003.c
+
+Simple user program to get the user read count.
+
+This test inserts the kernel test module kretp-kp-test-003 which has a kprobe
+and a kretprobe registered for the sys_read function and then reads a 1KB to
+the buffer from the file every time and increments the count for each read.
+
+This test verifies that a kretprobe and a kprobe together can be used to debug
+a specified symbol. This test ensures that the read count given by kprobe and
+kretprobe is same.
+
+Steps:
+ 1. Build the kernel with kprobes enabled
+ 2. Run the user test program ./kretp-kp-user-test-003
+
+6. kretp-kp-user-test-004.c
+
+Simple user program to get the user write count.
+
+This test inserts the kernel test module kretp-kp-test-004 which has a kprobe
+and a kretprobe registered for the sys_write function and then writes 1KB to
+a file from the buffer every time and increments the count for each write.
+
+This test verifies that a kretprobe and a kprobe together can be used to debug
+a specified symbol. This test ensures that the write count given by kprobe and
+kretprobe is same.
+
+Steps:
+ 1. Build the kernel with kprobes enabled
+ 2. Run the user test program ./kretp-kp-user-test-004
+

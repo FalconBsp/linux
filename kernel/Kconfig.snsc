@@ -1,0 +1,9 @@
+#
+# SNSC related configurations
+#
+
+config SNSC_SET_THREAD_PRIORITY
+	bool
+	depends on SNSC
+	default n
+

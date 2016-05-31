@@ -1,0 +1,159 @@
+/*
+ * Copyright (C) 2013 Freescale Semiconductor, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+/dts-v1/;
+
+#include "imx6sl.dtsi"
+
+/ {
+	model = "Freescale i.MX6 SoloLite EVK Board";
+	compatible = "fsl,imx6sl-evk", "fsl,imx6sl";
+
+	memory {
+		reg = <0x80000000 0x40000000>;
+	};
+
+	regulators {
+		compatible = "simple-bus";
+
+		reg_lcd_3v3: lcd-3v3 {
+			compatible = "regulator-fixed";
+			regulator-name = "lcd-3v3";
+			gpio = <&gpio4 3 0>;
+			enable-active-high;
+		};
+	};
+
+	backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm1 0 5000000>;
+		brightness-levels = <0 4 8 16 32 64 128 255>;
+		default-brightness-level = <6>;
+	};
+
+	pxp_v4l2_out {
+		compatible = "fsl,imx6sl-pxp-v4l2";
+		status = "okay";
+	};
+};
+
+&fec {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&pinctrl_fec_1>;
+	pinctrl-1 = <&pinctrl_fec_1_sleep>;
+	phy-mode = "rmii";
+	phy-reset-gpios = <&gpio4 21 0>; /* GPIO4_21 */
+	phy-reset-duration = <1>;
+	status = "okay";
+};
+
+&iomuxc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_hog>;
+
+	hog {
+		pinctrl_hog: hoggrp {
+			fsl,pins = <
+				MX6SL_PAD_KEY_ROW7__GPIO4_IO07    0x17059
+				MX6SL_PAD_KEY_COL7__GPIO4_IO06    0x17059
+				MX6SL_PAD_SD2_DAT7__GPIO5_IO00    0x17059
+				MX6SL_PAD_SD2_DAT6__GPIO4_IO29    0x17059
+				MX6SL_PAD_REF_CLK_32K__GPIO3_IO22 0x17059
+				MX6SL_PAD_FEC_TX_CLK__GPIO4_IO21  0x80000000
+				MX6SL_PAD_KEY_ROW5__GPIO4_IO03	  0x80000000
+				MX6SL_PAD_EPDC_VCOM0__GPIO2_IO03  0x80000000
+				MX6SL_PAD_EPDC_PWRSTAT__GPIO2_IO13 0x80000000
+				MX6SL_PAD_EPDC_PWRCTRL0__GPIO2_IO07 0x80000000
+				MX6SL_PAD_EPDC_PWRWAKEUP__GPIO2_IO14 0x80000000
+				MX6SL_PAD_EPDC_PWRINT__GPIO2_IO12 0x80000000
+				MX6SL_PAD_EPDC_PWRCTRL3__GPIO2_IO10 0x170b0
+				MX6SL_PAD_EPDC_PWRCTRL2__GPIO2_IO09 0x80000000
+				MX6SL_PAD_KEY_COL6__GPIO4_IO04 0x80000000
+			>;
+		};
+	};
+};
+
+&lcdif {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_lcdif_dat_0
+		     &pinctrl_lcdif_ctrl_0>;
+	lcd-supply = <&reg_lcd_3v3>;
+	display = <&display>;
+	status = "okay";
+
+	display: display {
+		bits-per-pixel = <16>;
+		bus-width = <24>;
+
+		display-timings {
+			native-mode = <&timing0>;
+			timing0: timing0 {
+				clock-frequency = <33500000>;
+				hactive = <800>;
+				vactive = <480>;
+				hback-porch = <89>;
+				hfront-porch = <164>;
+				vback-porch = <23>;
+				vfront-porch = <10>;
+				hsync-len = <10>;
+				vsync-len = <10>;
+				hsync-active = <0>;
+				vsync-active = <0>;
+				de-active = <1>;
+				pixelclk-active = <0>;
+			};
+		};
+	};
+};
+
+&pwm1 {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&pinctrl_pwm1_0>;
+	pinctrl-1 = <&pinctrl_pwm1_0_sleep>;
+	status = "okay";
+};
+
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart1_1>;
+	status = "okay";
+};
+
+&usdhc1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usdhc1_1>;
+	bus-width = <8>;
+	cd-gpios = <&gpio4 7 0>;
+	wp-gpios = <&gpio4 6 0>;
+	status = "okay";
+};
+
+&usdhc2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usdhc2_1>;
+	cd-gpios = <&gpio5 0 0>;
+	wp-gpios = <&gpio4 29 0>;
+	status = "okay";
+};
+
+&usdhc3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usdhc3_1>;
+	cd-gpios = <&gpio3 22 0>;
+	status = "okay";
+};
+
+&gpc {
+	fsl,cpu_pupscr_sw2iso = <0xf>;
+	fsl,cpu_pupscr_sw = <0xf>;
+	fsl,cpu_pdnscr_iso2sw = <0x1>;
+	fsl,cpu_pdnscr_iso = <0x1>;
+	fsl,ldo-bypass = <1>; /* use ldo-bypass, u-boot will check it and configure */
+	fsl,wdog-reset = <1>; /* watchdog select of reset source */
+};

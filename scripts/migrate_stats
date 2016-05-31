@@ -1,0 +1,1512 @@
+#!/usr/bin/perl
+
+# use: tabstops == 3 for proper formatting
+
+# Copyright (C) 2010 Sony Corporation of America, Frank Rowand
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; version 2 of the License.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Suite 500, Boston, MA 02110, USA.
+
+$VUFX = "100811a";
+
+
+#use strict 'vars'; # need to declare variables as "my" if enabled
+use strict 'refs';
+use strict subs;
+
+
+# strip off everything before final "/"
+(undef, $script_name) = split(/^.*\//, $0);
+
+
+use Getopt::Long;
+
+
+#______________________________________________________________________________
+sub usage {
+
+# ***** when editing, be careful to not put tabs in the string printed:
+
+	print
+"
+
+usage:
+
+  $script_name [file[...]]
+
+   [-begin_mark MARK]       ignore events before mark event MARK occurs
+   [-begin_sec SEC]         ignore events before SEC seconds
+   [-begin_ts 0xABS]        ignore events before absolute timestamp 0xABS
+   [-cause CAUSE]           include migrate events resulting from CAUSE
+   [-cause_exclude CAUSE]   exclude migrate events resulting from CAUSE
+   [-comm COMM]             include migrate events for processes named COMM
+   [-comm_exclude COMM]     exclude migrate events for processes named COMM
+   [-cpu_event CPU]         include migrate events created on CPU
+   [-cpu_event_exclude CPU] exclude migrate events created on CPU
+   [-cpu_from CPU]          include migrate events migrating from CPU
+   [-cpu_from_exclude CPU]  exclude migrate events migrating from CPU
+   [-cpu_to CPU]            include migrate events migrating to CPU
+   [-cpu_to_exclude CPU]    exclude migrate events migrating to CPU
+   [-consistency]           print information about consistency of trace
+   [-end_mark MARK]         ignore events after mark event MARK occurs
+   [-end_sec SEC]           ignore events after SEC seconds
+   [-end_ts 0xABS]          ignore events after timestamp 0xABS
+   [-header_version]        print information header version
+   [-help]                  print program usage
+   [-help_format]           print information about data created by this program
+   [-mark]                  print mark events, with marks in hex
+   [-mark_decimal]          print mark events, with marks converted to decimal
+   [-max_cpu CPU]           maximum cpu number in the trace file
+   [-migrate]               print migrate events
+   [-period MSEC]           print migrate stats for periods of MSEC milliseconds
+   [-period_all]            print migrate period stats aggregate
+   [-period_cpu]            print migrate period stats for each from & to cpu
+   [-period_cpu_pair]       print migrate period stats for each from/to cpu
+   [-period_human]          format migrate period stats in human friendly way
+   [-pid PID]               include migrate events for process PID
+   [-pid_exclude PID]       exclude migrate events for process PID
+   [-ps]                    print events that set or chanage process name
+   [-stats]                 print migrate and cause statistics
+   [-summary_pid]           print migrate count for each process
+   [-ts_abs]                print timestamp as absolute hex
+   [-ts_date]               include the yyyy/mm/dd in -ts_gmt and -ts_loc
+   [-ts_gmt]                print timestamp as gmt h:m:s.u
+   [-ts_loc]                print timestamp as local h:m:s.u
+   [-ts_rel]                print timestamp relative to window start
+   [-version]               print program version and exit
+
+
+  Process migrate_trace_lite trace file (from /debug/migrate_trace/trace
+  or /sys/kernel/debug/migrate_trace/trace).  The trace file must be
+  sorted before this program can process it.
+
+
+  NOTES:
+
+  Flags can be prefixed with either '-' or '--'.
+
+  Filters are and'ed.  An event must satisfy all filters to be processed.
+
+  Some of the filters may be specified multiple times.  Each occurance adds
+  a value to the list of previously specified values.
+     -cause
+     -cause_exclude
+     -comm
+     -comm_exclude
+     -cpu_event
+     -cpu_event_exclude
+     -cpu_from
+     -cpu_from_exclude
+     -cpu_to
+     -cpu_to_exclude
+     -pid
+     -pid_exclude
+
+  --begin_sec and --end_sec are relative to the first time stamp in the trace.
+
+  --begin_mark and --end_mark must be exact matches.  MARKs are arbitrary
+  identifiers without any sorting order (ordinality).
+
+  If more than one of --begin_mark, --begin_sec, and --begin_ts are specified
+  then the processing window begins after the latest of the times.
+
+  If more than one of --end_mark, --end_sec, and --end_ts are specified
+  then the first one found ends the processing window.
+
+  The timestamps reported by --ts_gmt and --ts_loc include nsec
+  values.  These time of day values are as accurate as getttimeofday() +/-
+  1 usec.  The extra digits are provided to show the correct order of multiple
+  events occurring within a usec.
+
+  --max_cpu is normally calculated from the '# nr_cpus' tag in the log file.
+  If --max_cpu is specified, it will override the tag value.
+
+  Only PIDs with non-zero migrate counts are included in the
+  --summary_pid report.
+
+  The format of --period_all, --period_cause, --period_cpu, and
+  --period_cpu_pair is the same as the format of the debug fs file
+  migrate_stat/stat.  Thus the same post-processings tools (such as
+  migrate_extract) can be used to process the output from these options.
+  If other options that create output (such as --consistency, --ps,
+  --stats, and --summary_pid) are specified, then the format of the
+  output is _not_ compatible with the format of migrate_stat/stat.  The
+  timestamp option --ts_rel is the only timestamp option that is
+  compatible with the migrate_stat/stat format.  The default timestamp
+  option for --period_* is --ts_rel.
+
+
+";
+
+	return {};
+}
+
+
+sub usage_format {
+
+# ***** when editing, be careful to not put tabs in the string printed:
+
+	print
+"
+
+--mark
+--mark_decimal
+
+TS__ C F T PID_ CAUSE_________ MARKNUM___
+
+  TS__                timestamp
+                        [ relative timestamp: %14.9f ]
+                        [ gmt timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ local timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ absolute timestamp: 0x%016x ]
+  C                   cpu the event occured on
+  F                   '.'
+  T                   '.'
+  PID_                the process pid
+  CAUSE_________      'mark'
+  MARKNUM___          value of the mark
+                        if --mark then hexadecimal
+                        if --mark_decimal then decimal
+
+
+--migrate
+
+TS__ C F T PID_ CAUSE_________ COMM____________
+
+  TS__                timestamp
+                        [ relative timestamp: %14.9f ]
+                        [ gmt timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ local timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ absolute timestamp: 0x%016x ]
+  C                   cpu the event occured on
+  F                   cpu the processed moved from (old_cpu)
+  T                   cpu the processed moved to (new_cpu)
+  PID_                the process pid
+  CAUSE_________      the event that caused the cpu of the process to change
+  COMM____________    the process name
+
+
+--period_all
+
+TS__ RATE___ RATE___
+
+  TS__                start time of the beginning of the period
+                        [ relative timestamp: %0.3f (%14.9f if --period_human)]
+                        [ gmt timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ local timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ absolute timestamp: 0x%016x ]
+  [ --period_cause RATE_n_ fields ]
+  RATE___             migrates per second
+  [ --period_cpu RATE_n_ fields ]
+  [ --period_cpu_pair RATE_n_ fields ]
+
+
+--period_cause
+
+TS__ RATE___ RATE_0_ RATE_1_ RATE_2_ ... RATE_n_
+
+  TS__                start time of the beginning of the period
+                        [ relative timestamp: %0.3f (%14.9f if --period_human)]
+                        [ gmt timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ local timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ absolute timestamp: 0x%016x ]
+  RATE_0_             migrates per second for the first cause
+  RATE_1_             migrates per second for the second cause
+  RATE_2_             migrates per second for the third cause
+  RATE_n_             migrates per second for the last cause
+  [ --period_all RATE___ field ]
+  [ --period_cpu RATE_n_ fields ]
+  [ --period_cpu_pair RATE_n_ fields ]
+
+
+--period_cpu
+
+TS__ RATE___ RATE_0_ RATE_1_ RATE_2_ ... RATE_n_
+
+  TS__                start time of the beginning of the period
+                        [ relative timestamp: %0.3f (%14.9f if --period_human)]
+                        [ gmt timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ local timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ absolute timestamp: 0x%016x ]
+  [ --period_cause RATE_n_ fields ]
+  [ --period_all RATE___ field ]
+  RATE_0_             migrates per second from cpu 0
+  RATE_1_             migrates per second from cpu 1
+  RATE_2_             migrates per second from cpu 2
+  RATE_n_             migrates per second to   cpu --max_cpu
+  [ --period_cpu_pair RATE_n_ fields ]
+
+
+--period_cpu_pair
+
+TS__ RATE___ RATE_0_ RATE_1_ RATE_2_ ... RATE_n_
+
+  TIME                start time, in seconds, of the beginning of the period
+  TS__                timestamp
+                        [ relative timestamp: %0.3f (%14.9f if --period_human)]
+                        [ gmt timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ local timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ absolute timestamp: 0x%016x ]
+  [ --period_cause RATE_n_ fields ]
+  [ --period_all RATE___ field ]
+  [ --period_cpu RATE_n_ fields ]
+  RATE_0_             migrates per second from cpu 0 to cpu 0
+  RATE_1_             migrates per second from cpu 0 to cpu 1
+  RATE_2_             migrates per second from cpu 0 to cpu 2
+  RATE_n_             migrates per second from cpu --max_cpu to cpu --max_cpu
+
+
+--ps (copy_process, set_task_comm, task_list)
+
+TS__ C F T PID_ CAUSE_________ COMM____________
+
+  TS__                timestamp
+                        [ relative timestamp: %14.9f ]
+                        [ gmt timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ local timestamp: hh:mm:ss.nnnnnnnnn ]
+                        [ absolute timestamp: 0x%016x ]
+  C                   cpu the event occured on
+  F                   '.'
+  T                   '.'
+  PID_                the process pid
+  CAUSE_________      'copy_process', 'set_task_comm', or 'task_list'
+  COMM____________    the process name
+
+
+--summary_pid
+
+PID__ COUNT__  RATE___  COMM____________
+
+  PID_                the process pid
+  COUNT__             the number of migrate events for PID_
+  RATE____            the rate of migrate events per second for PID_
+  COMM____________    the process name(s) (comma separated list)
+
+
+";
+
+	return {};
+}
+
+
+#______________________________________________________________________________
+#  various functions
+
+
+# magic routine for sort
+
+sub numeric {
+	$a <=> $b
+}
+
+
+sub print_ts {
+
+	my($ts, $width, $precision) = @_;
+
+	my $ts_rel;
+	my $delta_ts_sec;
+	my $gtod_sec;
+	my $nsec;
+
+	# -- default values for function arguments
+
+	if (!defined($width)) {
+		$width = 14;
+	}
+
+	if (!defined($precision)) {
+		$precision = 9;
+	}
+
+	$delta_ts_sec = ($ts - $start_gtod_ts) / 1000000000;
+	$gtod_sec     = $delta_ts_sec + $start_gtod_sec;
+	$nsec         = ($ts - $start_gtod_ts) % 1000000000;
+
+
+	# if multiple formats are specified, then all will print
+
+	# $start_ts not defined until first migrate event in filter window
+	if (!defined($start_ts)) {
+		$ts_rel = 0;
+	} else {
+		$ts_rel = ($ts - $start_ts) / 1000000000.0;
+	}
+
+	if (defined($print_ts_rel)) {
+		printf("%*.*f ", $width, $precision, $ts_rel);
+	}
+
+	if (defined($print_ts_gmt)) {
+		my ($sec, $min, $hour, $mday, $mon, $year) = gmtime($gtod_sec);
+
+		if (defined($print_ts_date)) {
+			printf("%04d/%02d/%02d ", $year + 1900, $mon + 1, $mday);
+		}
+		printf("%02d:%02d:%02d.%09d ", $hour, $min, $sec, $nsec);
+	}
+
+	if (defined($print_ts_loc)) {
+		my ($sec, $min, $hour, $mday, $mon, $year) = localtime($gtod_sec);
+
+		if (defined($print_ts_date)) {
+			printf("%04d/%02d/%02d ", $year + 1900, $mon + 1, $mday);
+		}
+		printf("%02d:%02d:%02d.%09d ", $hour, $min, $sec, $nsec);
+	}
+
+	if (defined($print_ts_abs)) {
+		printf("0x%016x ", $ts);
+	}
+}
+
+
+#______________________________________________________________________________
+#______________________________________________________________________________
+
+if (!GetOptions(
+	"begin_mark=s"				=> \$filter_begin_mark,
+	"begin_sec=i"				=> \$filter_begin_sec,
+	"begin_ts=s"				=> \$filter_begin_ts,
+	"cause=s"					=> \@filter_cause,
+	"cause_exclude=s"			=> \@filter_cause_exc,
+	"comm=s"						=> \@filter_comm,
+	"comm_exclude=s"			=> \@filter_comm_exc,
+	"consistency"				=> \$test_consistency,
+	"cpu_event=i"				=> \@filter_cpu_event,
+	"cpu_event_exclude=i"	=> \@filter_cpu_event_exc,
+	"cpu_from=i"				=> \@filter_cpu_from,
+	"cpu_from_exclude=i"		=> \@filter_cpu_from_exc,
+	"cpu_to=i"					=> \@filter_cpu_to,
+	"cpu_to_exclude=i"		=> \@filter_cpu_to_exc,
+	"end_mark=s"				=> \$filter_end_mark,
+	"end_sec=i"					=> \$filter_end_sec,
+	"end_ts=s"					=> \$filter_end_ts,
+	"header_version"			=> \$print_header_version,
+	"help"						=> \$help,
+	"help_format"				=> \$help_format,
+	"mark"						=> \$print_mark,
+	"mark_decimal"				=> \$print_mark_decimal,
+	"max_cpu=i"					=> \$max_cpu,
+	"migrate"					=> \$print_migrate_events,
+	"period=i"					=> \$period_msec,
+	"period_all"				=> \$print_period_all,
+	"period_cause"				=> \$print_period_cause,
+	"period_cpu"				=> \$print_period_cpu,
+	"period_cpu_pair"			=> \$print_period_cpu_pair,
+	"period_human"				=> \$print_period_human,
+	"pid=i"						=> \@filter_pid,
+	"pid_exclude=i"			=> \@filter_pid_exc,
+	"ps"  						=> \$print_set_comm,
+	"stats"           		=> \$print_stats,
+	"summary_pid"				=> \$print_summary_pid,
+	"ts_abs"						=> \$print_ts_abs,
+	"ts_date"					=> \$print_ts_date,
+	"ts_gmt"						=> \$print_ts_gmt,
+	"ts_local"					=> \$print_ts_loc,
+	"ts_rel"						=> \$print_ts_rel,
+	"version"					=> \$version,
+	)) {
+	print STDERR "\n";
+	print STDERR "ERROR processing command line options\n\n";
+	print STDERR "For help, type '$script_name --help'\n\n";
+
+	exit 1;
+}
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if ($help){
+
+	&usage;
+
+	exit 1;
+}
+
+
+if ($help_format){
+
+	&usage_format;
+
+	exit 1;
+}
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if ($version) {
+	print STDERR "\n$script_name  $VUFX\n\n";
+	print STDERR "\n";
+
+	exit 0;
+}
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# ----  begin, end timestamp related
+
+if (defined($filter_begin_mark)) {
+
+	# decimal, binary, octal, and hex accepted
+	$filter_begin_mark = oct($filter_begin_mark) if $filter_begin_mark =~ /^0/;
+}
+
+if (defined($filter_begin_ts)) {
+
+	# decimal, binary, octal, and hex accepted
+	$filter_begin_ts = oct($filter_begin_ts) if $filter_begin_ts =~ /^0/;
+}
+
+if (defined($filter_end_mark)) {
+
+	# decimal, binary, octal, and hex accepted
+	$filter_end_mark = oct($filter_end_mark) if $filter_end_mark =~ /^0/;
+}
+
+if (defined($filter_end_ts)) {
+
+	# decimal, binary, octal, and hex accepted
+	$filter_end_ts = oct($filter_end_ts) if $filter_end_ts =~ /^0/;
+}
+
+
+# ---- cause, comm, cpu, pid filter
+
+	if (
+		 (defined(@filter_cause)     && defined(@filter_cause_exc))     ||
+		 (defined(@filter_comm)      && defined(@filter_comm_exc))      ||
+		 (defined(@filter_cpu_event) && defined(@filter_cpu_event_exc)) ||
+		 (defined(@filter_cpu_from)  && defined(@filter_cpu_from_exc))  ||
+		 (defined(@filter_cpu_to)    && defined(@filter_cpu_to_exc))    ||
+		 (defined(@filter_pid)       && defined(@filter_pid_exc))
+		) {
+
+		print STDERR
+"
+ERROR: Specifying both an include and an exclude filter for the same item
+       is not valid.  Include/exclude filter pairs are:
+
+          --cause        --cause_exclude
+          --comm         --comm_exclude
+          --cpu_event    --cpu_event_exclude
+          --cpu_from     --cpu_from_exclude
+          --cpu_to       --cpu_to_exclude
+          --pid          --pid_exclude
+
+";
+
+		exit 1;
+	}
+
+for $cause (@filter_cause) {
+	$filter_cause{$cause} = 1;
+}
+
+for $cause (@filter_cause_exc) {
+	$filter_cause_exc{$cause} = 1;
+}
+
+for $comm (@filter_comm) {
+	$filter_comm{$comm} = 1;
+}
+
+for $comm (@filter_comm_exc) {
+	$filter_comm_exc{$comm} = 1;
+}
+
+for $cpu (@filter_cpu_event) {
+	$filter_cpu_event{$cpu} = 1;
+}
+
+for $cpu (@filter_cpu_event_exc) {
+	$filter_cpu_event_exc{$cpu} = 1;
+}
+
+for $cpu (@filter_cpu_from) {
+	$filter_cpu_from{$cpu} = 1;
+}
+
+for $cpu (@filter_cpu_from_exc) {
+	$filter_cpu_from_exc{$cpu} = 1;
+}
+
+for $cpu (@filter_cpu_to) {
+	$filter_cpu_to{$cpu} = 1;
+}
+
+for $cpu (@filter_cpu_to_exc) {
+	$filter_cpu_to_exc{$cpu} = 1;
+}
+
+for $pid (@filter_pid) {
+	$filter_pid{$pid} = 1;
+}
+
+for $pid (@filter_pid_exc) {
+	$filter_pid_exc{$pid} = 1;
+}
+
+
+# ---- marks
+
+if (defined($print_mark_decimal)) {
+
+	# $print_mark_decimal is a special case of $print_mark
+	$print_mark = 1;
+}
+
+
+# ---- period related
+
+if (defined($period_msec)) {
+
+	if ($period_msec == 0) {
+		print STDERR "\n";
+		print STDERR "ERROR: --period requires a non-zero argument\n";
+		print STDERR "\n";
+
+		exit 1;
+	}
+
+	$period_nsec = $period_msec * 1000000;
+}
+
+if (defined($print_period_all) && !defined($period_msec)) {
+
+	print STDERR "\n";
+	print STDERR "ERROR: --period_all requires --period\n";
+	print STDERR "\n";
+
+	exit 1;
+}
+
+if (defined($print_period_cause) && !defined($period_msec)) {
+	print STDERR "\n";
+	print STDERR "ERROR: --period_cause requires --period\n";
+	print STDERR "\n";
+
+	exit 1;
+}
+
+if (defined($print_period_cpu) && !defined($period_msec)) {
+	print STDERR "\n";
+	print STDERR "ERROR: --period_cpu requires --period\n";
+	print STDERR "\n";
+
+	exit 1;
+}
+
+if (defined($print_period_cpu_pair) && !defined($period_msec)) {
+	print STDERR "\n";
+	print STDERR "ERROR: --period_cpu_pair requires --period\n";
+	print STDERR "\n";
+
+	exit 1;
+}
+
+
+#______________________________________________________________________________
+#______________________________________________________________________________
+
+#
+# scan through input files (STDIN or list of files on command line)
+#
+
+
+
+$new_file = 1;
+$before_filter_begin_mark = 1;
+
+LINE:
+while ($line = <ARGV>) {
+
+	if ($new_file) {
+		$new_file = 0;
+		$filename = $ARGV;
+	}
+
+	next LINE if ($line =~ /^\s*$/);					# skip blank lines
+
+
+	# ------  comments, tags
+
+	if ($line =~ /^\s*#/) {
+
+		# -- extract header fields
+
+		(undef, $tag, $data_1, $data_2) = split(/\s+/, $line);
+
+		if ($tag eq "cause") {
+
+			# $data_1 is field_num, $data_2 is field_name
+			$cause_name{$data_1} = $data_2;
+
+			# use $data_2 as the value of %filter_cause_loc and
+			# %filter_cause_exc_loc so that a post header check can be done
+			# on the validity of all %filter_cause and %filter_cause_exc
+			if ($filter_cause{$data_2}) {
+				$filter_cause_loc{$data_1} = $data_2;
+			}
+
+			if ($filter_cause_exc{$data_2}) {
+				$filter_cause_exc_loc{$data_1} = $data_2;
+			}
+
+
+		} elsif ($tag eq "loc") {
+
+			# $data_1 is field_num, $data_2 is field_name
+			$loc_name{$data_1} = $data_2;
+
+		} elsif ($tag eq "nr_cpus") {
+
+			$nr_cpus = $data_1;
+
+			if (defined($max_cpu)) {
+				$nr_cpus = $max_cpu + 1;
+			} else {
+				$max_cpu = $nr_cpus - 1;
+			}
+
+		} elsif ($tag eq "version") {
+
+			($tfv_major, $tfv_minor, $tfv_fix) = split(/\./, $data_1);
+
+			$ok_major = 1;
+			$ok_minor = 0;
+
+			if ($tfv_major != $ok_major) {
+				print STDERR "\n";
+				print STDERR "ERROR: file $filename format version is new\n";
+				print STDERR "       format version is $data_1\n";
+				print STDERR "       Able to partially process format format $ok_major.x.x\n";
+				print STDERR "\n";
+
+				exit 1;
+			}
+
+			if (defined($print_header_version)) {
+				print "$data_1\n";
+				exit 0;
+			}
+		}
+
+		next LINE;
+	}
+
+
+	# ------  AFTER: comments, tags
+
+	if (!defined($post_header_checks)) {
+
+		$post_header_checks = 1;
+
+
+		# -- validate: --cause, --cause_exclude
+
+		$error = 0;
+
+		for $cause (keys %filter_cause) {
+			$found = 0;
+			for $loc (keys %filter_cause_loc) {
+				if ($filter_cause_loc{$loc} eq $cause) {
+					$found = 1;
+					last;
+				}
+			}
+			if (!$found) {
+				if (!$error) {
+					print STDERR "\n";
+				}
+				print STDERR "ERROR: invalid --cause: $cause\n";
+				$error = 1;
+			}
+		}
+
+		for $cause (keys %filter_cause_exc) {
+			$found = 0;
+			for $loc (keys %filter_cause_exc_loc) {
+				if ($filter_cause_exc_loc{$loc} eq $cause) {
+					$found = 1;
+					last;
+				}
+			}
+			if (!$found) {
+				if (!$error) {
+					print STDERR "\n";
+				}
+				print STDERR "ERROR: invalid --cause_exclude: $cause\n";
+				$error = 1;
+			}
+		}
+
+		if ($error) {
+			print STDERR "\n";
+
+			exit 1;
+		}
+
+
+		# -- print headers for --period_*
+
+		if (defined($print_period_all)      ||
+			 defined($print_period_cause)    ||
+			 defined($print_period_cpu)      ||
+			 defined($print_period_cpu_pair)
+			) {
+
+			$print_period = 1;
+
+			if (!defined($print_ts_abs) && !defined($print_ts_gmt) &&
+				 !defined($print_ts_loc) && !defined($print_ts_rel)) {
+				$period_ts_default = 1;
+			}
+
+			# The format of the --period_* output is consistent with the
+			# debug fs file migraton_stat/stat
+			# See kernel/migrate_trace_lite.c: MSTAT_VERSION and mstat_show()
+			$MSTAT_VERSION = "1.0.0";
+			printf("# version %s\n", $MSTAT_VERSION);
+
+			# rate data is reported in count per second, even when the period
+			# duration is not 1 second, so output file header period_msec is
+			# always 1000
+
+			printf("# period_msec %d\n", 1000);
+			printf("# nr_cpus %d\n", $nr_cpus);
+			printf("# ts_field 1\n");
+
+			# Will print "# gettimeofday" when first period printed.  Can't
+			# print now because $first_start_ts does not exist yet.
+
+			# The order of $print_period_cause, $print_period_all,
+			# $print_period_cpu, and $print_period_cpu_pair here is the same order
+			# that their data are printed, so that the "# field" numbers are
+			# correct.
+
+			$max_field = 1;
+
+			if (defined($print_period_cause)) {
+				foreach $num (sort numeric keys %cause_name) {
+					printf("# field %d %s\n", ++$max_field, $cause_name{$num});
+				}
+			}
+
+			if (defined($print_period_all)) {
+				printf("# field %d migrate\n", ++$max_field);
+			}
+
+			if (defined($print_period_cpu)) {
+
+				for ($from = 0; $from <= $max_cpu; $from++) {
+					printf("# field %d from cpu: %d\n", ++$max_field, $from);
+				}
+
+				for ($to = 0; $to <= $max_cpu; $to++) {
+					printf("# field %d to cpu: %d\n", ++$max_field, $to);
+				}
+			}
+
+			if (defined($print_period_cpu_pair)) {
+				for ($from = 0; $from <= $max_cpu; $from++) {
+					for ($to = 0; $to <= $max_cpu; $to++) {
+						printf("# field %d from cpu: %d to cpu: %d\n",
+								++$max_field, $from, $to);
+					}
+				}
+			}
+		}
+
+	}	# (!defined($post_header_checks))
+
+
+	# -------  verification that timestamp is in sorted order
+
+	$prev_ts    = $final_ts;
+
+	($final_ts) = split(/\s+/, $line);
+	$final_ts   = hex($final_ts);
+
+	if ($final_ts < $prev_ts) {
+		print STDERR "\n";
+		print STDERR "ERROR: file $filename not sorted by timestamp\n";
+		print STDERR "\n";
+
+		exit 0;
+	}
+
+
+	# -------  EVENT: start_sched_clock
+
+	if ($line =~ /\. start_sched_clock/) {
+
+		($ts, $cpu, undef, undef, undef, undef, $sec, $usec) =
+			split(/\s+/, $line);
+
+		# $ts is sched_clock in nanoseconds
+		$ts = hex($ts);
+		if (!defined($first_start_ts)) {
+
+			$first_start_ts  = $ts;
+			$start_gtod_sec  = $sec;
+			$start_gtod_usec = $usec;
+			$start_gtod_ts   = $ts - ($usec * 1000);
+
+
+			if (defined($filter_begin_sec)) {
+				$filter_begin_nsec = ($filter_begin_sec * 1000000000) + $ts;
+				if (!defined($filter_begin_ts) ||
+					 ($filter_begin_nsec > $filter_begin_ts)
+					) {
+					$filter_begin_ts = $filter_begin_nsec;
+				}
+			}
+
+			if (defined($filter_end_sec)) {
+				$filter_end_nsec = ($filter_end_sec * 1000000000) + $ts;
+				if (!defined($filter_end_ts) ||
+					 ($filter_end_nsec < $filter_end_ts)
+					) {
+					$filter_end_ts = $filter_end_nsec;
+				}
+			}
+		}
+
+		if (!defined($last_start_ts) || ($ts > $last_start_ts)) {
+			$last_start_ts = $ts;
+		}
+
+		# $sec, $usec are result from do_gettimeofday()
+		$time = $sec + ($usec / 1000000);
+
+		if (!defined($first_start_time) || ($time < $first_start_time)) {
+			$first_start_time = $time;
+		}
+
+		if (!defined($last_start_time) || ($time > $last_start_time)) {
+			$last_start_time = $time;
+		}
+
+
+		if ($test_consistency) {
+			&print_ts($ts);
+			printf("cpu %d  start time: %d.%06d (epoch)", $cpu, $sec, $usec);
+			print " ", scalar localtime($sec), " (local)\n";
+			#print " ", scalar gmtime($sec), " (gmt)\n";
+		}
+
+		next LINE;
+	}
+
+
+	# -------  all events that got this far have a common format  --------------
+
+
+	($ts, $cpu, $cpu_from, $cpu_to, $pid, $loc) = split(/\s+/, $line);
+	$ts = hex($ts);
+
+
+	# -----  filter on pid, cpu_event
+
+	if ((defined(%filter_pid)     && !$filter_pid{$pid})    ||
+		 (defined(%filter_pid_exc) && $filter_pid_exc{$pid})
+		) {
+
+		# allow marks even though pid is filtered
+		if (!($line =~ /[0-9] mark/)) {
+			next LINE;
+		}
+	}
+
+
+	# -------  EVENT: copy_process
+
+	if ($loc_name{$loc} eq "copy_process") {
+
+		# comm at start of process
+
+		$comm = $line;
+		$comm =~ s/^.*: //;
+		chomp $comm;
+
+		$comm{$pid} = [] unless exists $comm{$pid};
+		push @{ $comm{$pid} }, $comm;
+
+		$comm_curr{$pid} = $comm;
+
+		if (defined($print_set_comm)) {
+
+			&print_ts($ts);
+			printf("%d . . %4d %-16s %s\n", $cpu, $pid, "copy_process", $comm);
+		}
+
+		next LINE;
+	}
+
+
+	# -------  EVENT: set_task_comm
+
+	if ($loc_name{$loc} eq "set_task_comm") {
+
+		# updated comm
+
+		$comm = $line;
+		$comm =~ s/^.*: //;
+		chomp $comm;
+
+		$comm{$pid} = [] unless exists $comm{$pid};
+		push @{ $comm{$pid} }, $comm;
+
+		$comm_curr{$pid} = $comm;
+
+		if (defined($print_set_comm)) {
+
+			&print_ts($ts);
+			printf("%d . . %4d %-16s %s\n", $cpu, $pid, "set_task_comm", $comm);
+		}
+
+		next LINE;
+	}
+
+
+	# -------  EVENT: task_list
+
+	if ($loc_name{$loc} eq "task_list") {
+
+		# comm at start of trace
+
+		$comm = $line;
+		$comm =~ s/^.*: //;
+		chomp $comm;
+
+		$comm{$pid} = [] unless exists $comm{$pid};
+		push @{ $comm{$pid} }, $comm;
+
+		$comm_curr{$pid} = $comm;
+
+		if (defined($print_set_comm)) {
+
+			&print_ts($ts);
+			printf("%d . . %4d %-16s %s\n", $cpu, $pid, "task_list", $comm);
+		}
+
+		next LINE;
+	}
+
+
+	# -------  EVENT: mark
+
+	if ($loc_name{$loc} eq "mark") {
+
+		# $curr_mark will be used for test against $filter_begin_mark
+		# for migrate events
+
+		(undef, undef, undef, undef, undef, undef, $mark) = split(/\s+/, $line);
+
+		$curr_mark = hex($mark);
+
+		if (!defined($begin_mark_ts) && $curr_mark == $filter_begin_mark) {
+
+			$before_filter_begin_mark = 0;
+			$begin_mark_ts = $ts;
+		}
+
+		if (defined($filter_end_mark) && ($curr_mark == $filter_end_mark)) {
+
+			$end_mark_ts = $ts;
+		}
+
+
+		if ((defined($filter_begin_mark) && $before_filter_begin_mark)  ||
+			 (defined($filter_begin_ts)   && ($ts < $filter_begin_ts))
+			) {
+			if (!defined($end_mark_ts)) {
+				next LINE;
+			}
+		}
+
+
+		if (defined($print_mark)) {
+
+			&print_ts($ts);
+
+			if (defined($print_mark_decimal)) {
+				printf("%d . . %4d %-16s %s\n", $cpu, $pid, "mark", $curr_mark);
+			} else {
+				printf("%d . . %4d %-16s %s\n", $cpu, $pid, "mark", $mark);
+			}
+		}
+
+		if (defined($end_mark_ts)) {
+			last LINE;
+		}
+
+		next LINE;
+	}
+
+
+	# -------  EVENT: migrate events
+
+	# -- filters
+
+	if ((defined(%filter_cause_loc)     && !$filter_cause_loc{$loc})           ||
+		 (defined(%filter_cause_exc_loc) &&  $filter_cause_exc_loc{$loc})       ||
+		 (defined(%filter_comm)          && !$filter_comm    {$comm_curr{$pid}})||
+		 (defined(%filter_comm_exc)      &&  $filter_comm_exc{$comm_curr{$pid}})||
+		 (defined(%filter_cpu_event)     && !$filter_cpu_event    {$cpu})       ||
+		 (defined(%filter_cpu_event_exc) &&  $filter_cpu_event_exc{$cpu})       ||
+		 (defined(%filter_cpu_from)      && !$filter_cpu_from    {$cpu_from})   ||
+		 (defined(%filter_cpu_from_exc)  &&  $filter_cpu_from_exc{$cpu_from})   ||
+		 (defined(%filter_cpu_to)        && !$filter_cpu_to    {$cpu_to})       ||
+		 (defined(%filter_cpu_to_exc)    &&  $filter_cpu_to_exc{$cpu_to})
+		) {
+
+		next LINE;
+	}
+
+	if ((defined($filter_end_ts) && ($ts > $filter_end_ts))) {
+
+		last LINE;
+
+	} elsif ((defined($filter_begin_mark) && $before_filter_begin_mark) ||
+				(defined($filter_begin_ts)   && ($ts < $filter_begin_ts))
+			  ) {
+
+		next LINE;
+	}
+
+
+	# -- set $start_ts
+
+	if (!defined($start_ts)) {
+
+		$start_ts = $first_start_ts;
+
+		# if a --begin_mark, --begin_ts or --begin_sec then set the start
+		# of window to that value
+
+		if (defined($filter_begin_mark) && ($start_ts < $begin_mark_ts)) {
+			$start_ts = $begin_mark_ts;
+		}
+
+		if (defined($filter_begin_ts) && ($start_ts < $filter_begin_ts)) {
+			$start_ts = $filter_begin_ts;
+		}
+
+		$period_begin_ts = $start_ts;
+		$period_end_ts   = $start_ts + $period_nsec;
+	}
+
+
+	# -- update counts
+
+	$migrate_count{$pid}++;
+	$cpu_from_to_count[$cpu_from][$cpu_to]++;
+
+	$cause_count{$loc}++;
+
+
+	# -- print
+
+	if (defined($print_migrate_events)) {
+
+		if (defined($cause_name{$loc})) {
+			$event_name = $cause_name{$loc};
+		} else {
+			$event_name = $loc_name{$loc};
+		}
+
+		&print_ts($ts);
+		printf("%d %d %d %4d %-16s %s\n",
+				$cpu, $cpu_from, $cpu_to, $pid,
+				$comm_curr{$pid},
+				$event_name);
+	}
+
+
+	if (defined($print_period)) {
+
+		if (!defined($first_period)) {
+
+			$first_period = 1;
+
+			$delta_ts = ($period_begin_ts - $first_start_ts);
+			$sec  = $start_gtod_sec  + int($delta_ts / 1000000000);
+			$nsec = ($start_gtod_usec * 1000) + ($delta_ts % 1000000000);
+			if ($nsec >= 1000000000) {
+				$sec  += 1;
+				$nsec -= 1000000000;
+			}
+			$usec = $nsec / 1000;
+			printf("# gettimeofday %d %d\n", $sec, $usec);
+		}
+
+		# will not print final events after end of last full period...
+		# (that is, within a partial period)
+
+		while ($ts > $period_end_ts) {
+
+			$precision = 3;
+			if ($print_period_human) {
+				$width = 8;
+			} else {
+				$width = 0;
+			}
+			if ($period_ts_default) {
+				# default to ts_rel for --period_*
+				$print_ts_rel = 1;
+			}
+			print_ts($period_begin_ts, $width, $precision);
+			if ($period_ts_default) {
+				# but do not let default affect other print options
+				undef $print_ts_rel;
+			}
+
+			if (defined($print_period_cause)) {
+
+				foreach $loc (sort numeric keys %cause_name) {
+
+					if ($print_period_human) {
+						printf(" %7.2f",
+								 (1000 * $cause_period_count{$loc}) / $period_msec);
+					} else {
+						printf(" %.2f",
+								 (1000 * $cause_period_count{$loc}) / $period_msec);
+					}
+				}
+
+			}
+
+
+			if (defined($print_period_all)) {
+				if ($print_period_human) {
+					printf(" %7.2f",
+							 (1000 * $migrate_period_count) / $period_msec);
+				} else {
+					printf(" %.2f",
+							 (1000 * $migrate_period_count) / $period_msec);
+				}
+			}
+
+
+			if (defined($print_period_cpu)) {
+
+				for ($from = 0; $from <= $max_cpu; $from++) {
+					$total = 0;
+					for ($to = 0; $to <= $max_cpu; $to++) {
+						$total += $cpu_from_to_period_count[$from][$to];
+					}
+					if ($print_period_human) {
+						printf(" %7.2f", (1000 * $total) / $period_msec);
+					} else {
+						printf(" %.2f", (1000 * $total) / $period_msec);
+					}
+				}
+
+				for ($to = 0; $to <= $max_cpu; $to++) {
+					$total = 0;
+					for ($from = 0; $from <= $max_cpu; $from++) {
+						$total += $cpu_from_to_period_count[$from][$to];
+					}
+					if ($print_period_human) {
+						printf(" %7.2f", (1000 * $total) / $period_msec);
+					} else {
+						printf(" %.2f", (1000 * $total) / $period_msec);
+					}
+				}
+			}
+
+
+			if (defined($print_period_cpu_pair)) {
+				for ($from = 0; $from <= $max_cpu; $from++) {
+					for ($to = 0; $to <= $max_cpu; $to++) {
+						if ($print_period_human) {
+							printf(" %7.2f",
+									(1000 * $cpu_from_to_period_count[$from][$to]) / $period_msec);
+						} else {
+							printf(" %.2f",
+									(1000 * $cpu_from_to_period_count[$from][$to]) / $period_msec);
+						}
+					}
+				}
+			}
+
+			print "\n";
+
+
+			$period_begin_ts += $period_nsec;
+			$period_end_ts   += $period_nsec;
+
+			$migrate_period_count = 0;
+			undef @cpu_from_to_period_count;
+			undef %cause_period_count;
+		}
+
+
+		$migrate_period_count++;
+		$cpu_from_to_period_count[$cpu_from][$cpu_to]++;
+		$cause_period_count{$loc}++;
+
+	}	# defined(print_period)
+
+	next LINE;
+
+
+} continue {
+
+
+	if (eof(ARGV)) {
+
+		$new_file = 1;
+
+		close ARGV;  # resets $. (line count) to 1
+	}
+
+}
+
+
+if (defined($end_mark_ts) && ($final_ts > $end_mark_ts)) {
+	$final_ts = $end_mark_ts;
+}
+
+if (defined($filter_end_ts) && ($final_ts > $filter_end_ts)) {
+	$final_ts = $filter_end_ts;
+}
+
+
+$duration_sec = ($final_ts - $start_ts) / 1000000000.0;
+
+if ($duration_sec == 0.0) {
+	# $duration_sec will be a divisor -- avoid divide by zero
+	$duration_sec = 1.0;
+}
+
+
+
+# -----------------------------------------------------------------------------
+
+if ($test_consistency) {
+
+	print "\n\n";
+	print "CONSISTENCY CHECKS:\n";
+	print "\n";
+
+	printf("  range of start do_gettimeofday(): %1.6f    seconds\n",
+			$last_start_time - $first_start_time);
+
+	printf("  range of start sched_clock():     %1.9f seconds\n",
+			($last_start_ts - $first_start_ts) / 1000000000);
+}
+
+
+
+
+# -----------------------------------------------------------------------------
+
+if (defined($print_stats)) {
+
+	# ----
+
+	print "\n\n";
+	print "DURATION:\n";
+	print "\n";
+
+	printf("            %20s       ts (absolute)\n", "relative to start");
+	printf("            %20s  ------------------\n", "--------------------");
+	printf("  end:      %20.9f  0x%016x\n",
+			($final_ts - $first_start_ts) / 1000000000.0,
+			$final_ts);
+
+	printf("  begin:    %20.9f  0x%016x\n",
+			($start_ts - $first_start_ts) / 1000000000.0 , $start_ts);
+
+	print "\n";
+	if ($final_ts == $start_ts) {
+		printf("  duration: %20.9f seconds\n", 0);
+	} else {
+		printf("  duration: %20.9f seconds\n", $duration_sec);
+	}
+
+	# ----
+
+	print "\n\n";
+	print "CAUSE:\n";
+	print "\n";
+
+	printf("  %-14s  %7s  %7s\n", "", "count", "per sec");
+	printf("  %-14s  -------  -------\n", "");
+	print "\n";
+
+	undef($total);
+	foreach $num (sort numeric keys %cause_name) {
+		$cause = $cause_name{$num};
+
+		$count = $cause_count{$num};
+
+		printf("  %-14s  %7d  %7.2f\n", $cause, $count, $count / $duration_sec);
+
+		$total += $count;
+	}
+
+	printf("  %-14s  -------  -------\n", "");
+	printf("  %-14s  %7d  %7.2f\n", "total", $total, $total / $duration_sec);
+
+
+	# ----  find number of cpus, for size of migrate matrix
+
+	# This is only needed if the "# nr_cpus" tag is missing from the trace
+	# file _and_ --max_cpu is not specified.  All trace files should have
+	# the "# nr_cpus" tag - this code was created before the tag existed.
+
+	if (defined($max_cpu)) {
+		$max_cpu_from = $max_cpu;
+		$max_cpu_to   = $max_cpu;
+	} else {
+		$max_cpu_from = $#cpu_from_to_count;
+		for ($k = 0; $k <= $#cpu_from_to_count; $k++) {
+			if ($max_cpu_to < $#{ $cpu_from_to_count[$k] }) {
+				$max_cpu_to = $#{ $cpu_from_to_count[$k] };
+			}
+		}
+	}
+
+	# -- make the matrix square
+
+	if ($max_cpu_from < $max_cpu_to) {
+		$max_cpu_from = $max_cpu_to;
+	} else {
+		$max_cpu_to   = $max_cpu_from;
+	}
+
+	# -----  MIGRATE matrix by cpu
+
+	print "\n\n";
+	print "MIGRATE (row: cpu_from,  column: cpu_to):\n";
+
+	# pass 0 is count
+	# pass 1 is rate per second
+
+	for ($pass = 0; $pass < 2; $pass++) {
+
+		print "\n";
+		if (!$pass) {
+			print "  ==========  count       ===============\n";
+		} else {
+			print "  ==========  per second  ===============\n";
+		}
+
+
+		# --  header
+
+		print "\n";
+		print "         to --> ";
+		for ($to = 0; $to <= $max_cpu_to; $to++) {
+				printf("%6d: ", $to);
+		}
+		print "          all:\n";
+
+		print "  from          ";
+		for ($to = 0; $to <= $max_cpu_to; $to++) {
+				printf("%7s ", "-------");
+		}
+
+		print "       -------\n";
+		print "   |\n";
+		print "   v\n";
+
+
+		# --  matrix
+
+		undef @col_total;
+		undef @row_total;
+		for ($from = 0; $from <= $max_cpu_from; $from++) {
+
+			printf("  %3d:          ", $from);
+			$row_total = 0;
+			for ($to = 0; $to <= $max_cpu_to; $to++) {
+
+				$row_total      += $cpu_from_to_count[$from][$to];
+				$col_total[$to] += $cpu_from_to_count[$from][$to];
+
+				printf("%7d ", $cpu_from_to_count[$from][$to]) if (!$pass);
+			}
+			$col_total[$max_cpu_to + 1] += $row_total;
+			printf("  --> %7d\n", $row_total) if (!$pass);
+
+			for ($to = 0; $to <= $max_cpu_to; $to++) {
+				printf("%7.2f ", $cpu_from_to_count[$from][$to] / $duration_sec) if ($pass);
+			}
+			printf("  --> %7.2f\n", $row_total / $duration_sec) if ($pass);
+		}
+
+
+		# --  column totals
+
+		printf("                ");
+		for ($to = 0; $to <= $max_cpu_to; $to++) {
+				print "------- ";
+		}
+		print "       -------\n";
+
+		print "  all:          ";
+		for ($to = 0; $to <= $max_cpu_to; $to++) {
+			printf("%7d ", $col_total[$to]) if (!$pass);
+		}
+		printf("  --> %7d\n", $col_total[$max_cpu_to + 1]) if (!$pass);
+
+		for ($to = 0; $to <= $max_cpu_to; $to++) {
+			printf("%7.2f ", $col_total[$to] / $duration_sec) if ($pass);
+		}
+		printf("  --> %7.2f\n", $col_total[$max_cpu_to + 1] / $duration_sec) if ($pass);
+
+	}
+
+}
+
+
+# -----------------------------------------------------------------------------
+
+# -----  MIGRATE by pid
+
+if (defined($print_summary_pid)) {
+
+	print "\n\n";
+	print "MIGRATE count:\n";
+	print "\n";
+	print "  pid   count    rate   comm\n";
+	print "-----  ------  -------  ----\n";
+	print "\n";
+
+	foreach $pid (sort numeric keys %migrate_count) {
+		undef @comm;
+		for $comm (@{$comm{$pid}}) {
+			if (!$filter_comm_exc{$comm}) {
+				push @comm, $comm;
+			}
+		}
+		printf("%5d  %6d  %7.2f  %s\n",
+				$pid,
+				$migrate_count{$pid},
+				$migrate_count{$pid} / $duration_sec,
+				join ', ', @comm);
+	}
+}
+
+
+#______________________________________________________________________________
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#_______________________________________________________________________________
+# vi config follows:
+
+# ~/.exrc must contain "set modelines" for tabs to be set automatically
+# ex:set tabstop=3 shiftwidth=3 sts=0:

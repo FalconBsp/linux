@@ -1,0 +1,11 @@
+#
+#  Kernel headers fixup script for i.MX31
+#
+#  Copyright 2008 Sony Corporation.
+#
+set -eu
+
+DST=$1
+
+# copy arch/arm/mach-mx3
+${srctree}/scripts/copy_headers.sh ${srctree}/arch/arm/mach-mx3 ${DST}/mach-mx3

@@ -1,0 +1,13 @@
+#!/bin/sh
+
+export KZMA9_FULLNAME="${KZMA9_FULLNAME:-Sony KZM-A9 (SMP)}"
+
+scripts/setup_common.py --full-name="${KZMA9_FULLNAME}" \
+                        --cross-compile="arm-sony-linux-gnueabi-" \
+                        --arch-name="arm" \
+                        --target-name="kzm-a9" \
+                        --fixup-kernel-headers="scripts/kernel_headers/default.fixup" \
+                        --defconfig-base="arch/arm/configs/kzm-a9-smp_defconfig" \
+                        --build-instruction="make" \
+                        --image="arch/arm/boot/uImage" \
+                        "$@"

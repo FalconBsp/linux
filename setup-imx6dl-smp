@@ -1,0 +1,11 @@
+#!/bin/sh
+
+scripts/setup_common.py --full-name="imx6-dual-lite" \
+                        --cross-compile="arm-sony-linux-gnueabi-" \
+                        --arch-name="arm" \
+                        --target-name="imx6-dual-lite" \
+                        --fixup-kernel-headers="scripts/kernel_headers/default.fixup" \
+                        --defconfig-base="arch/arm/configs/imx6dl_defconfig" \
+                        --build-instruction="make" \
+                        --image="arch/arm/boot/uImage" \
+                        "$@"

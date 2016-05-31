@@ -1,0 +1,11 @@
+#!/bin/sh
+
+scripts/setup_common.py --full-name="imx6-sabre-lite(quad)" \
+                        --cross-compile="arm-linux-gnueabihf-" \
+                        --arch-name="arm" \
+                        --target-name="imx6-sabre-lite" \
+                        --fixup-kernel-headers="scripts/kernel_headers/default.fixup" \
+                        --defconfig-base="arch/arm/configs/imxq_defconfig" \
+                        --build-instruction="make LOADADDR=0x10008000 uImage" \
+                        --image="arch/arm/boot/uImage" \
+                        "$@"

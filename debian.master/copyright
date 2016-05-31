@@ -1,0 +1,10 @@
+This is the Ubuntu prepackaged version of the Linux kernel.
+Linux was written by Linus Torvalds <Linus.Torvalds@cs.Helsinki.FI>
+and others.
+
+This package was put together by the Ubuntu Kernel Team, from
+sources retrieved from upstream linux git.
+The sources may be found at most Linux ftp sites, including
+ftp://ftp.kernel.org/pub/linux/kernel/
+
+copyright=`/usr/share/common-licenses/GPL-2'

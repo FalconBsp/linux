@@ -1,0 +1,52 @@
+comment "SNSC related options"
+	depends on SNSC
+
+config SNSC_SCSI_MESSAGE_SILENT
+	bool "Suppress SCSI messages"
+
+config SNSC_SCSI_SD_RW10_DEFAULT
+	bool "Use READ/WRITE_10 command as default."
+	depends on SNSC
+	depends on BLK_DEV_SD
+
+config SNSC_SCSI_SD_NEED_REVALIDATE
+	bool "Revalidate the disk again at open, if the medium is changed."
+	depends on SNSC
+	depends on BLK_DEV_SD
+
+config SNSC_SCSI_PROC_DEVICE_NAME
+	bool "Print the device name on /proc/scsi"
+	depends on SCSI && PROC_FS && SCSI_PROC_FS
+
+config SNSC_SCSI_SD_REUSE_INDEX
+	bool "Reuse sd,sr index that is mounted but the device is removed."
+	depends on SNSC
+	depends on BLK_DEV_SD
+
+config SNSC_SCSI_REUSE_HOST_NO
+	bool "Reuse scsi host number"
+	depends on SNSC
+	depends on BLK_DEV_SD
+	help
+	  Clear scsi host number, when all scsi host is removed
+	  using the same scsi host template.
+
+config SNSC_SCSI_PARAM_SD_TIMEOUT
+	bool "Introduce snsc_sd_timeout to control SCSI disk timeout"
+	depends on SNSC
+	depends on BLK_DEV_SD
+	help
+	  2.6.16: The default is 30.
+	  CEE30 : The default is 6.
+	  CEE30 : The value in dtg3G and selecao is 30.
+
+config SNSC_SCSI_ERROR_NOT_RETRY_CMD_MEDIUM_CHANGED
+	bool "Not retry the command if the medium was changed"
+	depends on SNSC
+	depends on SCSI
+	depends on SNSC_USB_STORAGE_ADDITIONAL_UNUSUAL_DEVS
+
+config SNSC_SCSI_SD_CHK_SYNCHRONIZE_CACHE_SUPPORT
+	bool "Check SYNCHRONIZE CACHE command support"
+	depends on SNSC
+	depends on BLK_DEV_SD

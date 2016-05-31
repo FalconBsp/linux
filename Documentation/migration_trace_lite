@@ -1,0 +1,429 @@
+        Light Weight Migration Trace Facility
+        =====================================
+
+Copyright (C) 2010 Sony Corporation of America
+
+author: Frank Rowand, frank.rowand@am.sony.com
+
+
+Introduction
+------------
+
+The light weight migration trace facility consists of two features in
+debug fs (migration_trace and migration_stat) and several supporting
+perl programs.  These are intended to provide mechanisms to measure and
+analyze process migration.
+
+The facility is targeted at kernel developers, system architects, and
+application developers.  It is not targeted at production systems.
+
+
+Limitations
+-----------
+
+Data structures are not allocated in a NUMA aware manner.
+
+
+Design Goal
+-----------
+
+A tool to measure process migration, with low overhead (specifically,
+lower overhead than ftrace).
+
+There are two tools in kernel/migrate_trace_lite.c:
+
+  - mt (migration trace):  CONFIG_SNSC_LITE_MIGRATION_TRACE
+
+    A tool to collect detailed migration information.  The duration of
+    the trace is limited by the amount of available memory, and is
+    typically limited to minutes on a system with heavy migration activity.
+
+  - mstat (migration statistics):  CONFIG_SNSC_LITE_MIGRATION_STAT
+
+    A lower overhead tool that can collect data over a long time.  The
+    memory usage of this tool is much smaller, but the amount of detail
+    is much lower.  The duration of the measurement could be hours, days,
+    or even longer.
+
+
+Assumptions
+-----------
+
+  sched_clock() is (approximately) synchronized across cpus
+  sched_clock() never decreases and does not wrap around
+
+
+Configuration
+-------------
+
+The migration trace configuration options are in the "Kernel hacking" menu.
+
+The per-cpu buffers are statically allocated based on CONFIG_NR_CPUS.
+Memory usage may be excessive if CONFIG_NR_CPUS is set to a value larger
+than the actual number of cpus in the system.
+
+  LIGHT WEIGHT process migration statistics
+
+    If you say Y, process migration statistics are collected.  This
+    facility imposes less overhead and uses less memory than
+    'LIGHT WEIGHT process migration tracer', but provides much less
+    information.  This facility is useful for longer duration data
+    collections.
+
+  Maximum collection duration in hours
+
+  range 1 8760
+  default 1
+    Number of hours that a data collection with a period of 1 second
+    will be able to run before the buffers are filled.  The value of
+    period can be changed to a value other than 1 second through the
+    migration_stat/period_msec debug fs file.
+
+  LIGHT WEIGHT process migration tracer
+
+    If you say Y, process migration is traced at a high level of
+    detail.  Enabling this option is likely to use a large amount
+    of memory.  This facility is not suitable for collecting data
+    over long periods of time due to the large amount of memory that
+    would be required.
+
+  Size of per-cpu migration tracer buffer
+
+  range 1 1048576
+  default 1024
+    Size of each per-cpu migration trace buffer, in units of 1024 bytes.
+    Thus a value of 1024 means 1024 * 1024 bytes, which is 1 Mibyte
+    per cpu.
+
+
+Debug fs Files
+--------------
+
+(Assumes debug fs is mounted at /sys/kernel/debug/)
+
+/sys/kernel/debug/migration_trace/
+
+  enable
+    [read]
+      0 if migration events are being traced
+      1 if migration events are not being traced
+    [write]
+      0 to stop tracing of migration events
+      1 to start tracing of migration events
+
+        Tracing will automatically stop when the trace buffer is full.
+
+        A trace can not be started if the trace buffer is not empty.
+
+  mark
+    [write]
+      NUMBER to add a mark event to the trace, labeled with NUMBER.
+
+        NUMBER is an arbitrary unsigned long, and does not have to be unique.
+        If marks are used as begin or end filters in the post-trace analysis
+        programs, then NUMBER should be a unique value.  The begin mark
+        filter ignores events before the first occurance of NUMBER.  The end
+        mark filter ignores events after the first occurance of NUMBER.
+
+  reset
+    [write]
+      0 to empty the trace
+
+        If the trace is enabled, the reset will have the side effect of
+        disabling the trace.
+
+  trace
+    [read]
+      Contains the ascii trace data
+
+        The trace can only be read while the trace is not enabled.
+
+        Reading the entire trace file may take a large amount of time
+        (tens of seconds).
+
+        The raw trace is human readable, but is not in a very useful format
+        for human parsing.  A useful format can be produced by:
+
+          sort trace | scripts/migrate_stats --ts_rel --migrate
+
+        The migrate_stats program contains many options to create different
+        formats and perform extensive filtering, analysis, and creating data
+        in a format useful for creating graphs.
+
+        Extensive information about migrate_stats is available from:
+
+          scripts/migrate_stats --help
+          scripts/migrate_stats --help_format
+
+        Each line of trace contains an event.  Events are:
+
+          Header Information events:
+
+            Each line begins with "#".  The event provides information
+            describing the contents of the trace or describing the system.
+
+          Trace Start events:
+
+            start_sched_clock
+              One event per cpu, reporting the time stamp of the event, and
+              gettimeofday time.  There will be a slight offset between the
+              time stamps reported by each cpu because the events are created
+              in response to an IPI.
+
+            task_list
+              A list of all processes that existed at the start of the trace,
+              one process per event.
+
+          Miscellaneous events:
+
+            copy_process
+              Process creation, the comm (name) of the process is reported.
+
+            set_task_comm
+              Reports the new comm (name) of a process.
+
+            mark
+              An event that reports an arbitrary mark.  The event is created
+              by writing to the debug fs file migration_trace/mark or by
+              calling the kernel function mt_trace_mark().
+
+          Cause Of Migration events:
+
+            __migrate_task
+            pull_one_task
+            pull_rt_task
+            pull_task
+            push_rt_task
+            sched_fork
+            try_to_wake_up
+              These events are the name of the functions that invoke
+              set_task_cpu() to change the cpu of a process.
+
+
+/sys/kernel/debug/migration_stat/
+
+  enable
+    [read]
+      0 if migration statistics are being collected
+      1 if migration statistics are being collected
+    [write]
+      0 to stop collecting migration statistics
+      1 to start collecting migration statistics
+
+        Statistics collection will automatically stop when the buffer is full.
+
+  period_msec
+    [read]
+      The time period, in milliseconds, for each data item to be reported
+    [write]
+      The time period, in milliseconds, for each data item to be reported
+
+        period_msec can not be changed while the stats file is not empty
+
+  reset
+    [write]
+      0 to empty the stats file
+
+        If the statistics colleciont is enabled, the reset will have the side
+        effect of disabling statistics collection.
+
+  stat
+    [read]
+      Contains the count of various events, one line per time period
+
+        The header constists of:
+
+          # version V.U.F
+            V.U.F are the version, update, fix level of the file format
+
+          # period_msec MSEC
+            MSEC is the value from the period_msec file
+
+          # gettimeofday SEC USEC
+            SEC is gettimeofday tv.tv_sec when the collection was enabled
+            USEC is gettimeofday tv.tv_usec when the collection was enabled
+
+          # ts_field 1
+            The time stamp field number in each line
+
+          # field N FIELD_NAME
+            An ascii label describing data field number N.
+            The FIELD_NAMEs (subject to change) are:
+
+               migration events:
+
+                 migrate (the sum of the causes)
+
+               cause of migration events:
+
+                 __migrate_task
+                 pull_one_task
+                 pull_rt_task
+                 pull_task
+                 push_rt_task
+                 sched_fork
+                 try_to_wake_up
+
+        The field names are typically the name of a function in the kernel.
+        These are the locations that call set_task_cpu() or __set_task_cpu().
+
+        The total of migration causes may not be equal to the number of
+        migrations (migrate).  This is because (1) the cause leading to
+        a given set_task_cpu may occur in a previous time period and (2) some
+        set_task_cpu events are the result of process creation, some of which
+        are not included as a cause.
+
+        The file format version does not define the number of fields,
+        the order of fields, the name of the fields, and the meaning of fields.
+        Post-processing tools are expected to get this information from the
+        header lines ("ts_field" and "field" lines) of the stat file.
+
+
+Kernel API
+----------
+
+An API is available to allow control of a migration trace from within the
+kernel.
+
+#include <linux/migrate_trace_lite.h>
+
+int mt_trace_enable(int enable, int allow_restart);
+
+  Start or stop a trace.
+
+  If enable == 1, start the trace.
+  If enable == 0, stop the trace.
+
+  If allow_restart == 0, a trace can not be started if the trace buffer
+  is not empty.  Analysis tools assume a continuous trace.  Do not specify
+  allow_restart unless you understand the implications for the analysis tools.
+
+  The return value is 0 if no error occurred.
+
+void mt_trace_mark(unsigned long mark);
+
+  Add a mark event to the trace.  The value of the parameter mark is an
+  arbitrary value.  See the description of mark in
+  /sys/kernel/debug/migration_trace/ for more information about marks.
+
+
+Analysis programs
+-----------------
+
+See the sections "Example of Graphing Data From File stat" and
+"Example of Graphing Data From File trace" for some basic examples of using
+the analysis programs.
+
+scripts/migrate_extract
+
+  Processes data from the debug fs file migration_stat/stat or from the
+  --period_* options of scripts/migrate_stats.
+
+  There are two primary modes of use for migrate_extract:
+
+    Extract tags from the header of the stat file.  The tags provide a
+    description of the format of the stat file and the data in the stat file.
+
+    Extract {timestamp, data_value} pairs from the stat file.  This provides
+    data in a format that is easily graphed.  The data_value is normalized
+    to be a per second rate.
+
+  Further information is available from:
+
+    scripts/migrate_extract --help
+
+scripts/migrate_stats
+
+  The migrate_stats program contains many options to create different
+  formats and perform extensive filtering, analysis, and creating data
+  in a format useful for creating graphs.
+
+  Extensive information about migrate_stats is available from:
+
+    scripts/migrate_stats --help
+    scripts/migrate_stats --help_format
+
+
+Example of Graphing Data From File stat
+---------------------------------------
+
+# These examples assume a graphing program by the name of "pgraph".
+# Replace "pgraph" with an actual graphing program.
+
+
+# ----  graph migrations and causes
+
+# substitute your preferred graphing program for "pgraph"
+graph=pgraph
+stat=/tmp/stat_01
+
+cat /sys/kernel/debug/migration_stat/stat > ${stat}
+
+max_field=`scripts/migrate_extract --max_field ${stat}`
+min_field=`scripts/migrate_extract --min_field ${stat}`
+
+for field in `seq ${min_field} ${max_field}`; do
+
+   title=`scripts/migrate_extract --field_name ${field} ${stat}`
+
+   scripts/migrate_extract --extract ${field} ${stat} | ${graph} -TT "${title}"
+done
+
+
+# ----  graph migrations only
+
+stat=/tmp/stat_01
+
+cat /sys/kernel/debug/migration_stat/stat > ${stat}
+
+field=`scripts/migrate_extract --field_num migrate ${stat}`
+title=`scripts/migrate_extract --field_name ${field} ${stat}`
+
+scripts/migrate_extract --extract ${field} ${stat} | ${graph} -TT "${title}"
+
+
+Example of Graphing Data From File trace
+----------------------------------------
+
+# This example assumes a graphing program by the name of "pgraph".
+# Replace "pgraph" with an actual graphing program.
+
+
+# This example creates all possible graphs.  The set of graphs can be
+# reduced by selecting only the desired --period_* options.
+
+# substitute your preferred graphing program for "pgraph"
+graph=pgraph
+trace=/tmp/trace_01
+trace_s=${trace}_s
+stat=${trace_s}_stat
+
+cat /sys/kernel/debug/migration_trace/trace > ${trace}
+sort ${trace} >${trace_s}
+
+
+# ----  graph one second intervals of
+#          migrations (set_task_cpu) total
+#          cause of migration (one graph per cause)
+#          migrations (set_task_cpu) by from cpu (one graph per cpu)
+#          migrations (set_task_cpu) by to cpu (one graph per cpu)
+#          migrations (set_task_cpu) by from cpu/to cpu (one graph per cpu pair)
+
+scripts/migrate_stats \
+   --period 1000 \
+   --period_all \
+   --period_cause \
+   --period_cpu \
+   --period_cpu_pair \
+   ${trace_s} > ${stat}
+
+max_field=`scripts/migrate_extract --max_field ${stat}`
+min_field=`scripts/migrate_extract --min_field ${stat}`
+
+for field in `seq ${min_field} ${max_field}`; do
+
+   title=`scripts/migrate_extract --field_name ${field} ${stat}`
+
+   scripts/migrate_extract --extract ${field} ${stat} \
+      | ${graph} -TT "${title}"
+done

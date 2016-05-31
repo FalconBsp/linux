@@ -1,0 +1,65 @@
+perf (3.10.y-u.2.0.2.1) unstable; urgency=low
+
+   * Updated Changelog for BDKTP build1
+
+ -- SCEL Developer <sony.com >  Fri, 27 Feb 2015 12:37:23 +0900
+
+perf (3.10.y-u.2.0.1.2) unstable; urgency=low
+
+   * Updated Changelog for BDKTE build2 cross
+
+ -- SCEL Developer <sony.com >  Wed, 02 Jan 2015 16:03:23 +0900
+
+perf (3.10.y-u.2.0.1.1) unstable; urgency=low
+
+   * Updated Changelog for BDKTE RC1 release
+
+ -- SCEL Developer <sony.com >  Wed, 02 Jan 2015 16:03:23 +0900
+
+perf (3.10.y-u.2.0.3.1) unstable; urgency=low
+
+   * Version change due to u.2.0.3.0 release.
+
+ -- SCEL Developer <sony.com >  Wed, 24 Dec 2014 15:03:23 +0900
+
+perf (3.10.y-u.2.0.2.1) unstable; urgency=low
+
+   * Version change due to u.2.0.2.0 release.
+
+ -- SCEL Developer <sony.com >  Fri, 31 Oct 2014 06:03:23 +0900
+
+perf (3.10.y-u.2.0.1.1) unstable; urgency=low
+
+   * Upgraded perf 3.10.51 to 3.10.55.
+
+ -- SCEL Developer <sony.com >  Thu, 9 Oct 2014 06:03:23 +0900
+
+perf (3.10.y-u.2.0.1.1) unstable; urgency=low
+
+   * Upgraded perf 3.10.44 to 3.10.51.
+
+ -- SCEL Developer <sony.com >  Fri, 5 Sep 2014 06:03:23 +0900
+
+perf (3.10.y-u.2.0.0.2) unstable; urgency=low
+
+  * Version change due to RC2 release.
+
+ -- SCEL Developer <sony.com >  Thu, 14 Aug 2014 06:03:23 +0900
+
+perf (3.10.y-u.2.0.0.1) unstable; urgency=low
+
+  * Upgraded perf 3.10.28 to 3.10.44.
+
+ -- SCEL Developer <sony.com >  Wed, 01 Aug 2014 09:03:23 +0900
+
+perf (3.10.y-u.1.0.2.2) unstable; urgency=low
+
+  * Added man page support for perf help command.
+
+ -- SCEL Developer <sony.com >  Wed, 19 Mar 2014 17:03:23 +0900
+
+perf (3.10.y-u.1.0.2.1) unstable; urgency=low
+
+  * Initial release
+
+ -- SCEL Developer <sony.com >  Mon, 24 Feb 2014 13:03:23 +0900

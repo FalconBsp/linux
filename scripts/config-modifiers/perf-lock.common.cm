@@ -1,0 +1,15 @@
+#!/bin/sh
+
+set -e
+scripts/config-modifiers/cm_targetdep_support.sh perf "$@"
+
+set -e
+scripts/setconfig.py -f - <<_EOF_
+CONFIG_LOCKDEP=y
+CONFIG_DEBUG_LOCK_ALLOC=y
+CONFIG_DEBUG_MUTEXES=y
+CONFIG_DEBUG_SPINLOCK=y
+CONFIG_KALLSYMS_ALL=y
+CONFIG_LOCK_STAT=y
+CONFIG_DEBUG_LOCKDEP=n
+_EOF_

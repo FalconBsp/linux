@@ -1,0 +1,253 @@
+		Function Duration Tracing
+
+	   Documentation written by Tim Bird
+
+
+Function duration tracing is a variant of function graph tracing.
+
+Preparation
+-----------
+
+The function duration tracing feature is compiled using the
+CONFIG_FUNCTION_DURATION_TRACER option. Tracing is disabled by default,
+so it is safe to have this set to yes. On platforms without dynamic
+tracing capability (e.g. ARM in 2.6.30), function tracing and function
+graph tracing add significant overhead to function execution in the
+Linux kernel.  On these platforms it would be unwise to leave
+function tracing turned on in production environments.
+
+Note that function duration tracing is supported on SMP systems.
+
+Usage Quick Reference
+---------------------
+
+ $ mount -t debugfs debugfs /debug
+ $ echo function_duration > /debug/tracing/current_tracer
+ $ echo duration-proc >/debug/tracing/trace_options
+ $ echo 1 >/debug/tracing/tracing_enabled
+ $ <do something> ; echo 0 >/debug/tracing/tracing_enabled
+ $ cat /debug/tracing/trace > /tmp/trace-something.txt
+ $ echo nop > /debug/tracing/current_tracer
+
+Usage
+-----
+
+Make sure debugfs is mounted to /debug. If not, (requires root privileges)
+ $ mount -t debugfs debugfs /debug
+
+Activate function duration tracing (requires root privileges):
+ $ echo function_duration > /debug/tracing/current_tracer
+
+Enable tracing (if not already enabled)
+ $ echo 1 >/debug/tracing/tracing_enabled
+
+Do something, and quickly disable tracing, to avoid overrunning the
+related events in the trace log.  Note that the trace log uses a ring
+buffer, which continually overwrites older events in the log, until
+tracing is disabled.
+
+ $ <do something> ; echo 0 >/debug/tracing/tracing_enabled
+
+Store the trace:
+$ cat /debug/tracing/trace > /tmp/trace-something.txt
+
+Extra Tip:
+During tracing you can place comments (markers) into the trace by
+
+ $ echo "foo happened" > /debug/tracing/trace_marker
+
+This makes it easier to see which part of the (huge) trace corresponds to
+which action. It is recommended to place descriptive markers about what you
+do.  (I'm not sure how effective this is for function duration tracing.  The
+trace buffer fills so quickly that any comment made in "human time" will
+likely get overrun in the trace buffer before a human has a chance to stop
+the trace. - this tip was copied from mmiotrace.txt)
+
+Shut down function duration tracing (requires root privileges):
+ $ echo nop > /debug/tracing/current_tracer
+
+If it doesn't look like sufficient data was captured, you can enlarge the
+buffers and try again. Buffers are enlarged by first seeing how large the
+current buffers are:
+
+ $ cat /debug/tracing/buffer_size_kb
+
+gives you a number. Approximately double this number and write it back.
+
+For instance:
+ $ echo 128000 > /debug/tracing/buffer_size_kb
+
+Then start again from the top.
+
+How function duration tracing works
+-----------------------------------
+The function duration tracer works the same as the function graph tracer,
+with a few important differences.  First, the function duration tracer
+does NOT make a trace log entry at the time of function entry.  Only function
+exits make a trace log entry.  Therefore, duration tracing is at least
+twice as space-efficient at function graph tracing.
+
+Also, before performing any ring_buffer operations, the function duration
+tracer checks the duration filter (set in 'tracing_thresh').  This means
+that substantial overhead is avoided for functions which are discarded
+by the filter operation.
+
+Trace Log Format
+----------------
+
+The log format for the function duration tracer is text and is easily
+filtered with e.g. grep and awk.  The output can be read by a human, and
+is useful for showing how functions nest within other functions.  The
+major issue with reading the trace is to realize that log entries are
+displayed in order of FUNCTION EXIT!  In order to see a more readable
+list of functions, showing their nesting going from top to bottom,
+please use the fdd post-processing tool, or sort the entries in the
+trace dump by the CALLTIME.
+
+The function graph tracer consists of a header showing the tracer name,
+and the fields that are configured for display on each line.  Then lines
+are shown for function entry and exit events.
+
+Here is a sample showing the log header and a few sample trace lines.
+
+# tracer: function_duration
+#
+# CPU  CALLTIME       DURATION                  FUNCTION CALLS
+# |      |              |   |                     |   |   |   |
+ 0)   662.103518745 |  + 13.000 us   |      rt_spin_unlock
+ 0)   662.103447745 |  + 99.500 us   |    __wake_up
+ 0)   662.103558412 |    3.333 us    |      rt_spin_lock_slowunlock
+ 0)   662.103556412 |  + 12.500 us   |    rt_spin_unlock
+ 0)   662.103354912 |  ! 221.500 us  |  run_timer_softirq
+ 0)   662.103584745 |    1.833 us    |  _cond_resched
+
+You can configure the items displayed for each trace element, by setting
+/debug/tracing/trace_options.  (See Trace Display Options below)
+
+The following elements are available for display:
+
+TIME - this is the (absolute) time since the machine started in seconds, with
+a decimal portion showing resolution to microseconds.  The actual resolution
+of the time (and of the tracer timings in general) will depend on the specific
+clock used by ftrace. This option is off by default.
+
+CPU - indicates the CPU on which the function was executed
+
+TASK/PID - shows the task name and PID (process ID) for each trace
+entry.  The entry has the format <task>-<pid> (e.g. "sh-443").  This
+option is off by default.
+
+OVERHEAD (not labeled) - is a flag indicator, showing functions whose
+duration exceeded certain threshholds:
+   space (or nothing) - the function executed in less than 10 microseconds
+   + - the function lasted longer than 10 microseconds
+   ! - the function lasted longer than 100 microseconds
+
+FUNCTION CALLS - this shows the name of the function for each function
+exit event.  The indentation of the function name represents how deeply
+nested the function is in the kernel execution path.  When the trace
+lines are sorted by CALLTIME, the indentation level shows function
+nesting (caller/callee relationships between the functions).
+
+Trace Display Options
+---------------------
+
+The following display options are available for customizing the function
+graph trace output:
+
+   abstime - show TIME
+   cpu - show CPU
+   overhead - show OVERHEAD indicator
+   proc - show TASK and PID
+   overrun - shows if the trace had an overrun (used for debugging the tracer)
+
+To set an option echo a string to /debug/tracing/trace_options, using the format:
+"duration-<opt_name>".  To unset a particular option, use the format:
+"noduration-<opt_name>".
+
+ $ echo duration-abstime >/debug/tracing/trace_options
+ $ echo noduration-cpu >/debug/tracing/trace_options
+ $ cat trace
+
+Trace filter options
+--------------------
+
+The function duration tracer supports filtering the trace events
+at runtime by function duration.
+
+Filter by duration
+------------------
+
+Filtering by duration is useful to see only the long-running functions
+in the kernel.
+
+To filter by duration, set a value (in microseconds) in the debugfs
+pseudo-file 'tracing_thresh'.  No functions with durations shorter than
+this will be saved in the trace buffer.  This can significantly extend
+the amount of time you can trace, by eliminating many short-duration
+functions from the trace.  However, you need to remember when analyzing
+the data that many functions have been omitted.  Be careful interpreting
+the timing results from such a trace.
+
+To capture only functions taking 500 microseconds or longer, use this:
+ $ echo 500 >/debug/tracing/tracing_thresh
+
+Tools for Developers
+--------------------
+
+The user space tool 'fdd' includes capabilities for:
+
+ * sorting the information by time spent in each routine
+ * filtering the information by process, call count, and execution time
+ * showing minimum and maximum time spent in a routine
+
+'fdd' is located in the kernel 'scripts' directory.  See the online
+usage (using 'scripts/fdd -h') for more help.
+
+Tutorial/Samples
+----------------
+For an interesting first trace, try the following:
+(make sure no other processes are active, if you can)
+
+ $ mount -t debugfs debugfs /debug
+ $ cd /debug/tracing
+ $ echo function_duration > current_tracer
+ $ echo duration-proc > trace_options
+ $ echo 10000 > buffer_size_kb
+ $ echo 1 > tracing_enabled ; ls /bin | sed s/[aeiou]/z/g ; \
+	echo "marker test!" > trace_marker ; echo 0 >tracing_enabled
+ $ cat trace > /tmp/trace1.txt
+
+You might need to change the buffer size to 20000 (20 M) if
+you don't capture the entire trace (if the top of the buffer
+starts in the middle of ls or sed execution).
+
+Now examine the data:
+ $ ls -l /tmp/trace1.txt
+ $ # optionally, sort by calltime (use the correct key index for your
+ $ # trace options...
+ $ cat /tmp/trace1.txt | sort -n -k 4 >/tmp/trace1.txt.sorted
+ $ vi /tmp/trace1.txt
+ $ vi /tmp/trace1.txt.sorted
+
+Note that the trace data is quite large, but probably only covers one
+or two seconds of execution time.
+
+Here are some things to look for in the trace:
+
+ * Watch as the shell forks and execs ls and sed.
+ * Watch for timer interrupts which cause context switches between the three
+ * processes (sh, ls and sed).
+ * Watch for page faults during ls and sed startup, as the processes are paged
+   into memory.
+ * Look for routines starting with "sys_" which are at the top level of the
+   call graphs. These are system calls.
+ * Look for the duration value for the system calls, on the lines with the
+   closing braces at the same indentation level.  You can see how long
+   different system calls took to execute, and what sub-routines were called
+   internally in the kernel.  Also, you can determine if a long-running
+   system call was interrupted (and the process scheduled out, before
+   returning)
+ * Look for the comment "marker test!" near the end of the trace.
+
+

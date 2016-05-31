@@ -1,0 +1,170 @@
+#
+# NOTE! Don't add files that are generated in specific
+# subdirectories here. Add them in the ".gitignore" file
+# in that subdirectory instead.
+#
+# NOTE! Please use 'git ls-files -i --exclude-standard'
+# command after changing this file, to see if there are
+# any tracked files which get ignored after the change.
+#
+# Normal rules
+#
+#.*
+*.o
+*.o.*
+*.a
+*.s
+*.ko
+*.so
+*.so.dbg
+*.mod.c
+*.i
+*.lst
+*.symtypes
+*.order
+modules.builtin
+*.elf
+*.bin
+*.gz
+*.bz2
+*.lzma
+*.xz
+*.lzo
+#*.patch
+*.gcno
+
+#
+# Top-level generic files
+#
+/tags
+/TAGS
+/linux
+/vmlinux
+/vmlinuz
+/System.map
+/Module.markers
+/Module.symvers
+
+#
+# Debian directory (make deb-pkg)
+#
+#/debian/
+
+#
+# git files that we don't want to ignore even it they are dot-files
+#
+!.gitignore
+!.mailmap
+
+#
+# Generated include files
+#
+include/config
+include/generated
+arch/*/include/generated
+
+# stgit generated dirs
+patches-*
+
+# quilt's files
+#patches
+#series
+
+# cscope files
+cscope.*
+ncscope.*
+
+# gnu global files
+GPATH
+GRTAGS
+GSYMS
+GTAGS
+
+*.orig
+*~
+\#*#
+
+#
+# Leavings from module signing
+#
+extra_certificates
+signing_key.priv
+signing_key.x509
+x509.genkey
+
+#
+# Added by SS
+#
+
+# We use lot of dot files... so add all dotfiles.
+!\.*
+
+# Ignore arch related
+.arch-ids
+
+# ALP has patch to touch these
+!vmlinux.lds.S
+
+# Ignore user's file
+*~
+.*old
+,*
+GPATH
+GRTAGS
+GSYMS
+GTAGS
+ID
+
+# Ignore generated files (thay should be removed with make clean)
+.*.cmd
+.tmp*
+.kconfig.d
+.kernelrelease
+.version
+.arch_name
+.config
+.cross_compile
+.target_name
+.fixup_kernel_headers
+.config_copy
+.config_recipe
+.config.bak
+
+scripts/lxdialog/lxdialog
+scripts/kconfig/zconf.hash.c
+include/linux/dwarf2-defs.h
+
+include/asm-ppc/asm-offsets.h
+arch/powerpc/kernel/vdso32/vdso32.lds
+arch/powerpc/kernel/vdso32/vdso32.so
+arch/ppc/include
+
+# Ignore kernel header
+kernel_headers.tar.gz
+
+include/asm-arm/.arch
+usr/.initramfs_data.cpio.gz.d
+usr/.initramfs_data.cpio.d
+
+#properly handle quilt's .version file.
+!.pc/.version
+
+# Files below are modified by LTTng patches we should not ignore:
+# under include/asm-generic/:
+!vmlinux.lds.h
+# under arch/arm26/kernel/:
+!vmlinux-arm26-xip.lds.in
+!vmlinux-arm26.lds.in
+# under arch/avr32/kernel/:
+!vmlinux.lds.c
+# under arch/m68k/kernel/:
+!vmlinux-std.lds
+!vmlinux-sun3.lds
+
+# Ignore reject file created by patch command.
+*.rej
+
+# ignore syscall check
+.missing-syscalls.d
+
+include/linux/snsc_nlver_repover.h

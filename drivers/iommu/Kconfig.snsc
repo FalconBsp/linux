@@ -1,0 +1,11 @@
+config SNSC_CREATE_FAKE_IVMD_FOR_VIA_XHCI_ON_GA_F2A88X_UP4
+        bool "Create fake IVMD for VIA XHCI on GA-F2A88X-UP4"
+        depends on SNSC
+        depends on AMD_IOMMU
+        help
+          Make VIA USB XHCI work on Gigabyte board GA-F2A88X-UP4.
+          VIA XHCI HW accesses a physical address directly which is not
+          excluded in ACPI table presented by BIOS.
+          This is a temp solution to build a fake IVMD table in amd iommu
+          driver to prevent IOMMU translating the physical address.
+

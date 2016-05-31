@@ -1,0 +1,11 @@
+#!/bin/sh
+
+scripts/setup_common.py --full-name="AMD x86_64" \
+                        --cross-compile="" \
+                        --arch-name="x86" \
+                        --target-name="amd-x86-64" \
+                        --fixup-kernel-headers="scripts/kernel_headers/default.fixup" \
+                        --defconfig-base="arch/x86/configs/x86_64_ubuntu_AMD_min_defconfig" \
+                        --build-instruction="make" \
+                        --image="arch/x86/boot/bzImage" \
+                        "$@"

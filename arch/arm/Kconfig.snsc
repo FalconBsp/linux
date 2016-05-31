@@ -1,0 +1,37 @@
+#
+# SNSC related configurations
+#
+config SNSC_ARM_REDUCE_ICACHE_INVALIDATION
+       bool "Reduce I-cache invalidation on ARM v6 and later"
+       depends on SNSC
+       depends on CPU_CACHE_V6 || CPU_CACHE_V7
+       default n
+
+config SNSC_VFP_DETECTION
+	bool "VFP detection"
+	depends on VFP
+	depends on SNSC
+	default n
+
+config SNSC_VFP_DETECTION_IRQ
+	bool "VFP detection in IRQ context"
+	depends on SNSC_VFP_DETECTION
+	default n
+	help
+	  Enable this option to detect VFP instruction in IRQ context.
+	  kernel will raise warning if VFP instruction executed in
+	  IRQ context.
+
+	  If unsure, say N.
+
+config SNSC_VFP_DETECTION_IOCTL
+	bool "VFP detection in ioctl context"
+	depends on SNSC_VFP_DETECTION
+	default n
+	help
+	  Enable this option to detect VFP instruction in ioctl context.
+	  kernel will raise warning if VFP instruction executed in ioctl
+	  context.
+
+	  If unsure, say N.
+
