@@ -1699,6 +1699,11 @@ static int gfx_v8_0_do_edc_gpr_workarounds(struct amdgpu_device *adev)
 		DRM_ERROR("amdgpu: fence wait failed (%d).\n", r);
 		goto fail;
 	}
+
+	/* read back registers to clear the counters */
+	for (i = 0; i < ARRAY_SIZE(sec_ded_counter_registers); i++)
+		RREG32(sec_ded_counter_registers[i]);
+
 #if 0
 	tmp = REG_SET_FIELD(tmp, GB_EDC_MODE, DED_MODE, 2);
 	tmp = REG_SET_FIELD(tmp, GB_EDC_MODE, PROP_FED, 1);
@@ -1709,9 +1714,6 @@ static int gfx_v8_0_do_edc_gpr_workarounds(struct amdgpu_device *adev)
 	WREG32(mmCC_GC_EDC_CONFIG, tmp);
 #endif
 
-	/* read back registers to clear the counters */
-	for (i = 0; i < ARRAY_SIZE(sec_ded_counter_registers); i++)
-		RREG32(sec_ded_counter_registers[i]);
 
 fail:
 	fence_put(f);
