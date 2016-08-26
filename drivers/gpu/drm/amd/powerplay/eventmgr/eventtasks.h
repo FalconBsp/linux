@@ -57,7 +57,7 @@ int pem_task_block_hw_access(struct pp_eventmgr *eventmgr, struct pem_event_data
 int pem_task_un_block_hw_access(struct pp_eventmgr *eventmgr, struct pem_event_data *event_data);
 int pem_task_reset_display_phys_access(struct pp_eventmgr *eventmgr, struct pem_event_data *event_data);
 int pem_task_set_cpu_power_state(struct pp_eventmgr *eventmgr, struct pem_event_data *event_data);
-
+int pem_task_notify_smc_display_config_after_power_state_adjustment(struct pp_eventmgr *eventmgr, struct pem_event_data *event_data);
 /*powersaving*/
 
 int pem_task_set_power_source(struct pp_eventmgr *eventmgr, struct pem_event_data *event_data);
@@ -81,5 +81,8 @@ int pem_task_conditionally_force_3d_performance_state(struct pp_eventmgr *eventm
 int pem_task_get_2D_performance_state_id(struct pp_eventmgr *eventmgr, struct pem_event_data *event_data);
 int pem_task_create_user_performance_state(struct pp_eventmgr *eventmgr, struct pem_event_data *event_data);
 int pem_task_update_allowed_performance_levels(struct pp_eventmgr *eventmgr, struct pem_event_data *event_data);
+/*thermal */
+int pem_task_initialize_thermal_controller(struct pp_eventmgr *eventmgr, struct pem_event_data *event_data);
+int pem_task_uninitialize_thermal_controller(struct pp_eventmgr *eventmgr, struct pem_event_data *event_data);
 
 #endif /* _EVENT_TASKS_H_ */

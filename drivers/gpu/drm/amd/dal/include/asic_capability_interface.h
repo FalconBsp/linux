@@ -32,10 +32,9 @@
 /* Forward declaration */
 struct hw_asic_id;
 
-
 /* ASIC capability */
 struct asic_capability {
-	struct dal_context *dal_context;
+	struct dc_context *ctx;
 	struct asic_caps caps;
 	struct asic_stereo_3d_caps stereo_3d_caps;
 	struct asic_bugs bugs;
@@ -43,14 +42,13 @@ struct asic_capability {
 	uint32_t data[ASIC_DATA_MAX_NUMBER];
 };
 
-
 /**
  * Interfaces
  */
 
 /* Create and initialize ASIC capability */
 struct asic_capability *dal_asic_capability_create(struct hw_asic_id *init,
-		struct dal_context *dal_context);
+		struct dc_context *ctx);
 
 /* Destroy ASIC capability and free memory space */
 void dal_asic_capability_destroy(struct asic_capability **cap);

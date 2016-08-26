@@ -684,7 +684,7 @@ do_get_edid(struct drm_encoder *encoder)
 	if (read_edid_block(encoder, block, 0))
 		goto fail;
 
-	if (!drm_edid_block_valid(block, 0, print_bad_edid))
+	if (!drm_edid_block_valid(block, 0, print_bad_edid,NULL))
 		goto fail;
 
 	/* if there's no extensions, we're done */
@@ -701,7 +701,7 @@ do_get_edid(struct drm_encoder *encoder)
 		if (read_edid_block(encoder, ext_block, j))
 			goto fail;
 
-		if (!drm_edid_block_valid(ext_block, j, print_bad_edid))
+		if (!drm_edid_block_valid(ext_block, j, print_bad_edid,NULL))
 			goto fail;
 
 		valid_extensions++;

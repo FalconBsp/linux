@@ -25,12 +25,13 @@
 #include "eventmanagement.h"
 #include "eventmanager.h"
 #include "power_state.h"
+#include "hardwaremanager.h"
 
 int psm_get_ui_state(struct pp_eventmgr *eventmgr, enum PP_StateUILabel ui_label, unsigned long *state_id);
 
 int psm_get_state_by_classification(struct pp_eventmgr *eventmgr, enum PP_StateClassificationFlag flag, unsigned long *state_id);
 
-int psm_set_performance_states(struct pp_eventmgr *eventmgr, unsigned long *state_id);
+int psm_set_states(struct pp_eventmgr *eventmgr, unsigned long *state_id);
 
 int psm_adjust_power_state_dynamic(struct pp_eventmgr *eventmgr, bool skip);
 

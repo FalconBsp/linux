@@ -26,11 +26,6 @@
 #ifndef TL_HDCP_IF_H_
 #define TL_HDCP_IF_H_
 
-//#include "tci.h"
-
-#define TRUE 	1
-#define FALSE 	0
-
 typedef uint32_t tciCommandId_t;
 typedef uint32_t tciResponseId_t;
 typedef uint32_t tciReturnCode_t;
@@ -69,13 +64,8 @@ typedef struct{
 typedef enum _HDCP_CMD_ID
 {
     HDCP_CMD_HOST_CMDS                = 0x1,    // Submit HDCP related commands
-    HDCP_CDM_SET_TEST_VECTOR          = 0X2,    // this command is ONLY used for test purpose
 } HDCP_CMD_ID;
 
-/**
-* Error codes copied from SAMU KAPP for HDCP
-* MUST be in a range 0x00001000 - 0x00001FFF
-*/
 #define HDCP_SUCCESS                         0x00000000
 #define HDCP_ERR_GENERIC_ERROR               0x00001001
 #define HDCP_ERR_MEMORY                      0x00001002
@@ -123,7 +113,6 @@ typedef enum _HDCP_CMD_ID
 #define HDCP_ERR_ENCRYPTION_ENABLE_A1        0x0000102C
 #define HDCP_NO_ERR_DONT_STORE_KM_DATA       0x0000102D
 #define HDCP_ERR_ASD_DRIVER_CALL_FAILED      0x20000000 // this error code is designed to be this value on purpose
-                                                        // when calling ASD driver returns an error, it's in 0x00XXXXXX format
 
 /**
  * Structure sizes
@@ -135,10 +124,9 @@ typedef enum _HDCP_CMD_ID
 #define HDCP_ENCRYPTED_DATA_SIZE             256
 #define HDCP2_MAX_NUM_OF_STREAMS             4   // Maximum streams supported. At the moment only two streams ( One Audio + One Video)
 #define HDCP2_DATA_INPUT_SIZE_16_IN_BYTES    16
-#define HDCP14_MAX_NUMBER_DOWNSTREAM_DEVICES 64
+#define HDCP14_MAX_NUMBER_DOWNSTREAM_DEVICES 127
 #define HDCP14_SIZE_OF_KSV                   5
 
-//copied from KAPP HDCP interface
 // Command IDs.
 // Host message IDs
 #define TL_HDCP_CMD_ID_USE_HDCP2_0_1        0x00000001  // Set the test vector Id, only for testing purpose
@@ -208,7 +196,7 @@ typedef enum _TL_HDCP_COMMAND_CODE {
     TL_HDCP_CMD_ID_PROCESS_MSG              = 0x00000103,  // Process input receiver messages
     TL_HDCP_CMD_ID_CLOSE_SESSION            = 0x00000104,  // Close an HDCP2 session
     TL_HDCP_CMD_ID_ENABLE_DISABLE_ENC       = 0x00000105,  // Protection lib message to enable or disable the encryption
-    TL_HDCP_CMD_ID_TERMINATE                = 0x00000106,  // Terminate the KAPP hdcp work
+    TL_HDCP_CMD_ID_TERMINATE                = 0x00000106,  // Terminate the hdcp work
     TL_HDCP_CMD_ID_AUTH_EXTERNAL_CHIP       = 0x00000107,  // Authenticate the HDCP 2.2 External Chip
     TL_HDCP_CMD_ID_UPDATE_STATUS            = 0x00000108,   // Update status for HDCP 2.2 External Chip
     TL_HDCP_CMD_ID_SET_PROTECTION_LEVEL     = 0x00000109,
@@ -223,33 +211,6 @@ typedef enum _TL_HDCP_COMMAND_CODE {
     TL_HDCP_CMD_ID_GET_PROTECTION_LEVEL     = 0x00000118
 
 } TL_HDCP_COMMAND_CODE;
-
-/**
- * Valid Command/Mode Checking
- */
-
-#define NYI FALSE
-
-#ifdef _MSC_VER
-  #define INLINE __forceinline /* use __forceinline (VC++ specific) */
-#else
-  #define INLINE inline        /* use standard inline */
-#endif
-
-static INLINE uint32_t isValidCommand(HDCP_SESSION_TYPE eSessionType, TL_HDCP_COMMAND_CODE eCommandCode) {
-    const uint32_t ValidCommandArray[8][3] =
-    {                             /* HDCP 1.4 */ /* HDCP Miracast */ /* HDCP 2.2 External Chip */
-        /* INIT */                {    FALSE    ,       TRUE        ,        FALSE              },
-        /* OPEN_SESSION */        {    NYI      ,       TRUE        ,        TRUE               },
-        /* PROCESS_MSG */         {    FALSE    ,       TRUE        ,        FALSE              },
-        /* CLOSE_SESSION */       {    NYI      ,       TRUE        ,        NYI                },
-        /* ENABLE_DISABLE_ENC */  {    NYI      ,       TRUE        ,        NYI                },
-        /* TERMINATE */           {    FALSE    ,       TRUE        ,        FALSE              },
-        /* AUTH_EXTERNAL_CHIP */  {    FALSE    ,       FALSE       ,        FALSE              },
-        /* AUTH_EXTERNAL_CHIP */  {    FALSE    ,       FALSE       ,        TRUE               }
-    };
-    return ValidCommandArray[eCommandCode - 101][eSessionType];
-}
 
 /**
  * Return Error Codes

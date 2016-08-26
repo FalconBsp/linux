@@ -26,11 +26,9 @@
 #ifndef __DAL_LOGGER_TYPES_H__
 #define __DAL_LOGGER_TYPES_H__
 
-
 /*
  * TODO: This logger functionality needs to be implemented and reworked.
  */
-
 
 struct dal_logger;
 
@@ -58,7 +56,7 @@ enum log_major {
 /*15*/  LOG_MAJOR_LINE_BUFFER,	/*< Line Buffer object logging activity*/
 /*16*/  LOG_MAJOR_HWSS,		/*< HWSS object logging activity*/
 /*17*/  LOG_MAJOR_OPTIMIZATION,	/*< Optimization code path*/
-/*18*/  LOG_MAJOR_PERF_MEASURE,	/*< Perfomance measurement dumps*/
+/*18*/  LOG_MAJOR_PERF_MEASURE,	/*< Performance measurement dumps*/
 /*19*/  LOG_MAJOR_SYNC,		/*< related to HW and SW Synchronization*/
 /*20*/  LOG_MAJOR_BACKLIGHT,	/*< related to backlight */
 /*21*/  LOG_MAJOR_INTERRUPTS,	/*< logging for all interrupts */
@@ -66,6 +64,8 @@ enum log_major {
 /*22*/  LOG_MAJOR_TM,		/*< related to Topology Manager*/
 /*23*/  LOG_MAJOR_DISPLAY_SERVICE, /*< related to Display Service*/
 /*24*/	LOG_MAJOR_FEATURE_OVERRIDE,	/*< related to features*/
+/*25*/	LOG_MAJOR_DETECTION,	/*< related to detection*/
+/*26*/	LOG_MAJOR_CONNECTIVITY,	/*< related to connectivity*/
 	LOG_MAJOR_COUNT,	/*< count of the Major categories*/
 };
 
@@ -73,7 +73,6 @@ enum log_major {
 * @brief defines minor switch for logging.  each of these define sub category
 *        of log message per LogMajor
 */
-
 
 enum log_minor {
 
@@ -102,6 +101,7 @@ enum log_minor {
 	LOG_MINOR_COMPONENT_CONTROLLER,
 	LOG_MINOR_COMPONENT_ISR,
 	LOG_MINOR_COMPONENT_BIOS,
+	LOG_MINOR_COMPONENT_DC,
 	LOG_MINOR_COMPONENT_IRQ_SERVICE,
 
 /**
@@ -222,6 +222,7 @@ enum log_minor {
 */
 	LOG_MINOR_I2C_AUX_LOG = 0,
 	LOG_MINOR_I2C_AUX_AUX_TIMESTAMP,
+	LOG_MINOR_I2C_AUX_CFG,
 
 /**
 * @brief defines minor category for LogMajor_LineBuffer
@@ -259,6 +260,7 @@ enum log_minor {
 * @note define sub functionality related to HW and SW Synchronization
 */
 	LOG_MINOR_SYNC_HW_CLOCK_ADJUST = 0,
+	LOG_MINOR_SYNC_TIMING,
 
 /**
 * @brief defines minor category for LogMajor_Backlight
@@ -302,6 +304,26 @@ enum log_minor {
 * @note define sub functionality related to features in adapter service
 */
 	LOG_MINOR_FEATURE_OVERRIDE = 0,
+
+/**
+* @brief defines minor category for LOG_MAJOR_DETECTION
+*
+* @note define sub functionality related to detection
+*/
+	LOG_MINOR_DETECTION_EDID_PARSER = 0,
+	LOG_MINOR_DETECTION_DP_CAPS,
+
+/**
+* @brief defines minor category for LOG_MAJOR_CONNECTIVITY
+*
+* @note define sub functionality related to connectivity
+*/
+	LOG_MINOR_CONNECTIVITY_MODE_SET = 0,
+	LOG_MINOR_CONNECTIVITY_DETECTION,
+	LOG_MINOR_CONNECTIVITY_LINK_TRAINING,
+	LOG_MINOR_CONNECTIVITY_LINK_LOSS,
+	LOG_MINOR_CONNECTIVITY_UNDERFLOW,
+
 };
 
 union logger_flags {

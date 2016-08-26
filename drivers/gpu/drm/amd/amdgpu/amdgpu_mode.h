@@ -35,9 +35,13 @@
 #include <drm/drm_dp_helper.h>
 #include <drm/drm_fixed.h>
 #include <drm/drm_crtc_helper.h>
+#include <drm/drm_fb_helper.h>
 #include <drm/drm_plane_helper.h>
+#include <drm/drm_fb_helper.h>
 #include <linux/i2c.h>
 #include <linux/i2c-algo-bit.h>
+
+#include <drm/drm_dp_mst_helper.h>
 
 struct amdgpu_bo;
 struct amdgpu_device;
@@ -52,7 +56,7 @@ struct amdgpu_hpd;
 
 #define AMDGPU_MAX_HPD_PINS 6
 #define AMDGPU_MAX_CRTCS 6
-#define AMDGPU_MAX_AFMT_BLOCKS 7
+#define AMDGPU_MAX_AFMT_BLOCKS 9
 
 enum amdgpu_rmx_type {
 	RMX_OFF,
@@ -302,14 +306,30 @@ struct amdgpu_display_funcs {
 			       struct amdgpu_mode_mc_save *save);
 	void (*resume_mc_access)(struct amdgpu_device *adev,
 				 struct amdgpu_mode_mc_save *save);
+	/* it is used to enter or exit into free sync mode */
+	int (*notify_freesync)(struct drm_device *dev, void *data,
+			struct drm_file *filp);
+
+};
+
+struct amdgpu_framebuffer {
+	struct drm_framebuffer base;
+	struct drm_gem_object *obj;
+};
+
+struct amdgpu_fbdev {
+	struct drm_fb_helper helper;
+	struct amdgpu_framebuffer rfb;
+	struct list_head fbdev_list;
+	struct amdgpu_device *adev;
 };
 
 struct amdgpu_mode_info {
 	struct atom_context *atom_context;
 	struct card_info *atom_card_info;
 	bool mode_config_initialized;
-	struct amdgpu_crtc *crtcs[6];
-	struct amdgpu_afmt *afmt[7];
+	struct amdgpu_crtc *crtcs[AMDGPU_MAX_CRTCS];
+	struct amdgpu_afmt *afmt[AMDGPU_MAX_AFMT_BLOCKS];
 	/* DVI-I properties */
 	struct drm_property *coherent_mode_property;
 	/* DAC enable load detect */
@@ -373,6 +393,10 @@ struct amdgpu_crtc {
 	uint32_t crtc_offset;
 	struct drm_gem_object *cursor_bo;
 	uint64_t cursor_addr;
+	int cursor_x;
+	int cursor_y;
+	int cursor_hot_x;
+	int cursor_hot_y;
 	int cursor_width;
 	int cursor_height;
 	int max_cursor_width;
@@ -385,7 +409,6 @@ struct amdgpu_crtc {
 	struct drm_display_mode native_mode;
 	u32 pll_id;
 	/* page flipping */
-	struct workqueue_struct *pflip_queue;
 	struct amdgpu_flip_work *pflip_works;
 	enum amdgpu_flip_status pflip_status;
 	int deferred_flip_completion;
@@ -403,12 +426,11 @@ struct amdgpu_crtc {
 	u32 line_time;
 	u32 wm_low;
 	u32 wm_high;
+	u32 lb_vblank_lead_lines;
 	struct drm_display_mode hw_mode;
 
-#ifdef BUILD_DC_CORE
 	/* After Set Mode target will be non-NULL */
 	struct dc_target *target;
-#endif
 };
 
 struct amdgpu_encoder_atom_dig {
@@ -498,6 +520,19 @@ enum amdgpu_connector_dither {
 	AMDGPU_FMT_DITHER_ENABLE = 1,
 };
 
+struct amdgpu_dm_dp_aux {
+	struct drm_dp_aux aux;
+	uint32_t link_index;
+};
+
+struct amdgpu_i2c_adapter {
+	struct i2c_adapter base;
+	struct amdgpu_display_manager *dm;
+	uint32_t link_index;
+};
+
+#define TO_DM_AUX(x) container_of((x), struct amdgpu_dm_dp_aux, aux)
+
 struct amdgpu_connector {
 	struct drm_connector base;
 	uint32_t connector_id;
@@ -509,13 +544,13 @@ struct amdgpu_connector {
 	/* we need to mind the EDID between detect
 	   and get modes due to analog/digital/tvencoder */
 	struct edid *edid;
-#ifdef BUILD_DC_CORE
-	/* number of mode generate from EDID */
+	/* number of modes generated from EDID at 'dc_sink' */
 	int num_modes;
+	/* The 'old' sink - before an HPD.
+	 * The 'current' sink is in dc_link->sink. */
 	const struct dc_sink *dc_sink;
-	/* After Set Mode stream will be non-NULL */
-	struct dc_stream *stream;
-#endif
+	const struct dc_link *dc_link;
+	const struct dc_target *target;
 	void *con_priv;
 	bool dac_load_detect;
 	bool detected_by_load; /* if the connection status was determined by load */
@@ -526,15 +561,42 @@ struct amdgpu_connector {
 	enum amdgpu_connector_audio audio;
 	enum amdgpu_connector_dither dither;
 	unsigned pixelclock_for_modeset;
+
+	struct drm_dp_mst_topology_mgr mst_mgr;
+	struct amdgpu_dm_dp_aux dm_dp_aux;
+	struct drm_dp_mst_port *port;
+	struct amdgpu_connector *mst_port;
+	struct amdgpu_encoder *mst_encoder;
+	struct semaphore mst_sem;
+
+	/* TODO see if we can merge with ddc_bus or make a dm_connector */
+	struct amdgpu_i2c_adapter *i2c;
+
+	/* Monitor range limits */
+	int min_vfreq ;
+	int max_vfreq ;
+	int pixel_clock_mhz;
+
 };
 
-struct amdgpu_framebuffer {
-	struct drm_framebuffer base;
-	struct drm_gem_object *obj;
+/* TODO: start to use this struct and remove same field from base one */
+struct amdgpu_mst_connector {
+	struct amdgpu_connector base;
+
+	struct drm_dp_mst_topology_mgr mst_mgr;
+	struct amdgpu_dm_dp_aux dm_dp_aux;
+	struct drm_dp_mst_port *port;
+	struct amdgpu_connector *mst_port;
+	bool is_mst_connector;
+	struct amdgpu_encoder *mst_encoder;
 };
 
 #define ENCODER_MODE_IS_DP(em) (((em) == ATOM_ENCODER_MODE_DP) || \
 				((em) == ATOM_ENCODER_MODE_DP_MST))
+
+/* Driver internal use only flags of amdgpu_get_crtc_scanoutpos() */
+#define USE_REAL_VBLANKSTART		(1 << 30)
+#define GET_DISTANCE_TO_VBLANKSTART	(1 << 31)
 
 void amdgpu_link_encoder_connector(struct drm_device *dev);
 
@@ -552,14 +614,14 @@ bool amdgpu_ddc_probe(struct amdgpu_connector *amdgpu_connector, bool use_aux);
 
 void amdgpu_encoder_set_active_device(struct drm_encoder *encoder);
 
-int amdgpu_get_crtc_scanoutpos(struct drm_device *dev, int crtc,
-				      unsigned int flags,
-				      int *vpos, int *hpos, ktime_t *stime,
-				      ktime_t *etime);
+int amdgpu_get_crtc_scanoutpos(struct drm_device *dev, unsigned int pipe,
+			       unsigned int flags, int *vpos, int *hpos,
+			       ktime_t *stime, ktime_t *etime,
+			       const struct drm_display_mode *mode);
 
 int amdgpu_framebuffer_init(struct drm_device *dev,
 			     struct amdgpu_framebuffer *rfb,
-			     struct drm_mode_fb_cmd2 *mode_cmd,
+			     const struct drm_mode_fb_cmd2 *mode_cmd,
 			     struct drm_gem_object *obj);
 
 int amdgpufb_remove(struct drm_device *dev, struct drm_framebuffer *fb);
@@ -579,6 +641,7 @@ void amdgpu_fbdev_fini(struct amdgpu_device *adev);
 void amdgpu_fbdev_set_suspend(struct amdgpu_device *adev, int state);
 int amdgpu_fbdev_total_size(struct amdgpu_device *adev);
 bool amdgpu_fbdev_robj_is_fb(struct amdgpu_device *adev, struct amdgpu_bo *robj);
+void amdgpu_fbdev_restore_mode(struct amdgpu_device *adev);
 
 void amdgpu_fb_output_poll_changed(struct amdgpu_device *adev);
 

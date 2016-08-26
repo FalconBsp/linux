@@ -92,10 +92,12 @@ static uint32_t get_process_page_dir(void *vm);
 static int open_graphic_handle(struct kgd_dev *kgd, uint64_t va, void *vm, int fd, uint32_t handle, struct kgd_mem **mem);
 static int map_memory_to_gpu(struct kgd_dev *kgd, struct kgd_mem *mem,
 		void *vm);
-static int unmap_memory_from_gpu(struct kgd_dev *kgd, struct kgd_mem *mem);
+static int unmap_memory_from_gpu(struct kgd_dev *kgd, struct kgd_mem *mem,
+		void *vm);
 static int alloc_memory_of_gpu(struct kgd_dev *kgd, uint64_t va, size_t size,
 		void *vm, struct kgd_mem **mem,
-		uint64_t *offset, void **kptr, uint32_t flags);
+		uint64_t *offset, void **kptr, struct kfd_process_device *pdd,
+		uint32_t flags);
 static int free_memory_of_gpu(struct kgd_dev *kgd, struct kgd_mem *mem);
 
 static uint16_t get_fw_version(struct kgd_dev *kgd, enum kgd_engine_type type);
@@ -185,7 +187,9 @@ static const struct kfd2kgd_calls kfd2kgd = {
 	.write_config_static_mem = write_config_static_mem,
 	.mmap_bo = mmap_bo,
 	.map_gtt_bo_to_kernel = map_gtt_bo_to_kernel,
-	.set_vm_context_page_table_base = set_vm_context_page_table_base
+	.set_vm_context_page_table_base = set_vm_context_page_table_base,
+	.get_dmabuf_info = amdgpu_amdkfd_get_dmabuf_info,
+	.get_vm_fault_info = amdgpu_amdkfd_gpuvm_get_vm_fault_info
 };
 
 struct kfd2kgd_calls *amdgpu_amdkfd_gfx_7_get_functions()
@@ -412,12 +416,13 @@ static int kgd_hqd_load(struct kgd_dev *kgd, void *mqd, uint32_t pipe_id,
 		uint32_t page_table_base)
 {
 	struct amdgpu_device *adev = get_amdgpu_device(kgd);
-	uint32_t wptr_shadow, is_wptr_shadow_valid;
 	struct cik_mqd *m;
+	uint32_t wptr_shadow = 0, is_wptr_shadow_valid = 0;
 
 	m = get_mqd(mqd);
 
-	is_wptr_shadow_valid = !get_user(wptr_shadow, wptr);
+	if (wptr != NULL)
+		is_wptr_shadow_valid = !get_user(wptr_shadow, wptr);
 
 	acquire_queue(kgd, pipe_id, queue_id);
 
@@ -471,8 +476,7 @@ static int kgd_hqd_load(struct kgd_dev *kgd, void *mqd, uint32_t pipe_id,
 
 	WREG32(mmCP_HQD_IQ_RPTR, m->cp_hqd_iq_rptr);
 
-	if (is_wptr_shadow_valid)
-		WREG32(mmCP_HQD_PQ_WPTR, wptr_shadow);
+	WREG32(mmCP_HQD_PQ_WPTR, (is_wptr_shadow_valid ? wptr_shadow : 0));
 
 	WREG32(mmCP_HQD_ACTIVE, m->cp_hqd_active);
 	release_queue(kgd);
@@ -702,7 +706,7 @@ static uint16_t get_atc_vmid_pasid_mapping_pasid(struct kgd_dev *kgd,
 	struct amdgpu_device *adev = (struct amdgpu_device *) kgd;
 
 	reg = RREG32(mmATC_VMID0_PASID_MAPPING + vmid);
-	return reg & ATC_VMID0_PASID_MAPPING__VALID_MASK;
+	return reg & ATC_VMID0_PASID_MAPPING__PASID_MASK;
 }
 
 static void write_vmid_invalidate_request(struct kgd_dev *kgd, uint8_t vmid)
@@ -740,8 +744,8 @@ static int alloc_memory_of_scratch(struct kgd_dev *kgd,
 
 
 static int alloc_memory_of_gpu(struct kgd_dev *kgd, uint64_t va, size_t size,
-		void *vm, struct kgd_mem **mem,
-		uint64_t *offset, void **kptr, uint32_t flags)
+		void *vm, struct kgd_mem **mem, uint64_t *offset,
+		void **kptr, struct kfd_process_device *pdd, uint32_t flags)
 {
 	return -EFAULT;
 }
@@ -756,7 +760,8 @@ static int map_memory_to_gpu(struct kgd_dev *kgd, struct kgd_mem *mem, void *vm)
 	return -EFAULT;
 }
 
-static int unmap_memory_from_gpu(struct kgd_dev *kgd, struct kgd_mem *mem)
+static int unmap_memory_from_gpu(struct kgd_dev *kgd, struct kgd_mem *mem,
+		void *vm)
 {
 	return -EFAULT;
 }
@@ -801,12 +806,12 @@ static uint16_t get_fw_version(struct kgd_dev *kgd, enum kgd_engine_type type)
 
 	case KGD_ENGINE_SDMA1:
 		hdr = (const union amdgpu_firmware_header *)
-							adev->sdma[0].fw->data;
+							adev->sdma.instance[0].fw->data;
 		break;
 
 	case KGD_ENGINE_SDMA2:
 		hdr = (const union amdgpu_firmware_header *)
-							adev->sdma[1].fw->data;
+							adev->sdma.instance[1].fw->data;
 		break;
 
 	default:

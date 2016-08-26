@@ -36,7 +36,6 @@
 struct amdgpu_psp	*psp_data;
 
 static void g2p_set_irq_funcs(struct amdgpu_device *adev);
-static void g2p_do_work(struct work_struct *);
 static void g2p_print_status(void *);
 
 /*
@@ -64,7 +63,6 @@ static int g2p_early_init(void *handle)
  * Here we should do the following software initialization:
  *		Initialize a mutex
  *		Initialize wait queue
- *		Create Work Queue for handling the ISR bottom half
  *		Allocate the Ring buffer
  */
 static int g2p_sw_init(void *handle)
@@ -85,12 +83,6 @@ static int g2p_sw_init(void *handle)
 
 	init_waitqueue_head(&adev->psp.psp_queue);
 
-	adev->psp.wq = create_singlethread_workqueue("psp-work-queue");
-	if (!adev->psp.wq)
-		return -ENOMEM;
-
-	INIT_WORK(&adev->psp.psp_work, g2p_do_work);
-
 	size = sizeof(struct g2p_comm_rb_frame) * MAX_FRAMES;
 	dev_info(adev->dev, "Ring Size = %d\n", size);
 	/*
@@ -98,12 +90,10 @@ static int g2p_sw_init(void *handle)
 	 * Memory needs to be physically contiguous.
 	 */
 	addr = (void *)__get_free_pages(GFP_KERNEL, get_order(size));
-	if (!addr) {
-		destroy_workqueue(adev->psp.wq);
+	if (!addr)
 		return -ENOMEM;
-	}
 
-	/* TODO: Zero out the allocated memory */
+	memset(addr, 0, PAGE_SIZE << get_order(size));
 	adev->psp.virt_addr = (struct g2p_comm_rb_frame *)(addr);
 	adev->psp.phys_addr = (struct g2p_comm_rb_frame *) virt_to_phys(addr);
 
@@ -113,7 +103,6 @@ static int g2p_sw_init(void *handle)
 	adev->psp.fence_addr = (void *)__get_free_pages(GFP_KERNEL,
 							get_order(1024));
 	if (!adev->psp.fence_addr) {
-		destroy_workqueue(adev->psp.wq);
 		free_pages((unsigned long)adev->psp.virt_addr,
 							get_order(size));
 		return -ENOMEM;
@@ -135,9 +124,8 @@ static int g2p_sw_init(void *handle)
  * This is the .sw_fini entry from the GPU driver teardown sequence.
  * Here we should do the following software teardown:
  *		(1) Free the ring buffer.
- *		(2) Destroy Work queue
- *		(3) Destroy Wait Queues
- *		(4) Release the mutex
+ *		(2) Destroy Wait Queues
+ *		(3) Release the mutex
  */
 static int g2p_sw_fini(void *handle)
 {
@@ -161,12 +149,6 @@ static int g2p_sw_fini(void *handle)
 	adev->psp.virt_addr = NULL;
 	adev->psp.phys_addr = NULL;
 	adev->psp.fence_addr = NULL;
-
-	if (adev->psp.wq) {
-		flush_workqueue(adev->psp.wq);
-		destroy_workqueue(adev->psp.wq);
-		adev->psp.wq = NULL;
-	}
 
 	mutex_destroy(&adev->psp.psp_mutex);
 
@@ -341,20 +323,11 @@ static int psp_set_powergating_state(void *handle,
 }
 
 /*
- * This is the Worker thread that implements the bottom half of the interrupt.
- * This function runs in the process context.
- */
-static void g2p_do_work(struct work_struct *work)
-{
-}
-
-/*
  * This is the interrupt handler for MP0_SW_INT.
  * This function runs in Interrupt context.
  *	We want to do the following:
  *	(1) Acknowledge the interrupt
  *	(2) Wakeup the wait queues waiting for command completion interrupt.
- *	(3) Schedule a Work queue to perform bottom half processing.
  */
 static int g2p_process_interrupt(struct amdgpu_device *adev,
 				      struct amdgpu_irq_src *source,
@@ -449,7 +422,7 @@ static void flush_buffer(void *addr, u32 size)
  */
 int g2p_comm_send_command_buffer(void *cmd_buf, u32 cmd_size, u32 fence_val)
 {
-	int ret, val;
+	int ret,val = 0;
 	static u32 ring_index;
 	struct amdgpu_device *adev = psp_data->adev;
 
@@ -511,15 +484,18 @@ int g2p_comm_send_command_buffer(void *cmd_buf, u32 cmd_size, u32 fence_val)
 	flush_buffer((void *)&psp_data->virt_addr[ring_index],
 					sizeof(struct g2p_comm_rb_frame));
 
-	if (ring_index >= (MAX_FRAMES - 1))
+	if (ring_index >= (MAX_FRAMES - 1)) {
 		ring_index = 0;
-	else
+		val = 0;
+	} else {
+		val = RREG32(mmMP0_MSP_MESSAGE_3);
+		val += RING_BUF_FRAME_SIZE / 4;
 		ring_index++;
-
+	}
 	/* Increment the Write Pointer mailbox register for GPCOM ring */
-	val = RREG32(mmMP0_MSP_MESSAGE_3);
-	val += RING_BUF_FRAME_SIZE / 4;
 	WREG32(mmMP0_MSP_MESSAGE_3, val);
+
+	dev_dbg(adev->dev, "%s: val=%d\n", __func__, val);
 
 	/* Wait for PSP interrupt for frame completion */
 	ret = wait_event_timeout(psp_data->psp_queue,
@@ -555,7 +531,6 @@ const struct amd_ip_funcs psp_ip_funcs = {
 	.is_idle = NULL,
 	.wait_for_idle = NULL,
 	.soft_reset = NULL,
-	.print_status = g2p_print_status,
 	.set_clockgating_state = psp_set_clockgating_state,
 	.set_powergating_state = psp_set_powergating_state,
 };

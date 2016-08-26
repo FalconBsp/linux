@@ -2,6 +2,7 @@
 #include <linux/acpi.h>
 #include <linux/mm.h>
 #include <linux/amd-iommu.h>
+#include <linux/pci.h>
 #include "kfd_crat.h"
 #include "kfd_priv.h"
 #include "kfd_topology.h"
@@ -147,14 +148,13 @@ static int kfd_parse_subtype_cu(struct crat_subtype_computeunit *cu,
 				struct list_head *device_list)
 {
 	struct kfd_topology_device *dev;
-	int i = 0;
 
 	BUG_ON(!cu);
 
 	pr_debug("Found CU entry in CRAT table with proximity_domain=%d caps=%x\n",
 			cu->proximity_domain, cu->hsa_capability);
 	list_for_each_entry(dev, device_list, list) {
-		if (cu->proximity_domain == i) {
+		if (cu->proximity_domain == dev->proximity_domain) {
 			if (cu->flags & CRAT_CU_FLAGS_CPU_PRESENT)
 				kfd_populated_cu_info_cpu(dev, cu);
 
@@ -162,7 +162,6 @@ static int kfd_parse_subtype_cu(struct crat_subtype_computeunit *cu,
 				kfd_populated_cu_info_gpu(dev, cu);
 			break;
 		}
-		i++;
 	}
 
 	return 0;
@@ -176,20 +175,29 @@ static int kfd_parse_subtype_mem(struct crat_subtype_memory *mem,
 {
 	struct kfd_mem_properties *props;
 	struct kfd_topology_device *dev;
-	int i = 0;
 
 	BUG_ON(!mem);
 
 	pr_debug("Found memory entry in CRAT table with proximity_domain=%d\n",
-			mem->promixity_domain);
+			mem->proximity_domain);
 	list_for_each_entry(dev, device_list, list) {
-		if (mem->promixity_domain == i) {
+		if (mem->proximity_domain == dev->proximity_domain) {
 			props = kfd_alloc_struct(props);
 			if (props == NULL)
 				return -ENOMEM;
 
-			if (dev->node_props.cpu_cores_count == 0)
-				props->heap_type = HSA_MEM_HEAP_TYPE_FB_PRIVATE;
+			/*
+			 * We're on GPU node
+			 */
+			if (dev->node_props.cpu_cores_count == 0) {
+				/* APU */
+				if (mem->visibility_type == 0)
+					props->heap_type =
+						HSA_MEM_HEAP_TYPE_FB_PRIVATE;
+				/* dGPU */
+				else
+					props->heap_type = mem->visibility_type;
+			}
 			else
 				props->heap_type = HSA_MEM_HEAP_TYPE_SYSTEM;
 
@@ -208,7 +216,6 @@ static int kfd_parse_subtype_mem(struct crat_subtype_memory *mem,
 
 			break;
 		}
-		i++;
 	}
 
 	return 0;
@@ -300,7 +307,7 @@ static int kfd_parse_subtype_iolink(struct crat_subtype_iolink *iolink,
 
 	pr_debug("Found IO link entry in CRAT table with id_from=%d\n", id_from);
 	list_for_each_entry(dev, device_list, list) {
-		if (id_from == i) {
+		if (id_from == dev->proximity_domain) {
 			props = kfd_alloc_struct(props);
 			if (props == NULL)
 				return -ENOMEM;
@@ -309,6 +316,7 @@ static int kfd_parse_subtype_iolink(struct crat_subtype_iolink *iolink,
 			props->node_to = id_to;
 			props->ver_maj = iolink->version_major;
 			props->ver_min = iolink->version_minor;
+			props->iolink_type = iolink->io_interface_type;
 
 			/*
 			 * weight factor (derived from CDIR), currently always 1
@@ -393,10 +401,12 @@ static int kfd_parse_subtype(struct crat_subtype_generic *sub_type_hdr,
  *	@crat_image - input image containing CRAT
  *	@device_list - [OUT] list of kfd_topology_device generated after parsing
  *				   crat_image
+ *	@proximity_domain - Proximity domain of the first device in the table
  *	Return - 0 if successful else -ve value
  */
 int kfd_parse_crat_table(void *crat_image,
-						struct list_head *device_list)
+				struct list_head *device_list,
+				uint32_t proximity_domain)
 {
 	struct kfd_topology_device *top_dev = NULL;
 	struct crat_subtype_generic *sub_type_hdr;
@@ -405,6 +415,7 @@ int kfd_parse_crat_table(void *crat_image,
 	struct crat_header *crat_table = (struct crat_header *)crat_image;
 	uint16_t num_nodes;
 	uint32_t image_len;
+	uint32_t last_header_type, last_header_length;
 
 	if (!crat_image)
 		return -EINVAL;
@@ -422,6 +433,7 @@ int kfd_parse_crat_table(void *crat_image,
 		top_dev = kfd_create_topology_device(device_list);
 		if (!top_dev)
 			break;
+		top_dev->proximity_domain = proximity_domain++;
 	}
 
 	if (!top_dev)
@@ -431,15 +443,34 @@ int kfd_parse_crat_table(void *crat_image,
 	memcpy(top_dev->oem_table_id, crat_table->oem_table_id, CRAT_OEMTABLEID_LENGTH);
 	top_dev->oem_revision = crat_table->oem_revision;
 
+	last_header_type = last_header_length = 0;
 	sub_type_hdr = (struct crat_subtype_generic *)(crat_table+1);
 	while ((char *)sub_type_hdr + sizeof(struct crat_subtype_generic) <
 			((char *)crat_image) + image_len) {
+		pr_debug("kfd parsing crat sub type header %p enabled: %s type: 0x%x length %d\n",
+				sub_type_hdr,
+				(sub_type_hdr->flags &
+					CRAT_SUBTYPE_FLAGS_ENABLED)
+					? "true" : "false",
+				sub_type_hdr->type,
+				sub_type_hdr->length);
+
+		if (sub_type_hdr->length == 0) {
+			pr_err("amdkfd: Parsing wrong CRAT's sub header last header type: %d last header len %d\n",
+				last_header_type, last_header_type);
+			pr_err("amdkfd: Current header type %d length %d\n",
+				sub_type_hdr->type, sub_type_hdr->length);
+			break;
+		}
+
 		if (sub_type_hdr->flags & CRAT_SUBTYPE_FLAGS_ENABLED) {
 			ret = kfd_parse_subtype(sub_type_hdr, device_list);
 			if (ret != 0)
 				return ret;
 		}
 
+		last_header_type = sub_type_hdr->type;
+		last_header_length = sub_type_hdr->length;
 		sub_type_hdr = (typeof(sub_type_hdr))((char *)sub_type_hdr +
 				sub_type_hdr->length);
 	}
@@ -659,6 +690,89 @@ int kfd_create_crat_image_acpi(void **crat_image, size_t *size)
 #define VCRAT_SIZE_FOR_CPU	PAGE_SIZE
 #define VCRAT_SIZE_FOR_GPU	(3 * PAGE_SIZE)
 
+/* kfd_fill_cu_for_cpu - Fill in Compute info for the given CPU NUMA node
+ *
+ *  @numa_node_id: CPU NUMA node id
+ *  @avail_size: Available size in the memory
+ *  @sub_type_hdr: Memory into which compute info will be filled in
+ *
+ *  Return 0 if successful else return -ve value
+ */
+static int kfd_fill_cu_for_cpu(int numa_node_id, int *avail_size,
+				int proximity_domain,
+				struct crat_subtype_computeunit *sub_type_hdr)
+{
+	const struct cpumask *cpumask;
+
+	*avail_size -= sizeof(struct crat_subtype_computeunit);
+	if (*avail_size < 0)
+		return -ENOMEM;
+
+	memset(sub_type_hdr, 0, sizeof(struct crat_subtype_computeunit));
+
+	/* Fill in subtype header data */
+	sub_type_hdr->type = CRAT_SUBTYPE_COMPUTEUNIT_AFFINITY;
+	sub_type_hdr->length = sizeof(struct crat_subtype_computeunit);
+	sub_type_hdr->flags = CRAT_SUBTYPE_FLAGS_ENABLED;
+
+	cpumask = cpumask_of_node(numa_node_id);
+
+	/* Fill in CU data */
+	sub_type_hdr->flags |= CRAT_CU_FLAGS_CPU_PRESENT;
+	sub_type_hdr->proximity_domain = proximity_domain;
+	sub_type_hdr->processor_id_low = kfd_numa_node_to_apic_id(numa_node_id);
+	if (sub_type_hdr->processor_id_low == -1)
+		return -EINVAL;
+
+	sub_type_hdr->num_cpu_cores = cpumask_weight(cpumask);
+
+	return 0;
+}
+
+/* kfd_fill_mem_info_for_cpu - Fill in Memory info for the given CPU NUMA node
+ *
+ *  @numa_node_id: CPU NUMA node id
+ *  @avail_size: Available size in the memory
+ *  @sub_type_hdr: Memory into which compute info will be filled in
+ *
+ *  Return 0 if successful else return -ve value
+ */
+static int kfd_fill_mem_info_for_cpu(int numa_node_id, int *avail_size,
+			int proximity_domain,
+			struct crat_subtype_memory *sub_type_hdr)
+{
+	uint64_t mem_in_bytes = 0;
+	pg_data_t *pgdat;
+	int zone_type;
+
+	*avail_size -= sizeof(struct crat_subtype_computeunit);
+	if (*avail_size < 0)
+		return -ENOMEM;
+
+	memset(sub_type_hdr, 0, sizeof(struct crat_subtype_memory));
+
+	/* Fill in subtype header data */
+	sub_type_hdr->type = CRAT_SUBTYPE_MEMORY_AFFINITY;
+	sub_type_hdr->length = sizeof(struct crat_subtype_memory);
+	sub_type_hdr->flags = CRAT_SUBTYPE_FLAGS_ENABLED;
+
+	/* Fill in Memory Subunit data */
+
+	/* Unlike si_meminfo, si_meminfo_node is not exported. So
+	 * the following lines are duplicated from si_meminfo_node
+	 * function */
+	pgdat = NODE_DATA(numa_node_id);
+	for (zone_type = 0; zone_type < MAX_NR_ZONES; zone_type++)
+		mem_in_bytes += pgdat->node_zones[zone_type].managed_pages;
+	mem_in_bytes <<= PAGE_SHIFT;
+
+	sub_type_hdr->length_low = lower_32_bits(mem_in_bytes);
+	sub_type_hdr->length_high = upper_32_bits(mem_in_bytes);
+	sub_type_hdr->proximity_domain = proximity_domain;
+
+	return 0;
+}
+
 /* kfd_create_vcrat_image_cpu - Create Virtual CRAT for CPU
  *
  *	@pcrat_image: Fill in VCRAT for CPU
@@ -671,12 +785,9 @@ static int kfd_create_vcrat_image_cpu(void *pcrat_image, size_t *size)
 	struct acpi_table_header *acpi_table;
 	acpi_status status;
 	struct crat_subtype_generic *sub_type_hdr;
-	struct crat_subtype_computeunit *cu;
-	struct crat_subtype_memory *mem;
-	struct sysinfo meminfo;
-	uint64_t mem_in_bytes;
-	struct cpuinfo_x86 *cpuinfo = &cpu_data(0);
 	int avail_size = *size;
+	int numa_node_id;
+	int ret = 0;
 
 	if (pcrat_image == NULL || avail_size < VCRAT_SIZE_FOR_CPU)
 		return -EINVAL;
@@ -701,56 +812,37 @@ static int kfd_create_vcrat_image_cpu(void *pcrat_image, size_t *size)
 		memcpy(crat_table->oem_table_id, acpi_table->oem_table_id, CRAT_OEMTABLEID_LENGTH);
 	}
 	crat_table->total_entries = 0;
-	crat_table->num_domains = 1;
-
-	/* Fill in Subtype: Compute Unit
-	 * First fill in the sub type header and then sub type data
-	 */
-	avail_size -= sizeof(struct crat_subtype_computeunit);
-	if (avail_size < 0)
-		return -ENOMEM;
+	crat_table->num_domains = 0;
 
 	sub_type_hdr = (struct crat_subtype_generic *)(crat_table+1);
-	memset(sub_type_hdr, 0, sizeof(struct crat_subtype_computeunit));
 
-	sub_type_hdr->type = CRAT_SUBTYPE_COMPUTEUNIT_AFFINITY;
-	sub_type_hdr->length = sizeof(struct crat_subtype_computeunit);
-	sub_type_hdr->flags = CRAT_SUBTYPE_FLAGS_ENABLED;
+	for_each_online_node(numa_node_id) {
+		/* Fill in Subtype: Compute Unit */
+		ret = kfd_fill_cu_for_cpu(numa_node_id, &avail_size,
+			crat_table->num_domains,
+			(struct crat_subtype_computeunit *)sub_type_hdr);
+		if (ret < 0)
+			return ret;
+		crat_table->length += sub_type_hdr->length;
+		crat_table->total_entries++;
 
-	/* Fill in CU data */
-	cu = (struct crat_subtype_computeunit *)sub_type_hdr;
-	cu->flags |= CRAT_CU_FLAGS_CPU_PRESENT;
-	cu->proximity_domain = 0;
-	cu->processor_id_low = cpuinfo->apicid;
-	cu->num_cpu_cores = num_online_cpus();
-	crat_table->length += sub_type_hdr->length;
-	crat_table->total_entries++;
+		sub_type_hdr = (typeof(sub_type_hdr))((char *)sub_type_hdr +
+			sub_type_hdr->length);
 
-	/* Fill in Subtype: Memory
-	 * First fill in the sub type header and then sub type data
-	 */
-	avail_size -= sizeof(struct crat_subtype_memory);
-	if (avail_size < 0)
-		return -ENOMEM;
+		/* Fill in Subtype: Memory */
+		ret = kfd_fill_mem_info_for_cpu(numa_node_id, &avail_size,
+			crat_table->num_domains,
+			(struct crat_subtype_memory *)sub_type_hdr);
+		if (ret < 0)
+			return ret;
+		crat_table->length += sub_type_hdr->length;
+		crat_table->total_entries++;
 
-	sub_type_hdr = (typeof(sub_type_hdr))((char *)sub_type_hdr +
-						sub_type_hdr->length);
-	memset(sub_type_hdr, 0, sizeof(struct crat_subtype_memory));
+		sub_type_hdr = (typeof(sub_type_hdr))((char *)sub_type_hdr +
+			sub_type_hdr->length);
 
-	sub_type_hdr->type = CRAT_SUBTYPE_MEMORY_AFFINITY;
-	sub_type_hdr->length = sizeof(struct crat_subtype_memory);
-	sub_type_hdr->flags = CRAT_SUBTYPE_FLAGS_ENABLED;
-
-	/* Fill in Memory Subunit data */
-	mem = (struct crat_subtype_memory *)sub_type_hdr;
-	si_meminfo(&meminfo);
-
-	mem_in_bytes = (meminfo.totalram * meminfo.mem_unit);
-	mem->length_low = lower_32_bits(mem_in_bytes);
-	mem->length_high = upper_32_bits(mem_in_bytes);
-	mem->promixity_domain = 0;
-	crat_table->length += sub_type_hdr->length;
-	crat_table->total_entries++;
+		crat_table->num_domains++;
+	}
 
 	/* TODO: Add cache Subtype for CPU.
 	 * Currently, CPU cache information is available in function
@@ -765,6 +857,75 @@ static int kfd_create_vcrat_image_cpu(void *pcrat_image, size_t *size)
 	return 0;
 }
 
+static int kfd_fill_gpu_memory_affinity(int *avail_size,
+		struct kfd_dev *kdev, uint8_t type, uint64_t size,
+		struct crat_subtype_memory *sub_type_hdr,
+		uint32_t proximity_domain,
+		const struct kfd_local_mem_info *local_mem_info)
+{
+	*avail_size -= sizeof(struct crat_subtype_memory);
+	if (*avail_size < 0)
+		return -ENOMEM;
+
+	memset((void *)sub_type_hdr, 0, sizeof(struct crat_subtype_memory));
+	sub_type_hdr->type = CRAT_SUBTYPE_MEMORY_AFFINITY;
+	sub_type_hdr->length = sizeof(struct crat_subtype_memory);
+	sub_type_hdr->flags |= CRAT_SUBTYPE_FLAGS_ENABLED;
+
+	sub_type_hdr->proximity_domain = proximity_domain;
+
+	pr_debug("amdkfd: fill gpu memory affinity - type 0x%x size 0x%llx\n",
+			type, size);
+
+	sub_type_hdr->length_low = lower_32_bits(size);
+	sub_type_hdr->length_high = upper_32_bits(size);
+
+	sub_type_hdr->width = local_mem_info->vram_width;
+	sub_type_hdr->visibility_type = type;
+
+	return 0;
+}
+
+/* kfd_fill_gpu_direct_io_link - Fill in direct io link from GPU
+ *	to its NUMA node
+ *
+ *  @avail_size: Available size in the memory
+ *  @kdev - [IN] GPU device
+ *  @sub_type_hdr: Memory into which io link info will be filled in
+ *  @proximity_domain - proximity domain of the GPU node
+ *
+ *  Return 0 if successful else return -ve value
+ */
+static int kfd_fill_gpu_direct_io_link(int *avail_size,
+			struct kfd_dev *kdev,
+			struct crat_subtype_iolink *sub_type_hdr,
+			uint32_t proximity_domain)
+{
+	int proximity_domain_to;
+	*avail_size -= sizeof(struct crat_subtype_iolink);
+	if (*avail_size < 0)
+		return -ENOMEM;
+
+	memset((void *)sub_type_hdr, 0, sizeof(struct crat_subtype_iolink));
+
+	/* Fill in subtype header data */
+	sub_type_hdr->type = CRAT_SUBTYPE_IOLINK_AFFINITY;
+	sub_type_hdr->length = sizeof(struct crat_subtype_iolink);
+	sub_type_hdr->flags |= CRAT_SUBTYPE_FLAGS_ENABLED;
+
+	/* Fill in IOLINK subtype.
+	 * TODO: Fill-in other fields of iolink subtype */
+	sub_type_hdr->io_interface_type = CRAT_IOLINK_TYPE_PCIEXPRESS;
+	sub_type_hdr->proximity_domain_from = proximity_domain;
+	proximity_domain_to =
+		kfd_get_proximity_domain(kdev->pdev->bus);
+	if (proximity_domain_to == -1)
+		return -EINVAL;
+
+	sub_type_hdr->proximity_domain_to = proximity_domain_to;
+	return 0;
+}
+
 /* kfd_create_vcrat_image_gpu - Create Virtual CRAT for CPU
  *
  *	@pcrat_image: Fill in VCRAT for GPU
@@ -772,14 +933,13 @@ static int kfd_create_vcrat_image_cpu(void *pcrat_image, size_t *size)
  *		[OUT] actual size of data filled in crat_image
  */
 static int kfd_create_vcrat_image_gpu(void *pcrat_image,
-			size_t *size, struct kfd_dev *kdev)
+			size_t *size, struct kfd_dev *kdev,
+			uint32_t proximity_domain)
 {
 	struct crat_header *crat_table = (struct crat_header *)pcrat_image;
 	struct crat_subtype_generic *sub_type_hdr;
 	struct crat_subtype_computeunit *cu;
-	struct crat_subtype_memory *mem;
 	struct kfd_cu_info cu_info;
-	struct kfd_local_mem_info local_mem_info;
 	struct amd_iommu_device_info iommu_info;
 	int avail_size = *size;
 	uint32_t total_num_of_cu;
@@ -789,6 +949,7 @@ static int kfd_create_vcrat_image_gpu(void *pcrat_image,
 	const u32 required_iommu_flags = AMD_IOMMU_DEVICE_FLAG_ATS_SUP |
 								AMD_IOMMU_DEVICE_FLAG_PRI_SUP |
 								AMD_IOMMU_DEVICE_FLAG_PASID_SUP;
+	struct kfd_local_mem_info local_mem_info;
 
 	if (pcrat_image == NULL || avail_size < VCRAT_SIZE_FOR_GPU)
 		return -EINVAL;
@@ -824,7 +985,7 @@ static int kfd_create_vcrat_image_gpu(void *pcrat_image,
 	/* Fill CU subtype data */
 	cu = (struct crat_subtype_computeunit *)sub_type_hdr;
 	cu->flags |= CRAT_CU_FLAGS_GPU_PRESENT;
-	cu->proximity_domain = 0;
+	cu->proximity_domain = proximity_domain;
 
 	kdev->kfd2kgd->get_cu_info(kdev->kgd, &cu_info);
 	cu->num_simd_per_cu = cu_info.simd_per_cu;
@@ -854,38 +1015,42 @@ static int kfd_create_vcrat_image_gpu(void *pcrat_image,
 	crat_table->length += sub_type_hdr->length;
 	crat_table->total_entries++;
 
-	/* Fill in Subtype: Memory
-	 * First fill in the sub type header and then sub type data
-	 */
-	avail_size -= sizeof(struct crat_subtype_memory);
-	if (avail_size < 0)
-		return -ENOMEM;
-
-	sub_type_hdr = (typeof(sub_type_hdr))((char *)sub_type_hdr +
-		sub_type_hdr->length);
-	memset(sub_type_hdr, 0, sizeof(struct crat_subtype_memory));
-
-	sub_type_hdr->type = CRAT_SUBTYPE_MEMORY_AFFINITY;
-	sub_type_hdr->length = sizeof(struct crat_subtype_memory);
-	sub_type_hdr->flags = CRAT_SUBTYPE_FLAGS_ENABLED;
-
-	/* Fill Memory subtype data */
-	mem = (struct crat_subtype_memory *)sub_type_hdr;
-	mem->promixity_domain = 0;
+	/* Fill in Subtype: Memory. Only on systems with large BAR (no
+	 * private FB), report memory as public. On other systems
+	 * report the total FB size (public+private) as a single
+	 * private heap. */
 	kdev->kfd2kgd->get_local_mem_info(kdev->kgd, &local_mem_info);
+	sub_type_hdr = (typeof(sub_type_hdr))((char *)sub_type_hdr +
+			sub_type_hdr->length);
 
-	mem->length_low = lower_32_bits(local_mem_info.local_mem_size);
-	mem->length_high = upper_32_bits(local_mem_info.local_mem_size);
-	mem->width = local_mem_info.vram_width;
+	if (debug_largebar)
+		local_mem_info.local_mem_size_private = 0;
 
-	crat_table->length += sub_type_hdr->length;
+	if (local_mem_info.local_mem_size_private == 0)
+		ret = kfd_fill_gpu_memory_affinity(&avail_size,
+				kdev, HSA_MEM_HEAP_TYPE_FB_PUBLIC,
+				local_mem_info.local_mem_size_public,
+				(struct crat_subtype_memory *)sub_type_hdr,
+				proximity_domain,
+				&local_mem_info);
+	else
+		ret = kfd_fill_gpu_memory_affinity(&avail_size,
+				kdev, HSA_MEM_HEAP_TYPE_FB_PRIVATE,
+				local_mem_info.local_mem_size_public +
+				local_mem_info.local_mem_size_private,
+				(struct crat_subtype_memory *)sub_type_hdr,
+				proximity_domain,
+				&local_mem_info);
+	if (ret < 0)
+		return ret;
+
+	crat_table->length += sizeof(struct crat_subtype_memory);
 	crat_table->total_entries++;
 
 	/* TODO: Fill in cache information. This information is NOT readily
 	 * available in KGD */
 	sub_type_hdr = (typeof(sub_type_hdr))((char *)sub_type_hdr +
 		sub_type_hdr->length);
-
 	ret = kfd_fill_gpu_cache_info(kdev, cu->processor_id_low,
 				avail_size,
 				&cu_info,
@@ -898,12 +1063,22 @@ static int kfd_create_vcrat_image_gpu(void *pcrat_image,
 
 	crat_table->length += cache_mem_filled;
 	crat_table->total_entries += num_of_cache_entries;
+	avail_size -= cache_mem_filled;
 
-	/* NOTE: When adding more subtype after this, make sure to adjust the
-	 *	the following variables as shown here
-	 *	avail_size -= cache_mem_filled;
-	 *	sub_type_hdr = (typeof(sub_type_hdr))((char *)sub_type_hdr +
-	 *				cache_mem_filled);*/
+	/* Fill in Subtype: IO_LINKS
+	 *  Only direct links are added here which is Link from GPU to
+	 *  to its NUMA node. Indirect links are added by userspace.
+	 */
+	sub_type_hdr = (typeof(sub_type_hdr))((char *)sub_type_hdr +
+		cache_mem_filled);
+	ret = kfd_fill_gpu_direct_io_link(&avail_size, kdev,
+		(struct crat_subtype_iolink *)sub_type_hdr, proximity_domain);
+
+	if (ret < 0)
+		return ret;
+
+	crat_table->length += sub_type_hdr->length;
+	crat_table->total_entries++;
 
 	*size = crat_table->length;
 	pr_info("Virtual CRAT table created for GPU\n");
@@ -929,7 +1104,7 @@ static int kfd_create_vcrat_image_gpu(void *pcrat_image,
  * Return 0 if successful else return -ve value
 */
 int kfd_create_crat_image_virtual(void **crat_image, size_t *size,
-				int flags, struct kfd_dev *kdev)
+		int flags, struct kfd_dev *kdev, uint32_t proximity_domain)
 {
 	void *pcrat_image;
 	int ret = 0;
@@ -959,7 +1134,8 @@ int kfd_create_crat_image_virtual(void **crat_image, size_t *size,
 		if (!pcrat_image)
 			return -ENOMEM;
 		*size = VCRAT_SIZE_FOR_GPU;
-		ret = kfd_create_vcrat_image_gpu(pcrat_image, size, kdev);
+		ret = kfd_create_vcrat_image_gpu(pcrat_image, size,
+				kdev, proximity_domain);
 		break;
 	case (COMPUTE_UNIT_CPU | COMPUTE_UNIT_GPU) :
 		/*TODO:*/

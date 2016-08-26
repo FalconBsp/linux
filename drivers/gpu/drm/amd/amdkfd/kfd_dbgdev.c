@@ -184,7 +184,10 @@ static int dbgdev_register_diq(struct kfd_dbgdev *dbgdev)
 			break;
 		}
 
-		status = pqm_create_queue(dbgdev->pqm, dbgdev->dev, NULL, &properties, 0, KFD_QUEUE_TYPE_DIQ, &qid);
+		properties.type = KFD_QUEUE_TYPE_DIQ;
+
+		status = pqm_create_queue(dbgdev->pqm, dbgdev->dev, NULL,
+				&properties, &qid);
 
 		if (status != 0) {
 			pr_debug("Error! kfd: In func %s >> Create Queue failed\n", __func__);
@@ -811,7 +814,7 @@ int dbgdev_wave_reset_wavefronts(struct kfd_dev *dev, struct kfd_process *p)
 	for (vmid = first_vmid_to_scan; vmid <= last_vmid_to_scan; vmid++) {
 		if (dev->kfd2kgd->get_atc_vmid_pasid_mapping_valid
 				(dev->kgd, vmid)) {
-			if (dev->kfd2kgd->get_atc_vmid_pasid_mapping_valid
+			if (dev->kfd2kgd->get_atc_vmid_pasid_mapping_pasid
 					(dev->kgd, vmid) == p->pasid) {
 				pr_debug("Killing wave fronts of vmid %d and pasid %d\n",
 						vmid, p->pasid);
@@ -821,7 +824,7 @@ int dbgdev_wave_reset_wavefronts(struct kfd_dev *dev, struct kfd_process *p)
 	}
 
 	if (vmid > last_vmid_to_scan) {
-		pr_err("amdkfd: didn't found vmid for pasid (%d)\n", p->pasid);
+		pr_err("amdkfd: didn't find vmid for pasid (%d)\n", p->pasid);
 		return -EFAULT;
 	}
 

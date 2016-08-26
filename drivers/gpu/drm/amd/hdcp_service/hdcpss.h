@@ -36,10 +36,17 @@
 #define BIT_REPEATER			6
 #define BIT_DP_REPEATER			1
 #define BIT_FIFO_READY			5
+#define BIT_DP_HDCP_CAPABLE		0
+#define BIT_DP_LINK_INTEGRITY_FAILURE	2
+#define BIT_DP_REAUTH_REQUEST		3
 
 #define DEVICE_COUNT_MASK		0x7F
 #define BIT_MAX_DEVS_EXCEDDED		7
 #define BIT_MAX_CASCADE_EXCEDDED	3
+
+#define MAX_R0_READ_RETRIES		3
+#define MAX_V_PRIME_READ_RETRIES	3
+#define MAX_DIG_ID			4
 
 /* TEE Gfx Command IDs for the ring buffer interface. */
 enum gfx_cmd_id {
@@ -57,6 +64,9 @@ struct gfx_cmd_load_ta {
 	u32	tci_buf_phy_addr_hi;	/* bits[63:32] of TCI physical addr  */
 	u32	tci_buf_phy_addr_lo;	/* bits[31:0] of TCI physical addr   */
 	u32	tci_buf_len;		/* length of the TCI buffer in bytes */
+	u32	wsm_buf_phy_addr_hi;	/* bits[63:32] of wsm physical addr  */
+	u32	wsm_buf_phy_addr_lo;	/* bits[31:0] of wsm physical addr   */
+	u32	wsm_len;		/* length of WSM buffer		     */
 };
 
 /* Command to Unload Trusted Application binary from PSP OS */
@@ -78,7 +88,8 @@ struct gfx_cmd_notify_ta {
 struct gfx_resp {
 	u32	status;		/* status of command execution */
 	u32	session_id;	/* session ID in response to LoadTa command */
-	u32	resv[6];
+	u32	wsm_virt_addr;	/* virtual address of shared buffer */
+	u32	resv[5];
 };
 
 /*
@@ -103,12 +114,13 @@ struct gfx_cmd_resp {
 		struct gfx_cmd_notify_ta notify_ta;
 	} u;
 
-	unsigned char   resv1[28];
+	unsigned char   resv1[16];
 	struct gfx_resp resp;		/* Response buffer for GPCOM ring */
 	unsigned char   resv2[16];
 };
 
 struct hdcpss_data {
+	struct mutex		hdcpss_mutex;
 	u32			session_id;
 	u32			asd_session_id;
 	u32			cmd_buf_size;
@@ -137,10 +149,14 @@ struct hdcpss_data {
 	uint8_t			dig_id;
 	uint8_t			Ainfo;
 	uint32_t		connector_type;
-	uint8_t			session_opened[4];
 	uint8_t			Pj;
 	uint8_t			Binfo[2];
 	uint8_t			bstatus_dp;
+	uint8_t			reauth_r0;
+	uint8_t			reauth_V;
+	uint8_t			reauth_timeout;
+	uint8_t			ksv_timeout_err;
+	uint8_t			is_session_closed[MAX_DIG_ID];
 };
 
 #endif

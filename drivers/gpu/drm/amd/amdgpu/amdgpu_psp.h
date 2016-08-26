@@ -47,7 +47,7 @@
 
 #define PSP_MP0_SW_INT_ACK_VALUE	0x00000001
 
-#define COMMAND_RESP_TIMEOUT		1000	/* timeout in milliseconds */
+#define COMMAND_RESP_TIMEOUT		500	/* timeout in milliseconds */
 
 extern int hdcpss_init(void *);
 
@@ -81,8 +81,6 @@ struct amdgpu_psp {
 	struct amdgpu_device		*adev;
 	struct mutex			psp_mutex;
 	wait_queue_head_t		psp_queue;
-	struct workqueue_struct		*wq;
-	struct work_struct		psp_work;
 	struct g2p_comm_rb_frame	*phys_addr;
 	struct g2p_comm_rb_frame	*virt_addr;
 	struct amdgpu_irq_src		irq;

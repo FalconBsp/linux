@@ -61,7 +61,6 @@
 #define INVALID_ORDER           ((u32)(-1))
 /* pci device/region */
 #define	AMD_VENDOR_ID			(0x1022)
-#define	CCP_AMUR_DEVICE_ID		(0x1598)
 #define	CCP_CARRIZO_DEVICE_ID		(0x1578)
 #define	PSP_BAR_NUM			(0x2)
 #define MSIX_VECTORS			(0x2)
@@ -86,8 +85,13 @@
 #define PSP_COMM_CMD_BUF_MAX_SIZE	(128)
 #define PSP_COMM_MSB_MASK		(1<<31)
 #define PSP_COMM_CLIENT_TYPE_MASK	(0xF)
-#define PSP_COMM_CMD_ERROR_MASK		(0x00FF)
+#define PSP_COMM_CMD_ERROR_MASK		(0xFFFF)
 #define PSP_COMM_CLIENT_TYPE_SHIFT	(24)
+
+#define	PSP_COMM_NO_NOTIFICATION_PENDING (0x0)
+#define	PSP_COMM_MAX_OUT_RDPTR_VALUE	(0xf)
+#define	PSP_COMM_MAX_OUT_WRTPTR_VALUE	(0xf)
+#define MAX_SESSIONS_SUPPORTED		(0x10) /* To be same as in tee.h */
 
 enum psp_comm_cmd_id {
 	PSP_COMM_CMD_ID_INITIALIZE = 0x00FF0000
@@ -95,9 +99,10 @@ enum psp_comm_cmd_id {
 
 enum psp_comm_client_type {
 	PSP_COMM_CLIENT_TYPE_TEE = 0,
-	PSP_COMM_CLIENT_TYPE_RPMB,
-	PSP_COMM_CLIENT_TYPE_VMGUARD
+/* New clients to be added here */
+	PSP_COMM_CLIENT_TYPE_INVALID
 } psp_comm_client_type;
+
 
 typedef  int (*clientcallbackfunc)(void *notification_data);
 
@@ -118,14 +123,16 @@ struct psp_comm_drv_data {
 #ifdef CONFIG_PSP_TRACE
 	struct trace_info		trace_buf_info;
 #endif
+	u32				psp_init_done;
 };
 
 struct psp_comm_drv_data psp_comm_data;
 
 struct psp_comm_notif {
+	u32             session_id;
 	u32             payload;
 	u32             client_type;
-	u32             reserved[2];
+	u32             reserved[1];
 };
 
 struct psp_comm_buf {

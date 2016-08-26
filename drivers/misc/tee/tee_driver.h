@@ -35,9 +35,10 @@
 
 #define TEE_DRV_MOD_DEVNODE		"tee"
 #define TEE_DRV_MOD_DEVNODE_FULLPATH	"/dev/" TEE_DRV_MOD_DEVNODE
-#define TEE_TBASE_PRODUCT_ID_LEN	(64)
 #define TEE_CLIENT_TYPE			0
 #define TEE_RESPONSE_TIMEOUT		400
+#define TEE_SESSION_BUSY		0x1C
+#define TEE_GP_TA_EXIT			303
 
 enum tee_notify_status {
 	TEE_NOTIFY_NONE = 0x0,
@@ -47,33 +48,15 @@ enum tee_notify_status {
 
 /* msp detail */
 struct tee_map {
-	uint64_t	virtaddr;
-	uint64_t	physaddr;
+	uint64_t	useraddr;
 	uint64_t	length;
-};
-
-/* mmap */
-union tee_mmap_info {
-	struct {
-	} in;
-	struct {
-		struct tee_map mmap;
-	} out;
-};
-
-union tee_mmap_free {
-	struct {
-		struct tee_map mmap;
-	} in;
-	struct {
-	} out;
 };
 
 /* open/close session */
 union tee_open_session {
 	struct {
-		uint64_t tci_useraddr;
 		struct tee_map tl;
+		struct tee_map tci;
 	} in;
 	struct {
 		uint64_t sessionid;
@@ -92,22 +75,10 @@ union tee_close_session {
 union tee_map_buffer {
 	struct {
 		uint64_t sessionid;
-		uint64_t useraddr;
 		struct tee_map map_buffer;
 	} in;
 	struct {
 		uint64_t securevirtual;
-	} out;
-};
-
-union tee_map_info {
-	struct {
-		uint64_t sessionid;
-		uint64_t securevirtual;
-	} in;
-	struct {
-		uint64_t virtaddr;
-		uint64_t useraddr;
 	} out;
 };
 
@@ -138,39 +109,12 @@ union tee_waitfornotification {
 	} out;
 };
 
-/* tci buffer */
-union tee_tci_store {
-	struct {
-		uint64_t useraddr;
-		struct tee_map tci;
-	} in;
-	struct {
-	} out;
-};
-
-union tee_tci_info {
-	struct {
-		uint64_t useraddr;
-	} in;
-	struct {
-		struct tee_map tci;
-	} out;
-};
-
-union tee_tci_free {
-	struct {
-		uint64_t useraddr;
-	} in;
-	struct {
-	} out;
-};
-
 /*  version info */
-union tee_tbase_version_info {
+union tee_version_info {
 	struct {
 	} in;
 	struct {
-		char productid[TEE_TBASE_PRODUCT_ID_LEN];
+		char productid[TEE_PRODUCT_ID_LEN];
 		uint32_t versionmci;
 		uint32_t versionso;
 		uint32_t versionmclf;
@@ -201,41 +145,48 @@ enum tee_error {
 	TEE_ERR_INVALID_PARAMETER = 0x11,
 };
 
-/* session cleanup */
-union tee_get_session_clean {
-	struct {
-	} in;
-	struct {
-		uint64_t session_mask;
-		uint64_t session_number;
-	} out;
-};
-
 struct tee_session_context {
 	u64 sessionid;
 	u64 map_virtaddr[MAX_BUFFERS_MAPPED];
-	u64 map_physaddr[MAX_BUFFERS_MAPPED];
-	u64 map_useraddr[MAX_BUFFERS_MAPPED];
 	u64 map_secaddr[MAX_BUFFERS_MAPPED];
 	u64 map_length[MAX_BUFFERS_MAPPED];
 	wait_queue_head_t wait;
-	u32 error;
-	bool status;
+	u32 last_err;
+	u32 status;
 };
 
 struct tee_tci_context {
 	u32 uid;
 	u32 sessionid;
 	u64 virtaddr;
-	u64 physaddr;
 	u64 useraddr;
 	u64 length;
 };
 
+/*
+ * Used to hold user and kernel space mapping info
+ * for the buffer whose memory is allocated by tee_mmap().
+ * mmap_list: Beginning of list of mmaped buffers
+ * length: Page aligned length. Used to free mmaped buffers
+ * This length should not be used in cmd buffers
+ */
+struct wsm_mapping {
+	void *k_vaddr;
+	void *u_vaddr;
+	void **mmap_list;
+	u64	 length;
+	struct list_head node;
+};
+
 struct tee_instance {
 	struct semaphore sem;
-	struct tee_map mmap;
+	struct wsm_mapping *head;
 	u64 uid;
+};
+
+struct tee_callback_data {
+	u32 session_id;
+	u32 payload;
 };
 
 struct tee_driver_data {
@@ -249,54 +200,32 @@ struct tee_driver_data {
 
 struct tee_driver_data	tee_drv_data;
 
-#define TEE_MMAP_DETAILS			(0x1)
-#define TEE_MMAP_FREE				(0x2)
-#define TEE_OPEN_SESSION			(0x3)
-#define TEE_CLOSE_SESSION			(0x4)
-#define TEE_MAP_BUFFER				(0x5)
-#define TEE_MAP_INFO				(0x6)
+#define TEE_OPEN_SESSION			(0x1)
+#define TEE_CLOSE_SESSION			(0x2)
+#define TEE_MAP_BUFFER				(0x3)
 
-#define TEE_UNMAP_BUFFER			(0x7)
-#define TEE_NOTIFY				(0x8)
-#define TEE_WAIT_FOR_NOTIFICATION		(0x9)
-#define TEE_TCI_STORE				(0xA)
-#define TEE_TCI_INFO				(0xB)
+#define TEE_UNMAP_BUFFER			(0x4)
+#define TEE_NOTIFY				(0x5)
+#define TEE_WAIT_FOR_NOTIFICATION		(0x6)
 
-#define TEE_TCI_FREE				(0xC)
-#define TEE_VERSION_INFO			(0xD)
-#define TEE_SESSION_ERROR			(0xE)
-#define TEE_SESSION_CLEAN			(0xF)
+#define TEE_VERSION_INFO			(0x7)
+#define TEE_SESSION_ERROR			(0x8)
 
 #define TEE_DEV_MAGIC				(0xAA)
 
-#define TEE_KMOD_IOCTL_MMAP_DETAILS	_IOWR(TEE_DEV_MAGIC, (0x1), uint64_t)
-#define TEE_KMOD_IOCTL_MMAP_FREE	_IOWR(TEE_DEV_MAGIC, (0x2), uint64_t)
-#define TEE_KMOD_IOCTL_OPEN_SESSION	_IOWR(TEE_DEV_MAGIC, (0x3), uint64_t)
-#define TEE_KMOD_IOCTL_CLOSE_SESSION	_IOWR(TEE_DEV_MAGIC, (0x4), uint64_t)
-#define TEE_KMOD_IOCTL_MAP_BUFFER	_IOWR(TEE_DEV_MAGIC, (0x5), uint64_t)
-#define TEE_KMOD_IOCTL_MAP_INFO		_IOWR(TEE_DEV_MAGIC, (0x6), uint64_t)
+#define TEE_KMOD_IOCTL_OPEN_SESSION	_IOWR(TEE_DEV_MAGIC, (0x1), uint64_t)
+#define TEE_KMOD_IOCTL_CLOSE_SESSION	_IOWR(TEE_DEV_MAGIC, (0x2), uint64_t)
+#define TEE_KMOD_IOCTL_MAP_BUFFER	_IOWR(TEE_DEV_MAGIC, (0x3), uint64_t)
 
-#define TEE_KMOD_IOCTL_UNMAP_BUFFER	_IOWR(TEE_DEV_MAGIC, (0x7), uint64_t)
-#define TEE_KMOD_IOCTL_NOTIFY		_IOWR(TEE_DEV_MAGIC, (0x8), uint64_t)
+#define TEE_KMOD_IOCTL_UNMAP_BUFFER	_IOWR(TEE_DEV_MAGIC, (0x4), uint64_t)
+#define TEE_KMOD_IOCTL_NOTIFY		_IOWR(TEE_DEV_MAGIC, (0x5), uint64_t)
 #define TEE_KMOD_IOCTL_WAIT_FOR_NOTIFICAION \
-	_IOWR(TEE_DEV_MAGIC, (0x9), uint64_t)
-#define TEE_KMOD_IOCTL_TCI_STORE	_IOWR(TEE_DEV_MAGIC, (0xA), uint64_t)
-#define TEE_KMOD_IOCTL_TCI_INFO		_IOWR(TEE_DEV_MAGIC, (0xB), uint64_t)
+	_IOWR(TEE_DEV_MAGIC, (0x6), uint64_t)
 
-#define TEE_KMOD_IOCTL_TCI_FREE		_IOWR(TEE_DEV_MAGIC, (0xC), uint64_t)
-#define TEE_KMOD_IOCTL_VERSION_INFO	_IOWR(TEE_DEV_MAGIC, (0xD), uint64_t)
-#define TEE_KMOD_IOCTL_SESSION_ERROR	_IOWR(TEE_DEV_MAGIC, (0xE), uint64_t)
-#define TEE_KMOD_IOCTL_SESSION_CLEAN	_IOWR(TEE_DEV_MAGIC, (0xF), uint64_t)
+#define TEE_KMOD_IOCTL_VERSION_INFO	_IOWR(TEE_DEV_MAGIC, (0x7), uint64_t)
+#define TEE_KMOD_IOCTL_SESSION_ERROR	_IOWR(TEE_DEV_MAGIC, (0x8), uint64_t)
 
-static inline u32 low_adddress(void *addr)
-{
-	return (u64)addr & 0xffffffff;
-}
-
-static inline u32 high_adddress(void *addr)
-{
-	return ((u64)addr > 0xffffffff) & 0xffffffff;
-}
+#define DRV_INFO_NOTIFICATION	0x15
 
 int tee_open(struct inode *pinode, struct file *pfile);
 int tee_release(struct inode *pinode, struct file *pfile);

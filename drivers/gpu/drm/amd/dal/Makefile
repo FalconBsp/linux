@@ -5,11 +5,17 @@
 
 AMDDALPATH = $(RELATIVE_AMD_DAL_PATH)
 
-subdir-ccflags-y += -I$(AMDDALPATH)/ -I$(AMDDALPATH)/include -I$(FULL_AMD_PATH)/ -DDAL_CZ_BRINGUP
+subdir-ccflags-y += -Werror
 
-DAL_LIBS = adapter amdgpu_dm audio asic_capability basics bios connector controller dcs \
-	display_path display_service encoder gpio gpu hw_sequencer i2caux \
-	interface link_service mode_manager timing_service topology irq
+subdir-ccflags-y += -I$(AMDDALPATH)/ -I$(AMDDALPATH)/include
+
+subdir-ccflags-y += -I$(FULL_AMD_DAL_PATH)/dc/inc/
+subdir-ccflags-y += -I$(FULL_AMD_DAL_PATH)/dc/inc/hw
+
+#TODO: remove when Timing Sync feature is complete
+subdir-ccflags-y += -DBUILD_FEATURE_TIMING_SYNC=0
+
+DAL_LIBS = amdgpu_dm dc
 
 AMD_DAL = $(addsuffix /Makefile, $(addprefix $(FULL_AMD_DAL_PATH)/,$(DAL_LIBS)))
 

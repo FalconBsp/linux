@@ -28,11 +28,9 @@
 
 #include "hw_sequencer_types.h"
 #include "hw_adjustment_types.h"
-#include "include/line_buffer_interface.h"
 #include "include/display_clock_interface.h"
 #include "include/scaler_types.h"
 #include "include/grph_csc_types.h"
-#include "controller/grph_gamma_types.h"
 #include "plane_types.h"
 
 #include "adapter_service_interface.h"
@@ -53,21 +51,6 @@ struct hws_init_data {
 
 /* TODO: below is three almost equal structures.
  * We should decide what to do with them */
-struct blank_stream_param {
-	struct display_path *display_path;
-	uint32_t link_idx;
-	struct hw_crtc_timing timing;
-	struct link_settings link_settings;
-};
-
-struct enable_stream_param {
-	struct display_path *display_path;
-	uint32_t link_idx;
-	struct hw_crtc_timing timing;
-	struct link_settings link_settings;
-
-	const struct hw_path_mode *path_mode;
-};
 
 struct enable_link_param {
 	struct display_path *display_path;
@@ -91,7 +74,6 @@ struct set_dp_phy_pattern_param {
 	enum dp_test_pattern test_pattern;
 	const uint8_t *custom_pattern;
 	uint32_t cust_pattern_size;
-	enum dp_alt_scrambler_reset alt_scrambler_reset;
 };
 
 struct hw_global_objects;
@@ -102,16 +84,6 @@ struct hw_path_mode;
 struct hwss_build_params;
 struct controller;
 
-void dal_hw_sequencer_mute_audio_endpoint(
-	struct hw_sequencer *hws,
-	struct display_path *display_path,
-	bool mute);
-
-void dal_hw_sequencer_enable_audio_endpoint(
-	struct hw_sequencer *hws,
-	struct link_settings *ls,
-	struct display_path *display_path,
-	bool enable);
 
 enum hwss_result dal_hw_sequencer_reset_audio_device(
 	struct hw_sequencer *hws,
@@ -121,11 +93,6 @@ enum hwss_result dal_hw_sequencer_validate_link(
 	struct hw_sequencer *hws,
 	const struct validate_link_param *param);
 
-bool dal_hw_sequencer_is_supported_dp_training_pattern3(
-	struct hw_sequencer *hws,
-	struct display_path *display_path,
-	uint32_t link_idx);
-
 enum hwss_result dal_hw_sequencer_set_dp_phy_pattern(
 	struct hw_sequencer *hws,
 	const struct set_dp_phy_pattern_param *param);
@@ -134,35 +101,6 @@ enum hwss_result dal_hw_sequencer_set_lane_settings(
 	struct hw_sequencer *hws,
 	struct display_path *display_path,
 	const struct link_training_settings *link_settings);
-
-void dal_hw_sequencer_set_test_pattern(
-	struct hw_sequencer *hws,
-	struct hw_path_mode *path_mode,
-	enum dp_test_pattern test_pattern,
-	const struct link_training_settings *link_settings,
-	const uint8_t *custom_pattern,
-	uint8_t cust_pattern_size);
-
-bool dal_hw_sequencer_has_audio_bandwidth_changed(
-	struct hw_sequencer *hws,
-	const struct hw_path_mode *old,
-	const struct hw_path_mode *new);
-
-void dal_hw_sequencer_enable_azalia_audio_jack_presence(
-	struct hw_sequencer *hws,
-	struct display_path *display_path);
-
-void dal_hw_sequencer_disable_azalia_audio_jack_presence(
-	struct hw_sequencer *hws,
-	struct display_path *display_path);
-
-void dal_hw_sequencer_enable_memory_requests(
-	struct hw_sequencer *hws,
-	struct hw_path_mode *path_mode);
-
-void dal_hw_sequencer_update_info_packets(
-	struct hw_sequencer *hws,
-	struct hw_path_mode *path_mode);
 
 /* Static validation for a SINGLE path mode.
  * Already "active" paths (if any) are NOT taken into account. */
@@ -216,33 +154,9 @@ enum hwss_result dal_hw_sequencer_set_backlight_adjustment(
 	struct display_path *display_path,
 	struct hw_adjustment_value *adjustment);
 
-void dal_hw_sequencer_disable_memory_requests(
-	struct hw_sequencer *hws,
-	const struct hw_path_mode *path_mode);
-
 enum hwss_result dal_hw_sequencer_enable_link(
 	struct hw_sequencer *hws,
 	const struct enable_link_param *in);
-
-void dal_hw_sequencer_disable_link(
-	struct hw_sequencer *hws,
-	const struct enable_link_param *in);
-
-void dal_hw_sequencer_enable_stream(
-	struct hw_sequencer *hws,
-	const struct enable_stream_param *in);
-
-void dal_hw_sequencer_disable_stream(
-	struct hw_sequencer *hws,
-	const struct enable_stream_param *in);
-
-void dal_hw_sequencer_blank_stream(
-	struct hw_sequencer *hws,
-	const struct blank_stream_param *in);
-
-void dal_hw_sequencer_unblank_stream(
-	struct hw_sequencer *hws,
-	const struct blank_stream_param *in);
 
 enum hwss_result dal_hw_sequencer_set_clocks_and_clock_state(
 		struct hw_sequencer *hws,
@@ -262,27 +176,6 @@ enum signal_type dal_hw_sequencer_detect_load(
 	struct hw_sequencer *hws,
 	struct display_path *display_path);
 
-bool dal_hw_sequencer_is_sink_present(
-	struct hw_sequencer *hws,
-	struct display_path *display_path);
-
-void dal_hw_sequencer_psr_setup(
-	struct hw_sequencer *hws,
-	const struct hw_path_mode *path_mode,
-	const struct psr_caps *psr_caps);
-
-void dal_hw_sequencer_psr_enable(
-	struct hw_sequencer *hws,
-	struct display_path *display_path);
-
-void dal_hw_sequencer_psr_disable(
-	struct hw_sequencer *hws,
-	struct display_path *display_path);
-
-void dal_hw_sequencer_program_drr(
-		struct hw_sequencer *hws,
-		const struct hw_path_mode *path_mode);
-
 enum hwss_result dal_hw_sequencer_set_safe_displaymark(
 		struct hw_sequencer *hws,
 		struct hw_path_mode_set *path_set);
@@ -290,8 +183,6 @@ enum hwss_result dal_hw_sequencer_set_safe_displaymark(
 enum hwss_result dal_hw_sequencer_set_displaymark(
 		struct hw_sequencer *hws,
 		struct hw_path_mode_set *path_set);
-
-void dal_hw_sequencer_destroy(struct hw_sequencer **hws);
 
 struct hw_sequencer *dal_hw_sequencer_create(
 		struct hws_init_data *hws_init_data);
@@ -301,89 +192,34 @@ enum hwss_result dal_hw_sequencer_set_overscan_adj(
 	struct hw_path_mode_set *set,
 	struct hw_underscan_adjustment_data *hw_underscan);
 
-bool dal_hw_sequencer_enable_line_buffer_power_gating(
-	struct line_buffer *lb,
-	enum controller_id id,
-	enum pixel_type pixel_type,
-	uint32_t src_pixel_width,
-	uint32_t dst_pixel_width,
-	struct scaling_tap_info *taps,
-	enum lb_pixel_depth lb_depth,
-	uint32_t src_height,
-	uint32_t dst_height,
-	bool interlaced);
-
-void dal_hw_sequencer_build_scaler_parameter(
-	const struct hw_path_mode *path_mode,
-	const struct scaling_tap_info *taps,
-	bool build_timing_required,
-	struct scaler_data *scaler_data);
-
-void dal_hw_sequencer_update_info_frame(
-	const struct hw_path_mode *hw_path_mode);
-
 enum hwss_result dal_hw_sequencer_set_bit_depth_reduction_adj(
 	struct hw_sequencer *hws,
 	struct display_path *disp_path,
 	union hw_adjustment_bit_depth_reduction *bit_depth);
-
-bool dal_hw_sequencer_is_support_custom_gamut_adj(
-	struct hw_sequencer *hws,
-	struct display_path *disp_path,
-	enum hw_surface_type surface_type);
 
 enum hwss_result dal_hw_sequencer_get_hw_color_adj_range(
 	struct hw_sequencer *hws,
 	struct display_path *disp_path,
 	struct hw_color_control_range *hw_color_range);
 
-bool dal_hw_sequencer_is_support_custom_gamma_coefficients(
-	struct hw_sequencer *hws,
-	struct display_path *disp_path,
-	enum hw_surface_type surface_type);
-
 enum hwss_result dal_hw_sequencer_build_csc_adjust(
 	struct hw_sequencer *hws,
 	struct hw_adjustment_color_control *color_control,
 	struct grph_csc_adjustment *adjust);
 
-void dal_hw_sequencer_build_gamma_ramp_adj_params(
-		const struct hw_adjustment_gamma_ramp *adjusment,
-		struct gamma_parameters *gamma_param,
-		struct gamma_ramp *ramp);
-
-void translate_from_hw_to_controller_regamma(
-		const struct hw_regamma_lut *hw_regamma,
-		struct regamma_lut *regamma);
-
-void dal_hw_sequencer_enable_wireless_idle_detection(
-		struct hw_sequencer *hws,
-		bool enable);
-
 /* Cursor interface */
 enum hwss_result dal_hw_sequencer_set_cursor_position(
 		struct hw_sequencer *hws,
 		struct display_path *dp,
-		const struct cursor_position *position);
+		const struct dc_cursor_position *position);
 
 enum hwss_result dal_hw_sequencer_set_cursor_attributes(
 		struct hw_sequencer *hws,
 		struct display_path *dp,
-		const struct cursor_attributes *attributes);
+		const struct dc_cursor_attributes *attributes);
 
 /* Underlay/MPO interface */
 enum hwss_result dal_hw_sequencer_set_plane_config(
-	struct hw_sequencer *hws,
-	struct hw_path_mode_set *path_set,
-	uint32_t display_index);
-
-bool dal_hw_sequencer_update_plane_address(
-	struct hw_sequencer *hws,
-	struct display_path *dp,
-	uint32_t num_planes,
-	struct plane_addr_flip_info *info);
-
-void dal_hw_sequencer_prepare_to_release_planes(
 	struct hw_sequencer *hws,
 	struct hw_path_mode_set *path_set,
 	uint32_t display_index);

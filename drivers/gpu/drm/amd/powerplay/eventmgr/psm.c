@@ -37,7 +37,7 @@ int psm_get_ui_state(struct pp_eventmgr *eventmgr, enum PP_StateUILabel ui_label
 			*state_id = state->id;
 			return 0;
 		}
-		state = (struct pp_power_state *)((uint64_t)state + hwmgr->ps_size);
+		state = (struct pp_power_state *)((unsigned long)state + hwmgr->ps_size);
 	}
 	return -1;
 }
@@ -57,12 +57,12 @@ int psm_get_state_by_classification(struct pp_eventmgr *eventmgr, enum PP_StateC
 			*state_id = state->id;
 			return 0;
 		}
-		state = (struct pp_power_state *)((uint64_t)state + hwmgr->ps_size);
+		state = (struct pp_power_state *)((unsigned long)state + hwmgr->ps_size);
 	}
 	return -1;
 }
 
-int psm_set_performance_states(struct pp_eventmgr *eventmgr, unsigned long *state_id)
+int psm_set_states(struct pp_eventmgr *eventmgr, unsigned long *state_id)
 {
 	struct pp_power_state *state;
 	int table_entries;
@@ -77,18 +77,18 @@ int psm_set_performance_states(struct pp_eventmgr *eventmgr, unsigned long *stat
 			hwmgr->request_ps = state;
 			return 0;
 		}
-		state = (struct pp_power_state *)((uint64_t)state + hwmgr->ps_size);
+		state = (struct pp_power_state *)((unsigned long)state + hwmgr->ps_size);
 	}
 	return -1;
 }
 
-
 int psm_adjust_power_state_dynamic(struct pp_eventmgr *eventmgr, bool skip)
 {
 
-	const struct pp_power_state  *pcurrent;
-	struct pp_power_state  *requested;
+	struct pp_power_state *pcurrent;
+	struct pp_power_state *requested;
 	struct pp_hwmgr *hwmgr;
+	bool equal;
 
 	if (skip)
 		return 0;
@@ -97,7 +97,13 @@ int psm_adjust_power_state_dynamic(struct pp_eventmgr *eventmgr, bool skip)
 	pcurrent = hwmgr->current_ps;
 	requested = hwmgr->request_ps;
 
-	if (pcurrent != NULL || requested != NULL) {
+	if (requested == NULL)
+		return 0;
+
+	if (pcurrent == NULL || (0 != phm_check_states_equal(hwmgr, &pcurrent->hardware, &requested->hardware, &equal)))
+		equal = false;
+
+	if (!equal || phm_check_smc_update_required_for_display_configuration(hwmgr)) {
 		phm_apply_state_adjust_rules(hwmgr, requested, pcurrent);
 		phm_set_power_state(hwmgr, &pcurrent->hardware, &requested->hardware);
 		hwmgr->current_ps = requested;

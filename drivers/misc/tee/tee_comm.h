@@ -43,7 +43,7 @@
 #define MAX_SESSIONS_SUPPORTED		(16)
 #define MAX_BUFFERS_MAPPED		(6)
 #define MAX_QUEUES_ENTRIES		(16)
-#define TEE_TBASE_PRODUCT_ID_LEN        (64)
+#define TEE_PRODUCT_ID_LEN		(64)
 
 /* tee command ids */
 enum tee_cmd_id {
@@ -56,8 +56,8 @@ enum tee_cmd_id {
 };
 
 /* version */
-struct tee_version_info {
-	char		productid[TEE_TBASE_PRODUCT_ID_LEN];
+struct tee_get_version_info {
+	char		productid[TEE_PRODUCT_ID_LEN];
 	u32		versionmci;
 	u32		versionso;
 	u32		versionmclf;
@@ -73,7 +73,7 @@ struct tee_cmd_get_version_info {
 };
 
 struct tee_resp_get_version_info {
-	struct tee_version_info	versioninfo;
+	struct tee_get_version_info	versioninfo;
 };
 
 struct tee_cmd_open {

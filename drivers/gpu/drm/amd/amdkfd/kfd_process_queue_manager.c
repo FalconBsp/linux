@@ -90,16 +90,24 @@ void pqm_uninit(struct process_queue_manager *pqm)
 	int retval;
 	struct process_queue_node *pqn, *next;
 	struct kfd_process_device *pdd;
+	struct kfd_dev *dev = NULL;
 
 	BUG_ON(!pqm);
 
 	pr_debug("In func %s\n", __func__);
 
 	list_for_each_entry_safe(pqn, next, &pqm->queues, process_queue_list) {
-		pdd = kfd_get_process_device_data(pqn->q->device, pqm->process);
+		if (pqn->q)
+			dev = pqn->q->device;
+		else if (pqn->kq)
+			dev = pqn->kq->dev;
+		else
+			BUG();
+
+		pdd = kfd_get_process_device_data(dev, pqm->process);
 		if (pdd) {
-			retval = pqn->q->device->dqm->ops.process_termination
-				(pqn->q->device->dqm, &pdd->qpd);
+			retval = dev->dqm->ops.process_termination
+				(dev->dqm, &pdd->qpd);
 			if (retval != 0)
 				pdd->reset_wavefronts = true;
 		}
@@ -134,7 +142,7 @@ static int create_cp_queue(struct process_queue_manager *pqm,
 	q_properties->vmid = 0;
 	q_properties->queue_id = qid;
 
-	retval = init_queue(q, *q_properties);
+	retval = init_queue(q, q_properties);
 	if (retval != 0)
 		goto err_init_queue;
 
@@ -153,23 +161,19 @@ int pqm_create_queue(struct process_queue_manager *pqm,
 			    struct kfd_dev *dev,
 			    struct file *f,
 			    struct queue_properties *properties,
-			    unsigned int flags,
-			    enum kfd_queue_type type,
 			    unsigned int *qid)
 {
 	int retval;
 	struct kfd_process_device *pdd;
-	struct queue_properties q_properties;
 	struct queue *q;
 	struct process_queue_node *pqn;
 	struct kernel_queue *kq;
 	int num_queues = 0;
 	struct queue *cur;
+	enum kfd_queue_type type = properties->type;
 
 	BUG_ON(!pqm || !dev || !properties || !qid);
 
-	memset(&q_properties, 0, sizeof(struct queue_properties));
-	memcpy(&q_properties, properties, sizeof(struct queue_properties));
 	q = NULL;
 	kq = NULL;
 
@@ -215,7 +219,7 @@ int pqm_create_queue(struct process_queue_manager *pqm,
 			goto err_create_queue;
 		}
 
-		retval = create_cp_queue(pqm, dev, &q, &q_properties, f, *qid);
+		retval = create_cp_queue(pqm, dev, &q, properties, f, *qid);
 		if (retval != 0)
 			goto err_create_queue;
 		pqn->q = q;
@@ -236,7 +240,7 @@ int pqm_create_queue(struct process_queue_manager *pqm,
 			goto err_create_queue;
 		}
 
-		retval = create_cp_queue(pqm, dev, &q, &q_properties, f, *qid);
+		retval = create_cp_queue(pqm, dev, &q, properties, f, *qid);
 		if (retval != 0)
 			goto err_create_queue;
 		pqn->q = q;
@@ -273,9 +277,8 @@ int pqm_create_queue(struct process_queue_manager *pqm,
 	list_add(&pqn->process_queue_list, &pqm->queues);
 
 	if (q) {
-		*properties = q->properties;
 		pr_debug("kfd: PQM done creating queue\n");
-		print_queue_properties(properties);
+		print_queue_properties(&q->properties);
 	}
 
 	return retval;

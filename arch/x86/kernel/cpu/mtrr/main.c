@@ -596,6 +596,15 @@ int phys_wc_to_mtrr_index(int handle)
 }
 EXPORT_SYMBOL_GPL(phys_wc_to_mtrr_index);
 
+int arch_phys_wc_index(int handle)
+{
+	if (handle < MTRR_TO_PHYS_WC_OFFSET)
+		return -1;
+	else
+		return handle - MTRR_TO_PHYS_WC_OFFSET;
+}
+EXPORT_SYMBOL_GPL(arch_phys_wc_index);
+
 /*
  * HACK ALERT!
  * These should be called implicitly, but we can't yet until all the initcall

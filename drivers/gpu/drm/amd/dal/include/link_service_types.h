@@ -26,8 +26,6 @@
 #ifndef __DAL_LINK_SERVICE_TYPES_H__
 #define __DAL_LINK_SERVICE_TYPES_H__
 
-#include "dal_services_types.h"
-
 #include "grph_object_id.h"
 #include "dpcd_defs.h"
 #include "dal_types.h"
@@ -37,44 +35,15 @@
 struct ddc;
 struct irq_manager;
 
+enum {
+	MAX_CONTROLLER_NUM = 6
+};
+
 enum link_service_type {
 	LINK_SERVICE_TYPE_LEGACY = 0,
 	LINK_SERVICE_TYPE_DP_SST,
 	LINK_SERVICE_TYPE_DP_MST,
 	LINK_SERVICE_TYPE_MAX
-};
-
-struct link_validation_flags {
-	uint32_t DYNAMIC_VALIDATION:1;
-	uint32_t CANDIDATE_TIMING:1;
-	uint32_t START_OF_VALIDATION:1;
-};
-
-/* Post Cursor 2 is optional for transmitter
- * and it applies only to the main link operating at HBR2
- */
-enum post_cursor2 {
-	POST_CURSOR2_DISABLED = 0,	/* direct HW translation! */
-	POST_CURSOR2_LEVEL1,
-	POST_CURSOR2_LEVEL2,
-	POST_CURSOR2_LEVEL3,
-	POST_CURSOR2_MAX_LEVEL = POST_CURSOR2_LEVEL3,
-};
-
-enum voltage_swing {
-	VOLTAGE_SWING_LEVEL0 = 0,	/* direct HW translation! */
-	VOLTAGE_SWING_LEVEL1,
-	VOLTAGE_SWING_LEVEL2,
-	VOLTAGE_SWING_LEVEL3,
-	VOLTAGE_SWING_MAX_LEVEL = VOLTAGE_SWING_LEVEL3
-};
-
-enum pre_emphasis {
-	PRE_EMPHASIS_DISABLED = 0,	/* direct HW translation! */
-	PRE_EMPHASIS_LEVEL1,
-	PRE_EMPHASIS_LEVEL2,
-	PRE_EMPHASIS_LEVEL3,
-	PRE_EMPHASIS_MAX_LEVEL = PRE_EMPHASIS_LEVEL3
 };
 
 enum dpcd_value_mask {
@@ -107,103 +76,21 @@ enum edp_revision {
 	EDP_REVISION_13 = 0x02
 };
 
-enum lane_count {
-	LANE_COUNT_UNKNOWN = 0,
-	LANE_COUNT_ONE = 1,
-	LANE_COUNT_TWO = 2,
-	LANE_COUNT_FOUR = 4,
-	LANE_COUNT_EIGHT = 8,
-	LANE_COUNT_DP_MAX = LANE_COUNT_FOUR
-};
-
-/* This is actually a reference clock (27MHz) multiplier
- * 162MBps bandwidth for 1.62GHz like rate,
- * 270MBps for 2.70GHz,
- * 324MBps for 3.24Ghz,
- * 540MBps for 5.40GHz
- */
-enum link_rate {
-	LINK_RATE_UNKNOWN = 0,
-	LINK_RATE_LOW = 0x06,
-	LINK_RATE_HIGH = 0x0A,
-	LINK_RATE_RBR2 = 0x0C,
-	LINK_RATE_HIGH2 = 0x14
-};
-
 enum {
 	LINK_RATE_REF_FREQ_IN_KHZ = 27000 /*27MHz*/
 };
 
-enum link_spread {
-	LINK_SPREAD_DISABLED = 0x00,
-	/* 0.5 % downspread 30 kHz */
-	LINK_SPREAD_05_DOWNSPREAD_30KHZ = 0x10,
-	/* 0.5 % downspread 33 kHz */
-	LINK_SPREAD_05_DOWNSPREAD_33KHZ = 0x11
-};
-
-/* DPCD_ADDR_DOWNSTREAM_PORT_PRESENT register value */
-union dpcd_downstream_port {
-	struct {
-#if defined(LITTLEENDIAN_CPU)
-		uint8_t PRESENT:1;
-		uint8_t TYPE:2;
-		uint8_t FORMAT_CONV:1;
-		uint8_t RESERVED:4;
-#elif defined(BIGENDIAN_CPU)
-		uint8_t RESERVED:4;
-		uint8_t FORMAT_CONV:1;
-		uint8_t TYPE:2;
-		uint8_t PRESENT:1;
-#else
-	#error ARCH not defined!
-#endif
-	} bits;
-
-	uint8_t raw;
-};
-
-/* DPCD_ADDR_SINK_COUNT register value */
-union dpcd_sink_count {
-	struct {
-#if defined(LITTLEENDIAN_CPU)
-		uint8_t SINK_COUNT:6;
-		uint8_t CP_READY:1;
-		uint8_t RESERVED:1;
-#elif defined(BIGENDIAN_CPU)
-		uint8_t RESERVED:1;
-		uint8_t CP_READY:1;
-		uint8_t SINK_COUNT:6;
-#else
-	#error ARCH not defined!
-#endif
-	} bits;
-
-	uint8_t raw;
-};
-
-struct link_settings {
-	enum lane_count lane_count;
-	enum link_rate link_rate;
-	enum link_spread link_spread;
-};
-
-struct lane_settings {
-	enum voltage_swing VOLTAGE_SWING:4;
-	enum pre_emphasis PRE_EMPHASIS:4;
-	enum post_cursor2 POST_CURSOR2:4;
-};
-
 struct link_training_settings {
-	struct link_settings link_settings;
-	struct lane_settings lane_settings[LANE_COUNT_DP_MAX];
+	struct dc_link_settings link_settings;
+	struct dc_lane_settings lane_settings[LANE_COUNT_DP_MAX];
 	bool allow_invalid_msa_timing_param;
 };
 
 enum hw_dp_training_pattern {
 	HW_DP_TRAINING_PATTERN_1 = 0,
 	HW_DP_TRAINING_PATTERN_2,
-	HW_DP_TRAINING_PATTERN_3
+	HW_DP_TRAINING_PATTERN_3,
+	HW_DP_TRAINING_PATTERN_4
 };
 
 /*TODO: Move this enum test harness*/
@@ -224,6 +111,7 @@ enum dp_test_pattern {
 	DP_TEST_PATTERN_TRAINING_PATTERN1,
 	DP_TEST_PATTERN_TRAINING_PATTERN2,
 	DP_TEST_PATTERN_TRAINING_PATTERN3,
+	DP_TEST_PATTERN_TRAINING_PATTERN4,
 
 	/* link test patterns*/
 	DP_TEST_PATTERN_COLOR_SQUARES,
@@ -239,13 +127,13 @@ enum dp_test_pattern {
 	DP_TEST_PATTERN_UNSUPPORTED
 };
 
-enum dp_alt_scrambler_reset {
+enum dp_panel_mode {
 	/* not required */
-	DP_ALT_SCRAMBLER_RESET_NONE,
+	DP_PANEL_MODE_DEFAULT,
 	/* standard mode for eDP */
-	DP_ALT_SCRAMBLER_RESET_STANDARD,
+	DP_PANEL_MODE_EDP,
 	/* external chips specific settings */
-	DP_ALT_SCRAMBLER_RESET_SPECIAL
+	DP_PANEL_MODE_SPECIAL
 };
 
 /**
@@ -268,22 +156,15 @@ struct link_service_init_data {
 	/* for calling HWSS to program HW */
 	struct hw_sequencer *hwss;
 	/* the source which to register IRQ on */
-	enum dal_irq_source irq_src_hpd_rx;
-	enum dal_irq_source irq_src_dp_sink;
+	enum dc_irq_source irq_src_hpd_rx;
+	enum dc_irq_source irq_src_dp_sink;
 	/* other init options such as SW Workarounds */
 	struct link_service_init_options init_options;
 	uint32_t connector_enum_id;
 	struct graphics_object_id connector_id;
 	struct adapter_service *adapter_service;
-	struct dal_context *dal_context;
+	struct dc_context *ctx;
 	struct topology_mgr *tm;
-};
-
-/**
- * @brief LinkServiceInitOptions to set certain bits
- */
-struct LinkServiceInitOptions {
-	uint32_t APPLY_MISALIGNMENT_BUG_WORKAROUND:1;
 };
 
 /* DPCD_ADDR_TRAINING_LANEx_SET registers value */
@@ -302,31 +183,6 @@ union dpcd_training_lane_set {
 		uint8_t PRE_EMPHASIS_SET:2;
 		uint8_t MAX_SWING_REACHED:1;
 		uint8_t VOLTAGE_SWING_SET:2;
-#else
-	#error ARCH not defined!
-#endif
-	} bits;
-
-	uint8_t raw;
-};
-
-/* DPCD_ADDR_TRAINING_LANEx_SET2 registers value - since DP 1.2 */
-union dpcd_training_lanes_set2 {
-	struct {
-#if defined(LITTLEENDIAN_CPU)
-		uint8_t LANE0_POST_CURSOR2_SET:2;
-		uint8_t LANE0_MAX_POST_CURSOR2_REACHED:1;
-		uint8_t LANE0_RESERVED:1;
-		uint8_t LANE1_POST_CURSOR2_SET:2;
-		uint8_t LANE1_MAX_POST_CURSOR2_REACHED:1;
-		uint8_t LANE1_RESERVED:1;
-#elif defined(BIGENDIAN_CPU)
-		uint8_t LANE1_RESERVED:1;
-		uint8_t LANE1_MAX_POST_CURSOR2_REACHED:1;
-		uint8_t LANE1_POST_CURSOR2_SET:2;
-		uint8_t LANE0_RESERVED:1;
-		uint8_t LANE0_MAX_POST_CURSOR2_REACHED:1;
-		uint8_t LANE0_POST_CURSOR2_SET:2;
 #else
 	#error ARCH not defined!
 #endif
@@ -358,69 +214,20 @@ struct mst_rad {
 	int8_t rad_str[25];
 };
 
-/**
- * @brief this structure is used to report
- * properties associated to a sink device
- */
-struct mst_sink_info {
-	/* global unique identifier */
-	struct mst_guid guid;
-	/* relative address */
-	struct mst_rad  rad;
-	/* total bandwidth available on the DP connector */
-	uint32_t total_available_bandwidth_in_mbps;
-	/* bandwidth allocated to the sink device. */
-	uint32_t allocated_bandwidth_in_mbps;
-	/* bandwidth consumed to support for the current mode. */
-	uint32_t consumed_bandwidth_in_mbps;
-};
-
-/**
- * @brief represent device information in MST topology
- */
-struct mst_device_info {
-	/* global unique identifier*/
-	struct mst_guid guid;
-	/* relative address*/
-	struct mst_rad  rad;
-};
-
 /* DP MST stream allocation (payload bandwidth number) */
 struct dp_mst_stream_allocation {
-	/* stream engine id (DIG) */
-	enum engine_id engine;
+	uint8_t vcp_id;
 	/* number of slots required for the DP stream in
 	 * transport packet */
-	uint32_t slot_count;
+	uint8_t slot_count;
 };
 
 /* DP MST stream allocation table */
 struct dp_mst_stream_allocation_table {
 	/* number of DP video streams */
-	uint32_t stream_count;
+	int stream_count;
 	/* array of stream allocations */
-	struct dp_mst_stream_allocation stream_allocations[1];
-};
-
-struct dp_test_event_data {
-	/*size of parameters (starting from params) in bytes*/
-	uint32_t size;
-	/*parameters block*/
-	uint32_t params[1];
-};
-
-struct psr_caps {
-	/* These parameters are from PSR capabilities reported by Sink DPCD. */
-	uint8_t psr_version;
-	uint32_t psr_rfb_setup_time;
-	bool psr_exit_link_training_req;
-
-	/* These parameters are calculated in Driver, based on display timing
-	 * and Sink capabilities.
-	 * If VBLANK region is too small and Sink takes a long time to power up
-	 * Remote Frame Buffer, it may take an extra frame to enter PSR */
-	bool psr_frame_capture_indication_req;
-	uint32_t psr_sdp_transmit_line_num_deadline;
+	struct dp_mst_stream_allocation stream_allocations[MAX_CONTROLLER_NUM];
 };
 
 #endif /*__DAL_LINK_SERVICE_TYPES_H__*/

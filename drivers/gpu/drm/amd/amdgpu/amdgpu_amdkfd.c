@@ -21,6 +21,7 @@
  */
 
 #include "amdgpu_amdkfd.h"
+#include <linux/dma-buf.h>
 #include <drm/drmP.h>
 #include "amdgpu.h"
 #include <linux/module.h>
@@ -53,11 +54,9 @@ bool amdgpu_amdkfd_load_interface(struct amdgpu_device *rdev)
 		kfd2kgd = amdgpu_amdkfd_gfx_7_get_functions();
 		break;
 	case CHIP_CARRIZO:
-		kfd2kgd = amdgpu_amdkfd_gfx_8_0_get_functions();
-		break;
 	case CHIP_TONGA:
 	case CHIP_FIJI:
-		kfd2kgd = amdgpu_amdkfd_gfx_8_0_tonga_get_functions();
+		kfd2kgd = amdgpu_amdkfd_gfx_8_0_get_functions();
 		break;
 	default:
 		return false;
@@ -136,6 +135,107 @@ int amdgpu_amdkfd_resume(struct amdgpu_device *rdev)
 		r = kgd2kfd->resume(rdev->kfd);
 
 	return r;
+}
+
+int amdgpu_amdkfd_evict_mem(struct amdgpu_device *adev, struct kgd_mem *mem,
+			    struct mm_struct *mm)
+{
+	int r;
+
+	if (!adev->kfd)
+		return -ENODEV;
+
+	mutex_lock(&mem->data2.lock);
+
+	if (mem->data2.evicted == 1 && delayed_work_pending(&mem->data2.work))
+		/* Cancelling a scheduled restoration */
+		cancel_delayed_work(&mem->data2.work);
+
+	if (++mem->data2.evicted > 1) {
+		mutex_unlock(&mem->data2.lock);
+		return 0;
+	}
+
+	r = amdgpu_amdkfd_gpuvm_evict_mem(mem, mm);
+
+	if (r != 0)
+		/* First eviction failed, setting count back to 0 will
+		 * make the corresponding restore fail gracefully */
+		mem->data2.evicted = 0;
+	else
+		/* First eviction counts as 2. Eviction counter == 1
+		 * means that restoration is scheduled. */
+		mem->data2.evicted = 2;
+
+	mutex_unlock(&mem->data2.lock);
+
+	return r;
+}
+
+static void amdgdu_amdkfd_restore_mem_worker(struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct kgd_mem *mem = container_of(dwork, struct kgd_mem, data2.work);
+	struct amdgpu_device *adev;
+	struct mm_struct *mm;
+
+	mutex_lock(&mem->data2.lock);
+
+	adev = mem->data2.bo->adev;
+	mm = mem->data2.mm;
+
+	/* Restoration may have been canceled by another eviction or
+	 * could already be done by a restore scheduled earlier */
+	if (mem->data2.evicted == 1) {
+		amdgpu_amdkfd_gpuvm_restore_mem(mem, mm);
+		mem->data2.evicted = 0;
+	}
+
+	mutex_unlock(&mem->data2.lock);
+}
+
+int amdgpu_amdkfd_schedule_restore_mem(struct amdgpu_device *adev,
+				       struct kgd_mem *mem,
+				       struct mm_struct *mm,
+				       unsigned long delay)
+{
+	int r = 0;
+
+	if (!adev->kfd)
+		return -ENODEV;
+
+	mutex_lock(&mem->data2.lock);
+
+	if (mem->data2.evicted <= 1) {
+		/* Buffer is not evicted (== 0) or its restoration is
+		 * already scheduled (== 1) */
+		pr_err("Unbalanced restore of evicted buffer %p\n", mem);
+		mutex_unlock(&mem->data2.lock);
+		return -EFAULT;
+	} else if (--mem->data2.evicted > 1) {
+		mutex_unlock(&mem->data2.lock);
+		return 0;
+	}
+
+	/* mem->data2.evicted is 1 after decrememting. Schedule
+	 * restoration. */
+	if (delayed_work_pending(&mem->data2.work))
+		cancel_delayed_work(&mem->data2.work);
+	mem->data2.mm = mm;
+	INIT_DELAYED_WORK(&mem->data2.work,
+			  amdgdu_amdkfd_restore_mem_worker);
+	schedule_delayed_work(&mem->data2.work, delay);
+
+	mutex_unlock(&mem->data2.lock);
+
+	return r;
+}
+
+void amdgpu_amdkfd_cancel_restore_mem(struct amdgpu_device *adev,
+				      struct kgd_mem *mem)
+{
+	if (delayed_work_pending(&mem->data2.work))
+		cancel_delayed_work_sync(&mem->data2.work);
 }
 
 u32 pool_to_domain(enum kgd_memory_pool p)
@@ -224,13 +324,30 @@ void free_gtt_mem(struct kgd_dev *kgd, void *mem_obj)
 void get_local_mem_info(struct kgd_dev *kgd,
 				struct kfd_local_mem_info *mem_info)
 {
+	uint64_t address_mask;
+	resource_size_t aper_limit;
 	struct amdgpu_device *rdev = (struct amdgpu_device *)kgd;
 
 	BUG_ON(kgd == NULL);
 
+	address_mask = ~((1UL << 40) - 1);
+	aper_limit = rdev->mc.aper_base + rdev->mc.aper_size;
 	memset(mem_info, 0, sizeof(*mem_info));
-	mem_info->local_mem_size = rdev->mc.real_vram_size;
+	if (!(rdev->mc.aper_base & address_mask ||
+			aper_limit & address_mask)) {
+		mem_info->local_mem_size_public = rdev->mc.visible_vram_size;
+		mem_info->local_mem_size_private = rdev->mc.real_vram_size -
+				rdev->mc.visible_vram_size;
+	} else {
+		mem_info->local_mem_size_public = 0;
+		mem_info->local_mem_size_private = rdev->mc.real_vram_size;
+	}
 	mem_info->vram_width = rdev->mc.vram_width;
+
+	pr_debug("amdgpu: address base: 0x%llx limit 0x%llx public 0x%llx private 0x%llx\n",
+			rdev->mc.aper_base, aper_limit,
+			mem_info->local_mem_size_public,
+			mem_info->local_mem_size_private);
 
 	if (amdgpu_powerplay || rdev->pm.funcs->get_mclk)
 		mem_info->mem_clk_max = amdgpu_dpm_get_mclk(rdev, false) / 100;
@@ -286,4 +403,60 @@ int map_gtt_bo_to_kernel(struct kgd_dev *kgd,
 		struct kgd_mem *mem, void **kptr)
 {
 	return 0;
+}
+
+int amdgpu_amdkfd_get_dmabuf_info(struct kgd_dev *kgd, int dma_buf_fd,
+				  struct kgd_dev **dma_buf_kgd,
+				  uint64_t *bo_size, void *metadata_buffer,
+				  size_t buffer_size, uint32_t *metadata_size,
+				  uint32_t *flags)
+{
+	struct amdgpu_device *adev = (struct amdgpu_device *)kgd;
+	struct dma_buf *dma_buf;
+	struct drm_gem_object *obj;
+	struct amdgpu_bo *bo;
+	uint64_t metadata_flags;
+	int r = -EINVAL;
+
+	dma_buf = dma_buf_get(dma_buf_fd);
+	if (IS_ERR(dma_buf))
+		return PTR_ERR(dma_buf);
+
+	if (dma_buf->ops != &drm_gem_prime_dmabuf_ops)
+		/* Can't handle non-graphics buffers */
+		goto out_put;
+
+	obj = dma_buf->priv;
+	if (obj->dev->driver != adev->ddev->driver)
+		/* Can't handle buffers from different drivers */
+		goto out_put;
+
+	adev = obj->dev->dev_private;
+	bo = gem_to_amdgpu_bo(obj);
+	if (!(bo->prefered_domains & (AMDGPU_GEM_DOMAIN_VRAM |
+				    AMDGPU_GEM_DOMAIN_GTT)))
+		/* Only VRAM and GTT BOs are supported */
+		goto out_put;
+
+	r = 0;
+	if (dma_buf_kgd)
+		*dma_buf_kgd = (struct kgd_dev *)adev;
+	if (bo_size)
+		*bo_size = amdgpu_bo_size(bo);
+	if (metadata_size)
+		*metadata_size = bo->metadata_size;
+	if (metadata_buffer)
+		r = amdgpu_bo_get_metadata(bo, metadata_buffer, buffer_size,
+					   metadata_size, &metadata_flags);
+	if (flags) {
+		*flags = (bo->prefered_domains & AMDGPU_GEM_DOMAIN_VRAM) ?
+			ALLOC_MEM_FLAGS_VRAM : ALLOC_MEM_FLAGS_GTT;
+
+		if (bo->flags & AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED)
+			*flags |= ALLOC_MEM_FLAGS_PUBLIC;
+	}
+
+out_put:
+	dma_buf_put(dma_buf);
+	return r;
 }

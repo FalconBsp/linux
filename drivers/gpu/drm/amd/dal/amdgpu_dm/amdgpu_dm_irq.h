@@ -24,7 +24,7 @@
 #ifndef __AMDGPU_DM_IRQ_H__
 #define __AMDGPU_DM_IRQ_H__
 
-#include "include/irq_types.h" /* DAL irq definitions */
+#include "irq_types.h" /* DAL irq definitions */
 
 /*
  * Display Manager IRQ-related interfaces (for use by DAL).
@@ -60,14 +60,14 @@ void amdgpu_dm_irq_fini(
  * @handler_args: arguments which will be passed to ih
  *
  * Returns:
- * 	IRQ Handler Index on success.
- * 	NULL on failure.
+ *	IRQ Handler Index on success.
+ *	NULL on failure.
  *
  * Cannot be called from an interrupt handler.
  */
 void *amdgpu_dm_irq_register_interrupt(
 		struct amdgpu_device *adev,
-		struct dal_interrupt_params *int_params,
+		struct dc_interrupt_params *int_params,
 		void (*ih)(void *),
 		void *handler_args);
 
@@ -81,12 +81,12 @@ void *amdgpu_dm_irq_register_interrupt(
  */
 void amdgpu_dm_irq_unregister_interrupt(
 		struct amdgpu_device *adev,
-		enum dal_irq_source irq_source,
+		enum dc_irq_source irq_source,
 		void *ih_index);
 
 void amdgpu_dm_irq_register_timer(
 	struct amdgpu_device *adev,
-	struct dal_timer_interrupt_params *int_params,
+	struct dc_timer_interrupt_params *int_params,
 	interrupt_handler ih,
 	void *args);
 
@@ -109,14 +109,14 @@ void amdgpu_dm_hpd_fini(struct amdgpu_device *adev);
  * amdgpu_dm_irq_suspend - disable ASIC interrupt during suspend.
  *
  */
-int amdgpu_dm_irq_suspend(
-	struct amdgpu_device *adev);
+int amdgpu_dm_irq_suspend(struct amdgpu_device *adev);
 
 /**
+ * amdgpu_dm_irq_resume_early - enable HPDRX ASIC interrupts during resume.
  * amdgpu_dm_irq_resume - enable ASIC interrupt during resume.
  *
  */
-int amdgpu_dm_irq_resume(
-	struct amdgpu_device *adev);
+int amdgpu_dm_irq_resume_early(struct amdgpu_device *adev);
+int amdgpu_dm_irq_resume(struct amdgpu_device *adev);
 
 #endif /* __AMDGPU_DM_IRQ_H__ */

@@ -47,6 +47,7 @@
 */
 
 #include "irq_types.h"
+#include "signal_types.h"
 
 /* Forward declarations */
 struct amdgpu_device;
@@ -62,7 +63,7 @@ struct amdgpu_dm_prev_state {
 
 struct common_irq_params {
 	struct amdgpu_device *adev;
-	enum dal_irq_source irq_src;
+	enum dc_irq_source irq_src;
 };
 
 struct irq_list_head {
@@ -73,15 +74,14 @@ struct irq_list_head {
 
 struct amdgpu_display_manager {
 	struct dal *dal;
-	void *cgs_device;
+	struct dc *dc;
+	struct cgs_device *cgs_device;
 	/* lock to be used when DAL is called from SYNC IRQ context */
 	spinlock_t dal_lock;
 
 	struct amdgpu_device *adev;	/*AMD base driver*/
 	struct drm_device *ddev;	/*DRM base driver*/
 	u16 display_indexes_num;
-
-	u32 mode_query_option;
 
 	struct amdgpu_dm_prev_state prev_state;
 
@@ -102,10 +102,10 @@ struct amdgpu_display_manager {
 	struct list_head irq_handler_list_high_tab[DAL_IRQ_SOURCES_NUMBER];
 
 	struct common_irq_params
-	pflip_params[DAL_IRQ_SOURCE_PFLIP_LAST - DAL_IRQ_SOURCE_PFLIP_FIRST + 1];
+	pflip_params[DC_IRQ_SOURCE_PFLIP_LAST - DC_IRQ_SOURCE_PFLIP_FIRST + 1];
 
 	struct common_irq_params
-	vsync_params[DAL_IRQ_SOURCE_CRTC6VSYNC - DAL_IRQ_SOURCE_CRTC1VSYNC + 1];
+	vupdate_params[DC_IRQ_SOURCE_VUPDATE6 - DC_IRQ_SOURCE_VUPDATE1 + 1];
 
 	/* this spin lock synchronizes access to 'irq_handler_list_table' */
 	spinlock_t irq_handler_list_table_lock;
@@ -114,23 +114,6 @@ struct amdgpu_display_manager {
 	struct list_head timer_handler_list;
 	struct workqueue_struct *timer_workqueue;
 
-	/*
-	 * The problem:
-	 * We don't get Set Mode call if only one display is connected, and
-	 * this display is disconnected and connected back to the same
-	 * connector.
-	 *
-	 * The workaround:
-	 * 1. When the last display is disconnected, simulate a hot-plug for a
-	 * fake display which has the same EDID as the one which was just
-	 * disconnected, but with a mode list reduced to a single mode
-	 * (the fail-safe mode) 640x480.
-	 * Because of the change in mode-list we do get Set Mode.
-	 * 2. When the real display is connected notify the OS about the
-	 * new mode-list, which is different from the fake one, because
-	 * of the difference the OS calls Set Mode again, which is exactly
-	 * what we need. */
-	uint32_t fake_display_index;
 	/* Use dal_mutex for any activity which is NOT syncronized by
 	 * DRM mode setting locks.
 	 * For example: amdgpu_dm_hpd_low_irq() calls into DAL *without*
@@ -140,7 +123,9 @@ struct amdgpu_display_manager {
 
 	struct backlight_device *backlight_dev;
 
-	struct drm_property *cp_status_property;
+	const struct dc_link *backlight_link;
+
+	struct work_struct mst_hotplug_work;
 };
 
 /* basic init/fini API */
@@ -157,7 +142,7 @@ void amdgpu_dm_destroy(void);
  * Returns 0 on success
  */
 int amdgpu_dm_initialize_drm_device(
-	struct amdgpu_display_manager *dm);
+	struct amdgpu_device *adev);
 
 /* removes and deallocates the drm structures, created by the above function */
 void amdgpu_dm_destroy_drm_device(
@@ -168,10 +153,42 @@ bool amdgpu_dm_acquire_dal_lock(struct amdgpu_display_manager *dm);
 
 bool amdgpu_dm_release_dal_lock(struct amdgpu_display_manager *dm);
 
-struct amdgpu_connector *amdgpu_dm_find_connector_by_display_index(
-	struct drm_device *dev,
-	uint32_t display_index);
+/* Register "Backlight device" accessible by user-mode. */
+void amdgpu_dm_register_backlight_device(struct amdgpu_display_manager *dm);
 
 extern const struct amd_ip_funcs amdgpu_dm_funcs;
+
+void amdgpu_dm_update_connector_after_detect(
+	struct amdgpu_connector *aconnector);
+
+#ifdef CONFIG_DRM_AMD_HDCP_SERVICE
+struct dm_hdcp_info {
+	uint8_t link_enc_hw_inst;
+	uint8_t ddc_hw_inst;
+	enum signal_type signal;
+	void *display_id;
+
+	union {
+		struct {
+			uint8_t is_parade_chip:1;
+		} bits;
+		uint8_t all;
+	} flags;
+};
+
+bool amdgpu_dm_get_hdcp_info(
+	void *display_id,
+	struct dm_hdcp_info *info);
+
+struct hdcp_protection_message;
+bool amdgpu_dm_process_hdcp_msg(
+	void *display_id,
+	struct hdcp_protection_message *message);
+#endif
+
+struct amdgpu_connector *amdgpu_dm_find_first_crct_matching_connector(
+	struct drm_atomic_state *state,
+	struct drm_crtc *crtc,
+	bool from_state_var);
 
 #endif /* __AMDGPU_DM_H__ */

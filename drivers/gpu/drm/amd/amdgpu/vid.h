@@ -73,8 +73,6 @@
 #define		VMID(x)						((x) << 4)
 #define		QUEUEID(x)					((x) << 8)
 
-#define RB_BITMAP_WIDTH_PER_SH     2
-
 #define MC_SEQ_MISC0__MT__MASK	0xf0000000
 #define MC_SEQ_MISC0__MT__GDDR1  0x10000000
 #define MC_SEQ_MISC0__MT__DDR2   0x20000000
@@ -369,7 +367,7 @@
 #define VCE_CMD_IB		0x00000002
 #define VCE_CMD_FENCE		0x00000003
 #define VCE_CMD_TRAP		0x00000004
-#define VCE_CMD_IB_AUTO 	0x00000005
+#define VCE_CMD_IB_AUTO	0x00000005
 #define VCE_CMD_SEMAPHORE	0x00000006
 
 #endif

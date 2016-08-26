@@ -31,20 +31,24 @@ struct vector {
 	uint32_t struct_size;
 	uint32_t count;
 	uint32_t capacity;
+	struct dc_context *ctx;
 };
 
 bool dal_vector_construct(
 	struct vector *vector,
+	struct dc_context *ctx,
 	uint32_t capacity,
 	uint32_t struct_size);
 
 struct vector *dal_vector_create(
+	struct dc_context *ctx,
 	uint32_t capacity,
 	uint32_t struct_size);
 
 /* 'initial_value' is optional. If initial_value not supplied,
  * each "structure" in the vector will contain zeros by default. */
 struct vector *dal_vector_presized_create(
+	struct dc_context *ctx,
 	uint32_t size,
 	void *initial_value,
 	uint32_t struct_size);

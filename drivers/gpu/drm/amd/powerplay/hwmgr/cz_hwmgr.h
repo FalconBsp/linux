@@ -25,6 +25,7 @@
 #define _CZ_HWMGR_H_
 
 #include "cgs_common.h"
+#include "ppatomctrl.h"
 
 #define CZ_NUM_NBPSTATES               4
 #define CZ_NUM_NBPMEMORYCLOCK          2
@@ -175,6 +176,14 @@ struct cz_power_state {
 #define SMU_EnabledFeatureScoreboard_UvdDpmOn   0x00800000 /* bit 23 */
 #define SMU_EnabledFeatureScoreboard_VceDpmOn   0x01000000 /* bit 24 */
 
+struct cc6_settings {
+	bool cc6_setting_changed;
+	bool nb_pstate_switch_disable;/* controls NB PState switch */
+	bool cpu_cc6_disable; /* controls CPU CState switch ( on or off) */
+	bool cpu_pstate_disable;
+	uint32_t cpu_pstate_separation_time;
+};
+
 struct cz_hwmgr {
 	uint32_t activity_target[CZ_MAX_HARDWARE_POWERLEVELS];
 	uint32_t dpm_interval;
@@ -237,7 +246,7 @@ struct cz_hwmgr {
 	uint32_t highest_valid;
 	uint32_t high_voltage_threshold;
 	uint32_t is_nb_dpm_enabled;
-	uint32_t is_nb_dpm_enabled_by_driver;
+	struct cc6_settings cc6_settings;
 	uint32_t is_voltage_island_enabled;
 
 	bool pgacpinit;

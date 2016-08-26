@@ -26,13 +26,15 @@
 #ifndef __AMDGPU_ACP_H__
 #define __AMDGPU_ACP_H__
 
-#include "amd_gnb_bus.h"
+#include <linux/mfd/core.h>
 
 struct amdgpu_acp {
 	struct device *parent;
-	struct amd_gnb_bus_dev acp_pcm_dev;
-	void *cgs_device;
+	struct cgs_device *cgs_device;
 	struct amd_acp_private *private;
+	struct mfd_cell *acp_cell;
+	struct resource *acp_res;
+	struct acp_pm_domain *acp_genpd;
 };
 
 extern const struct amd_ip_funcs acp_ip_funcs;

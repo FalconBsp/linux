@@ -39,67 +39,6 @@
  * #####################################################
  */
 
-enum tv_standard {
-	TV_STANDARD_UNKNOWN = 0, /* direct HW (mmBIOS_SCRATCH_2) translation! */
-	TV_STANDARD_NTSC,
-	TV_STANDARD_NTSCJ,
-	TV_STANDARD_PAL,
-	TV_STANDARD_PALM,
-	TV_STANDARD_PALCN,
-	TV_STANDARD_PALN,
-	TV_STANDARD_PAL60,
-	TV_STANDARD_SECAM
-};
-
-enum cv_standard {
-	CV_STANDARD_UNKNOWN = 0x0000,
-	CV_STANDARD_HD_MASK = 0x0800,		/* Flag mask HDTV output */
-	CV_STANDARD_SD_NTSC_MASK = 0x1000,	/* Flag mask NTSC output */
-	CV_STANDARD_SD_NTSC_M,		/* NTSC (North America) output 1001 */
-	CV_STANDARD_SD_NTSC_J,		/* NTSC (Japan) output 1002 */
-	CV_STANDARD_SD_480I,		/* SDTV 480i output 1003 */
-	CV_STANDARD_SD_480P,		/* SDTV 480p output 1004 */
-	CV_STANDARD_HD_720_60P = 0x1800,/* HDTV 720/60p output 1800 */
-	CV_STANDARD_HD_1080_60I,	/* HDTV 1080/60i output 1801 */
-	CV_STANDARD_SD_PAL_MASK = 0x2000,/* Flag mask PAL output */
-	CV_STANDARD_SD_PAL_B,			/* PAL B output 2001 */
-	CV_STANDARD_SD_PAL_D,			/* PAL D output 2002 */
-	CV_STANDARD_SD_PAL_G,			/* PAL G output 2003 */
-	CV_STANDARD_SD_PAL_H,			/* PAL H output 2004 */
-	CV_STANDARD_SD_PAL_I,			/* PAL I output 2005 */
-	CV_STANDARD_SD_PAL_M,			/* PAL M output 2006 */
-	CV_STANDARD_SD_PAL_N,			/* PAL N output 2007 */
-	CV_STANDARD_SD_PAL_N_COMB,	/* PAL Combination N output 2008 */
-	CV_STANDARD_SD_PAL_60,		/* PAL 60 output (test mode) 2009 */
-	CV_STANDARD_SD_576I,		/* SDTV 576i output 2010 */
-	CV_STANDARD_SD_576P,		/* SDTV 576p output 2011 */
-	CV_STANDARD_HD_720_50P = 0x2800,/* HDTV 720/50p output 2800 */
-	CV_STANDARD_HD_1080_50I,	/* HDTV 1080/50i output 2801 */
-	CV_STANDARD_SD_SECAM_MASK = 0x4000, /* Flag mask SECAM output */
-	CV_STANDARD_SD_SECAM_B,		/* SECAM B output 4001 */
-	CV_STANDARD_SD_SECAM_D,		/* SECAM D output 4002 */
-	CV_STANDARD_SD_SECAM_G,		/* SECAM G output 4003 */
-	CV_STANDARD_SD_SECAM_H,		/* SECAM H output 4004 */
-	CV_STANDARD_SD_SECAM_K,		/* SECAM K output 4005 */
-	CV_STANDARD_SD_SECAM_K1,	/* SECAM K1 output 4006 */
-	CV_STANDARD_SD_SECAM_L,		/* SECAM L output 4007 */
-	CV_STANDARD_SD_SECAM_L1		/* SECAM L1 output 4009 */
-};
-
-enum disp_pll_config {
-	DISP_PLL_CONFIG_UNKNOWN = 0,
-	DISP_PLL_CONFIG_DVO_DDR_MODE_LOW_12BIT,
-	DISP_PLL_CONFIG_DVO_DDR_MODE_UPPER_12BIT,
-	DISP_PLL_CONFIG_DVO_DDR_MODE_24BIT
-};
-
-enum transmitter_color_depth {
-	TRANSMITTER_COLOR_DEPTH_24 = 0,	/* 8 bits */
-	TRANSMITTER_COLOR_DEPTH_30,	/* 10 bits */
-	TRANSMITTER_COLOR_DEPTH_36,	/* 12 bits */
-	TRANSMITTER_COLOR_DEPTH_48	/* 16 bits */
-};
-
 enum display_output_bit_depth {
 	PANEL_UNDEFINE = 0,
 	PANEL_6BIT_COLOR = 1,
@@ -107,17 +46,6 @@ enum display_output_bit_depth {
 	PANEL_10BIT_COLOR = 3,
 	PANEL_12BIT_COLOR = 4,
 	PANEL_16BIT_COLOR = 5,
-};
-
-/* Color depth of DP transmitter */
-enum dp_transmitter_color_depth {
-	DP_TRANSMITTER_COLOR_DEPTH_UNKNOWN = 0,
-	DP_TRANSMITTER_COLOR_DEPTH_666,
-	DP_TRANSMITTER_COLOR_DEPTH_888,
-	DP_TRANSMITTER_COLOR_DEPTH_101010,
-	DP_TRANSMITTER_COLOR_DEPTH_121212,
-	DP_TRANSMITTER_COLOR_DEPTH_141414,
-	DP_TRANSMITTER_COLOR_DEPTH_161616
 };
 
 enum lcd_scale {
@@ -175,7 +103,6 @@ struct graphics_object_i2c_info {
 	uint32_t i2c_engine_id;
 	uint32_t i2c_slave_address;
 };
-
 
 struct graphics_object_hpd_info {
 	uint8_t hpd_int_gpio_uid;
@@ -262,26 +189,10 @@ struct firmware_info {
 	uint8_t remote_display_config;
 };
 
-/* direct HW (mmBIOS_SCRATCH_2) translation! */
-union tv_standard_support {
-	uint8_t u_all;
-	struct {
-		bool TV_SUPPORT_NTSC:1;
-		bool TV_SUPPORT_NTSCJ:1;
-
-		bool TV_SUPPORT_PAL:1;
-		bool TV_SUPPORT_PALM:1;
-		bool TV_SUPPORT_PALCN:1;
-		bool TV_SUPPORT_PALN:1;
-		bool TV_SUPPORT_PAL60:1;
-
-		bool TV_SUPPORT_SECAM:1;
-	} bits;
-};
-
-struct analog_tv_info {
-	union tv_standard_support tv_suppported;
-	union tv_standard_support tv_boot_up_default;
+struct step_and_delay_info {
+    uint32_t step;
+    uint32_t delay;
+    uint32_t recommended_ref_div;
 };
 
 struct spread_spectrum_info {
@@ -298,11 +209,7 @@ struct spread_spectrum_info {
 	uint32_t spread_spectrum_range; /* modulation freq (HZ)*/
 
 	union {
-		struct step_and_delay_info {
-			uint32_t step;
-			uint32_t delay;
-			uint32_t recommended_ref_div;
-		} step_and_delay_info;
+		struct step_and_delay_info step_and_delay_info;
 		/* For mem/engine/uvd, Clock Out frequence (VCO ),
 		in unit of kHz. For TMDS/HDMI/LVDS, it is pixel clock,
 		for DP, it is link clock ( 270000 or 162000 ) */
@@ -314,6 +221,9 @@ struct spread_spectrum_info {
 struct graphics_object_encoder_cap_info {
 	uint32_t dp_hbr2_cap:1;
 	uint32_t dp_hbr2_validated:1;
+	/*
+	 * TODO: added MST and HDMI 6G capable flags
+	 */
 	uint32_t reserved:15;
 };
 
@@ -354,7 +264,6 @@ struct transmitter_configuration {
 	/* Secondary transmitter configuration for Dual-link DVI */
 	struct transmitter_configuration_info secondary_transmitter_config;
 };
-
 
 /* These size should be sufficient to store info coming from BIOS */
 #define NUMBER_OF_UCHAR_FOR_GUID 16
@@ -480,47 +389,6 @@ struct bios_event_info {
 	bool backlight_changed;
 };
 
-union stereo_3d_support {
-	struct {
-		/* HW can alter left and right image sequentially */
-		uint32_t FRAME_ALTERNATE:1;
-		/* Frame Alternate + HW can integrate stereosync
-		signal into TMDS stream */
-		uint32_t DVI_FRAME_ALT:1;
-		/* Frame Alternate + HW can integrate stereosync
-		signal into DP stream */
-		uint32_t DISPLAY_PORT_FRAME_ALT:1;
-		/* Frame Alternate + HW can drive stereosync signal
-		on separate line */
-		uint32_t SIDEBAND_FRAME_ALT:1;
-		/* SW allowed to pack left and right image into single frame.
-		Used for HDMI only, DP has it's own flags. */
-		uint32_t SW_FRAME_PACK:1;
-		/* HW can pack left and right image into single HDMI frame */
-		uint32_t PROGRESSIVE_FRAME_PACK:1;
-		/* HW can pack left and right interlaced images into
-		single HDMI frame */
-		uint32_t INTERLACE_FRAME_PACK:1;
-		/* HW can pack left and right images into single DP frame */
-		uint32_t DISPLAY_PORT_FRAME_PACK:1;
-		/* SW can pack left and right images into single DP frame */
-		uint32_t DISPLAY_PORT_SW_FRAME_PACK:1;
-		/* HW can mix left and right images into single image */
-		uint32_t INTERLEAVE:1;
-		/* HW can mix left and right interlaced images
-		into single image */
-		uint32_t INTERLACE_INTERLEAVE:1;
-		/* Allow display-based formats (whatever supported)
-		in WS stereo mode */
-		uint32_t DISPLAY_3DIN_WS_MODE:1;
-		/* Side-by-side, packed by application/driver into 2D frame */
-		uint32_t SIDE_BY_SIDE_SW_PACKED:1;
-		/* Top-and-bottom, packed by application/driver into 2D frame */
-		uint32_t TOP_AND_BOTTOM_SW_PACKED:1;
-	} bits;
-	uint32_t u_all;
-};
-
 /* Bitvector and bitfields of possible optimizations
  #IMPORTANT# Keep bitfields match bitvector! */
 enum optimization_feature {
@@ -537,43 +405,8 @@ enum optimization_feature {
 	OF_SKIP_POWER_DOWN_INACTIVE_ENCODER = 0x80
 };
 
-union optimization_flags {
-	struct {
-		/* Don't do HW programming if panels were enabled by VBIOS */
-		uint32_t SKIP_HW_PROGRAMMING_ON_ENABLED_EMBEDDED_DISPLAY:1;
-		uint32_t SKIP_RESET_OF_ALL_HW_ON_S3RESUME:1;
-		uint32_t SKIP_HW_RESET_OF_EMBEDDED_DISPLAY_ON_S3RESUME:1;
-		uint32_t SKIP_POWER_UP_VBIOS_ENABLED_ENCODER:1;
-		/* Do not turn off VCC while powering down on boot or resume */
-		uint32_t KEEP_VCC_DURING_POWER_DOWN_ON_BOOT_OR_RESUME:1;
-		/* Do not turn off VCC while performing SetMode */
-		uint32_t KEEP_VCC_DURING_SET_MODE:1;
-		uint32_t DO_NOT_WAIT_FOR_HPD_LOW:1;
-	} bits;
-	uint32_t u_all;
-};
-
 /* Bitvector and bitfields of performance measurements
  #IMPORTANT# Keep bitfields match bitvector! */
-enum perf_measure {
-	PERF_MEASURE_ADAPTER_POWER_STATE = 0x1,
-	PERF_MEASURE_DISPLAY_POWER_STATE = 0x2,
-	PERF_MEASURE_SET_MODE_SEQ = 0x4,
-	PERF_MEASURE_DETECT_AT_RESUME = 0x8,
-	PERF_MEASURE_MEMORY_READ_CONTROL = 0x10,
-};
-
-union perf_measure_flags {
-	struct {
-		uint32_t ADAPTER_POWER_STATE:1;
-		uint32_t DISPLAY_POWER_STATE:1;
-		uint32_t SET_MODE_SEQ:1;
-		uint32_t DETECT_AT_RESUME:1;
-		uint32_t MEMORY_READ_CONTROL:1;
-
-	} bits;
-	uint32_t u_all;
-};
 
 enum {
 	PERF_MEASURE_POWERCODE_OFFSET = 0x0,
@@ -608,9 +441,5 @@ struct panel_backlight_boundaries {
 	uint32_t max_signal_level;
 };
 
-struct panel_backlight_default_levels {
-	uint32_t ac_level_percentage;
-	uint32_t dc_level_percentage;
-};
 
 #endif

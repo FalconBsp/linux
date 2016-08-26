@@ -24,11 +24,24 @@
  */
 
 #ifndef __DAL_BIOS_PARSER_TYPES_H__
+
 #define __DAL_BIOS_PARSER_TYPES_H__
 
+#include "dm_services.h"
 #include "include/signal_types.h"
 #include "include/grph_object_ctrl_defs.h"
-#include "link_service_types.h"
+#include "include/gpio_types.h"
+#include "include/adapter_service_types.h" /* for as_signal_type */
+#include "include/link_service_types.h"
+
+enum bp_result {
+	BP_RESULT_OK = 0, /* There was no error */
+	BP_RESULT_BADINPUT, /*Bad input parameter */
+	BP_RESULT_BADBIOSTABLE, /* Bad BIOS table */
+	BP_RESULT_UNSUPPORTED, /* BIOS Table is not supported */
+	BP_RESULT_NORECORD, /* Record can't be found */
+	BP_RESULT_FAILURE
+};
 
 enum bp_encoder_control_action {
 	/* direct VBIOS translation! Just to simplify the translation */
@@ -83,8 +96,8 @@ struct bp_encoder_control {
 	enum engine_id engine_id;
 	enum transmitter transmitter;
 	enum signal_type signal;
-	enum lane_count lanes_number;
-	enum transmitter_color_depth colordepth;
+	enum dc_lane_count lanes_number;
+	enum dc_color_depth color_depth;
 	bool enable_dp_audio;
 	uint32_t pixel_clock; /* khz */
 };
@@ -92,10 +105,10 @@ struct bp_encoder_control {
 struct bp_external_encoder_control {
 	enum bp_external_encoder_control_action action;
 	enum engine_id engine_id;
-	enum link_rate link_rate;
-	enum lane_count lanes_number;
+	enum dc_link_rate link_rate;
+	enum dc_lane_count lanes_number;
 	enum signal_type signal;
-	enum dp_transmitter_color_depth color_depth;
+	enum dc_color_depth color_depth;
 	bool coherent;
 	struct graphics_object_id encoder_id;
 	struct graphics_object_id connector_obj_id;
@@ -117,10 +130,10 @@ struct bp_transmitter_control {
 	enum bp_transmitter_control_action action;
 	enum engine_id engine_id;
 	enum transmitter transmitter; /* PhyId */
-	enum lane_count lanes_number;
+	enum dc_lane_count lanes_number;
 	enum clock_source_id pll_id; /* needed for DCE 4.0 */
 	enum signal_type signal;
-	enum transmitter_color_depth color_depth; /* not used for DCE6.0 */
+	enum dc_color_depth color_depth; /* not used for DCE6.0 */
 	enum hpd_source_id hpd_sel; /* ucHPDSel, used for DCe6.0 */
 	struct graphics_object_id connector_obj_id;
 	/* symClock; in 10kHz, pixel clock, in HDMI deep color mode, it should
@@ -132,24 +145,6 @@ struct bp_transmitter_control {
 	bool coherent;
 	bool multi_path;
 	bool single_pll_mode;
-};
-
-enum dvo_encoder_memory_rate {
-	DVO_ENCODER_MEMORY_RATE_DDR,
-	DVO_ENCODER_MEMORY_RATE_SDR
-};
-
-enum dvo_encoder_interface_width {
-	DVO_ENCODER_INTERFACE_WIDTH_LOW12BIT,
-	DVO_ENCODER_INTERFACE_WIDTH_HIGH12BIT,
-	DVO_ENCODER_INTERFACE_WIDTH_FULL24BIT
-};
-
-struct bp_dvo_encoder_control {
-	enum bp_encoder_control_action action;
-	enum dvo_encoder_memory_rate memory_rate;
-	enum dvo_encoder_interface_width interface_width;
-	uint32_t pixel_clock; /* in KHz */
 };
 
 struct bp_blank_crtc_parameters {
@@ -197,22 +192,12 @@ struct bp_hw_crtc_overscan_parameters {
 struct bp_adjust_pixel_clock_parameters {
 	/* Input: Signal Type - to be converted to Encoder mode */
 	enum signal_type signal_type;
-	/* Input: required by V3, display pll configure parameter defined as
-	 * following DISPPLL_CONFIG_XXXX */
-	enum disp_pll_config display_pll_config;
 	/* Input: Encoder object id */
 	struct graphics_object_id encoder_object_id;
 	/* Input: Pixel Clock (requested Pixel clock based on Video timing
 	 * standard used) in KHz
 	 */
 	uint32_t pixel_clock;
-	union {
-		/* Input: If DVO, need passing link rate and output 12bit low or
-		 * 24bit to VBIOS Exec table */
-		uint32_t dvo_config;
-		/* Input: If non DVO, not defined yet */
-		uint32_t non_dvo_undefined;
-	};
 	/* Output: Adjusted Pixel Clock (after VBIOS exec table) in KHz */
 	uint32_t adjusted_pixel_clock;
 	/* Output: If non-zero, this refDiv value should be used to calculate
@@ -242,12 +227,12 @@ struct bp_pixel_clock_parameters {
 	/* Calculated Pixel Clock Post divider of Display PLL */
 	uint32_t pixel_clock_post_divider;
 	struct graphics_object_id encoder_object_id; /* Encoder object id */
-	/* If DVO, need passing link rate and output 12bit low or
-	 * 24bit to VBIOS Exec table */
-	uint32_t dvo_config;
 	/* VBIOS returns a fixed display clock when DFS-bypass feature
 	 * is enabled (KHz) */
 	uint32_t dfs_bypass_display_clock;
+	/* color depth to support HDMI deep color */
+	enum transmitter_color_depth color_depth;
+
 	struct program_pixel_clock_flags {
 		uint32_t FORCE_PROGRAMMING_OF_PLL:1;
 		/* Use Engine Clock as source for Display Clock when
@@ -255,6 +240,14 @@ struct bp_pixel_clock_parameters {
 		uint32_t USE_E_CLOCK_AS_SOURCE_FOR_D_CLOCK:1;
 		/* Use external reference clock (refDivSrc for PLL) */
 		uint32_t SET_EXTERNAL_REF_DIV_SRC:1;
+		/* Force program PHY PLL only */
+		uint32_t PROGRAM_PHY_PLL_ONLY:1;
+		/* Support for YUV420 */
+		uint32_t SUPPORT_YUV_420:1;
+		/* Use XTALIN reference clock source */
+		uint32_t SET_XTALIN_REF_SRC:1;
+		/* Use GENLK reference clock source */
+		uint32_t SET_GENLOCK_REF_DIV_SRC:1;
 	} flags;
 };
 
@@ -264,6 +257,30 @@ struct bp_display_clock_parameters {
 	uint32_t actual_display_clock;
 	/* Actual Post Divider ID used to generate the actual clock */
 	uint32_t actual_post_divider_id;
+};
+
+enum bp_dce_clock_type {
+	DCECLOCK_TYPE_DISPLAY_CLOCK = 0,
+	DCECLOCK_TYPE_DPREFCLK      = 1
+};
+
+/* DCE Clock Parameters structure for SetDceClock Exec command table */
+struct bp_set_dce_clock_parameters {
+	enum clock_source_id pll_id; /* Clock Source Id */
+	/* Display clock or DPREFCLK value */
+	uint32_t target_clock_frequency;
+	/* Clock to set: =0: DISPCLK  =1: DPREFCLK  =2: PIXCLK */
+	enum bp_dce_clock_type clock_type;
+
+	struct set_dce_clock_flags {
+		uint32_t USE_GENERICA_AS_SOURCE_FOR_DPREFCLK:1;
+		/* Use XTALIN reference clock source */
+		uint32_t USE_XTALIN_AS_SOURCE_FOR_DPREFCLK:1;
+		/* Use PCIE reference clock source */
+		uint32_t USE_PCIE_AS_SOURCE_FOR_DPREFCLK:1;
+		/* Use GENLK reference clock source */
+		uint32_t USE_GENLOCK_AS_SOURCE_FOR_DPREFCLK:1;
+	} flags;
 };
 
 struct spread_spectrum_flags {
@@ -302,4 +319,9 @@ struct bp_encoder_cap_info {
 	uint32_t RESERVED:30;
 };
 
-#endif
+struct bp_gpio_cntl_info {
+	uint32_t id;
+	enum gpio_pin_output_state state;
+};
+
+#endif /*__DAL_BIOS_PARSER_TYPES_H__ */

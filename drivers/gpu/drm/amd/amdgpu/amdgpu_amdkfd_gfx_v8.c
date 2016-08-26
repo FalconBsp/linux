@@ -52,28 +52,14 @@ static const uint32_t watchRegs[MAX_WATCH_ADDRESSES * ADDRESS_WATCH_REG_MAX] = {
 
 struct vi_sdma_mqd;
 
-static int create_process_vm(struct kgd_dev *kgd, void **vm);
-static void destroy_process_vm(struct kgd_dev *kgd, void *vm);
-
 static int create_process_gpumem(struct kgd_dev *kgd, uint64_t va, size_t size,
 		void *vm, struct kgd_mem **mem);
 static void destroy_process_gpumem(struct kgd_dev *kgd, struct kgd_mem *mem);
 
-static uint32_t get_process_page_dir(void *vm);
-
 static int open_graphic_handle(struct kgd_dev *kgd, uint64_t va, void *vm,
 				int fd, uint32_t handle, struct kgd_mem **mem);
-static int map_memory_to_gpu(struct kgd_dev *kgd, struct kgd_mem *mem,
-		void *vm);
-static int unmap_memory_from_gpu(struct kgd_dev *kgd, struct kgd_mem *mem,
-		void *vm);
-static int alloc_memory_of_gpu(struct kgd_dev *kgd, uint64_t va, size_t size,
-		void *vm, struct kgd_mem **mem,
-		uint64_t *offset, void **kptr, uint32_t flags);
-static int free_memory_of_gpu(struct kgd_dev *kgd, struct kgd_mem *mem);
 
 static uint16_t get_fw_version(struct kgd_dev *kgd, enum kgd_engine_type type);
-static int mmap_bo(struct kgd_dev *kgd, struct vm_area_struct *vma);
 
 /*
  * Register access functions
@@ -134,11 +120,11 @@ static const struct kfd2kgd_calls kfd2kgd = {
 	.get_local_mem_info = get_local_mem_info,
 	.get_gpu_clock_counter = get_gpu_clock_counter,
 	.get_max_engine_clock_in_mhz = get_max_engine_clock_in_mhz,
-	.create_process_vm = create_process_vm,
-	.destroy_process_vm = destroy_process_vm,
+	.create_process_vm = amdgpu_amdkfd_gpuvm_create_process_vm,
+	.destroy_process_vm = amdgpu_amdkfd_gpuvm_destroy_process_vm,
 	.create_process_gpumem = create_process_gpumem,
 	.destroy_process_gpumem = destroy_process_gpumem,
-	.get_process_page_dir = get_process_page_dir,
+	.get_process_page_dir = amdgpu_amdkfd_gpuvm_get_process_page_dir,
 	.open_graphic_handle = open_graphic_handle,
 	.program_sh_mem_settings = kgd_program_sh_mem_settings,
 	.set_pasid_vmid_mapping = kgd_set_pasid_vmid_mapping,
@@ -159,40 +145,32 @@ static const struct kfd2kgd_calls kfd2kgd = {
 	.get_atc_vmid_pasid_mapping_valid =
 			get_atc_vmid_pasid_mapping_valid,
 	.write_vmid_invalidate_request = write_vmid_invalidate_request,
-	.alloc_memory_of_gpu = alloc_memory_of_gpu,
-	.free_memory_of_gpu = free_memory_of_gpu,
-	.map_memory_to_gpu = map_memory_to_gpu,
-	.unmap_memory_to_gpu = unmap_memory_from_gpu,
+	.alloc_memory_of_gpu = amdgpu_amdkfd_gpuvm_alloc_memory_of_gpu,
+	.free_memory_of_gpu = amdgpu_amdkfd_gpuvm_free_memory_of_gpu,
+	.map_memory_to_gpu = amdgpu_amdkfd_gpuvm_map_memory_to_gpu,
+	.unmap_memory_to_gpu = amdgpu_amdkfd_gpuvm_unmap_memory_from_gpu,
 	.get_fw_version = get_fw_version,
 	.set_num_of_requests = set_num_of_requests,
 	.get_cu_info = get_cu_info,
 	.set_num_of_requests = set_num_of_requests,
 	.alloc_memory_of_scratch = alloc_memory_of_scratch,
 	.write_config_static_mem = write_config_static_mem,
-	.mmap_bo = mmap_bo,
-	.map_gtt_bo_to_kernel = map_gtt_bo_to_kernel,
-	.set_vm_context_page_table_base = set_vm_context_page_table_base
+	.mmap_bo = amdgpu_amdkfd_gpuvm_mmap_bo,
+	.map_gtt_bo_to_kernel = amdgpu_amdkfd_gpuvm_map_gtt_bo_to_kernel,
+	.set_vm_context_page_table_base = set_vm_context_page_table_base,
+	.get_pdd_from_buffer_object =
+			amdgpu_amdkfd_gpuvm_get_pdd_from_buffer_object,
+	.return_bo_size = amdgpu_amdkfd_gpuvm_return_bo_size,
+	.pin_get_sg_table_bo = amdgpu_amdkfd_gpuvm_pin_get_sg_table,
+	.unpin_put_sg_table_bo = amdgpu_amdkfd_gpuvm_unpin_put_sg_table,
+	.get_dmabuf_info = amdgpu_amdkfd_get_dmabuf_info,
+	.import_dmabuf = amdgpu_amdkfd_gpuvm_import_dmabuf,
+	.get_vm_fault_info = amdgpu_amdkfd_gpuvm_get_vm_fault_info
 };
 
 struct kfd2kgd_calls *amdgpu_amdkfd_gfx_8_0_get_functions()
 {
 	return (struct kfd2kgd_calls *)&kfd2kgd;
-}
-
-/*
- * Creates a VM context for HSA process
- */
-static int create_process_vm(struct kgd_dev *kgd, void **vm)
-{
-	return 0;
-}
-
-/*
- * Destroys a VM context of HSA process
- */
-static void destroy_process_vm(struct kgd_dev *kgd, void *vm)
-{
-
 }
 
 static int create_process_gpumem(struct kgd_dev *kgd, uint64_t va, size_t size,
@@ -205,11 +183,6 @@ static int create_process_gpumem(struct kgd_dev *kgd, uint64_t va, size_t size,
 static void destroy_process_gpumem(struct kgd_dev *kgd, struct kgd_mem *mem)
 {
 
-}
-
-static uint32_t get_process_page_dir(void *vm)
-{
-	return 0;
 }
 
 static int open_graphic_handle(struct kgd_dev *kgd, uint64_t va, void *vm,
@@ -349,13 +322,15 @@ static int kgd_hqd_load(struct kgd_dev *kgd, void *mqd, uint32_t pipe_id,
 		uint32_t queue_id, uint32_t __user *wptr,
 		uint32_t page_table_base)
 {
-	struct vi_mqd *m;
-	uint32_t shadow_wptr, valid_wptr;
 	struct amdgpu_device *adev = get_amdgpu_device(kgd);
+	struct vi_mqd *m;
+	uint32_t wptr_shadow = 0, is_wptr_shadow_valid = 0;
 
 	m = get_mqd(mqd);
 
-	valid_wptr = copy_from_user(&shadow_wptr, wptr, sizeof(shadow_wptr));
+	if (wptr != NULL)
+		is_wptr_shadow_valid = !get_user(wptr_shadow, wptr);
+
 	acquire_queue(kgd, pipe_id, queue_id);
 
 	WREG32(mmCOMPUTE_STATIC_THREAD_MGMT_SE0,
@@ -381,10 +356,7 @@ static int kgd_hqd_load(struct kgd_dev *kgd, void *mqd, uint32_t pipe_id,
 	WREG32(mmCP_HQD_PQ_RPTR_REPORT_ADDR, m->cp_hqd_pq_rptr_report_addr_lo);
 	WREG32(mmCP_HQD_PQ_RPTR_REPORT_ADDR_HI,
 			m->cp_hqd_pq_rptr_report_addr_hi);
-
-	if (valid_wptr > 0)
-		WREG32(mmCP_HQD_PQ_WPTR, shadow_wptr);
-
+	WREG32(mmCP_HQD_PQ_WPTR, (is_wptr_shadow_valid ? wptr_shadow : 0));
 	WREG32(mmCP_HQD_PQ_CONTROL, m->cp_hqd_pq_control);
 	WREG32(mmCP_HQD_PQ_DOORBELL_CONTROL, m->cp_hqd_pq_doorbell_control);
 
@@ -703,27 +675,6 @@ static int alloc_memory_of_scratch(struct kgd_dev *kgd,
 	return 0;
 }
 
-static int alloc_memory_of_gpu(struct kgd_dev *kgd, uint64_t va, size_t size,
-		void *vm, struct kgd_mem **mem,
-		uint64_t *offset, void **kptr, uint32_t flags)
-{
-	return -EFAULT;
-}
-static int free_memory_of_gpu(struct kgd_dev *kgd, struct kgd_mem *mem)
-{
-	return -EFAULT;
-}
-static int map_memory_to_gpu(struct kgd_dev *kgd, struct kgd_mem *mem, void *vm)
-{
-	return -EFAULT;
-}
-
-static int unmap_memory_from_gpu(struct kgd_dev *kgd, struct kgd_mem *mem,
-		void *vm)
-{
-	return -EFAULT;
-}
-
 static uint16_t get_fw_version(struct kgd_dev *kgd, enum kgd_engine_type type)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *) kgd;
@@ -764,12 +715,12 @@ static uint16_t get_fw_version(struct kgd_dev *kgd, enum kgd_engine_type type)
 
 	case KGD_ENGINE_SDMA1:
 		hdr = (const union amdgpu_firmware_header *)
-							adev->sdma[0].fw->data;
+							adev->sdma.instance[0].fw->data;
 		break;
 
 	case KGD_ENGINE_SDMA2:
 		hdr = (const union amdgpu_firmware_header *)
-							adev->sdma[1].fw->data;
+							adev->sdma.instance[1].fw->data;
 		break;
 
 	default:
@@ -787,11 +738,6 @@ static void set_num_of_requests(struct kgd_dev *kgd,
 			uint8_t num_of_requests)
 {
 	pr_debug("in %s this is a stub\n", __func__);
-}
-
-static int mmap_bo(struct kgd_dev *kgd, struct vm_area_struct *vma)
-{
-	return -EINVAL;
 }
 
 static void set_vm_context_page_table_base(struct kgd_dev *kgd, uint32_t vmid,

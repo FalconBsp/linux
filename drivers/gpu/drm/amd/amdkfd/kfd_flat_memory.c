@@ -293,20 +293,19 @@
 #define MAKE_LDS_APP_LIMIT(base) \
 	(((uint64_t)(base) & 0xFFFFFFFF00000000UL) | 0xFFFFFFFF)
 
-void kfd_set_process_dgpu_aperture(uint32_t node_id,
-		struct kfd_process *process, uint64_t base, uint64_t limit)
+
+#define DGPU_VM_BASE_DEFAULT 0x100000
+
+int kfd_set_process_dgpu_aperture(struct kfd_process_device *pdd,
+					uint64_t base, uint64_t limit)
 {
-	uint32_t i;
-	struct kfd_process_device *pdd;
-
-	pdd = kfd_get_first_process_device_data(process);
-	for (i = 0; i < node_id; i++)
-		pdd = kfd_get_next_process_device_data(process, pdd);
-
-	if (pdd) {
-		pdd->dgpu_base = base;
-		pdd->dgpu_limit = limit;
+	if (base < (pdd->qpd.cwsr_base + pdd->dev->cwsr_size)) {
+		pr_err("Set dgpu vm base 0x%llx failed.\n", base);
+		return -EINVAL;
 	}
+	pdd->dgpu_base = base;
+	pdd->dgpu_limit = limit;
+	return 0;
 }
 
 int kfd_init_apertures(struct kfd_process *process)
@@ -316,9 +315,7 @@ int kfd_init_apertures(struct kfd_process *process)
 	struct kfd_process_device *pdd;
 
 	/*Iterating over all devices*/
-	while (kfd_topology_enum_kfd_devices(id, &dev) == 0 &&
-		id < NUM_OF_SUPPORTED_GPUS) {
-
+	while (kfd_topology_enum_kfd_devices(id, &dev) == 0) {
 		if (!dev) {
 			id++; /* Skip non GPU devices */
 			continue;
@@ -357,6 +354,10 @@ int kfd_init_apertures(struct kfd_process *process)
 
 			pdd->scratch_limit =
 				MAKE_SCRATCH_APP_LIMIT(pdd->scratch_base);
+
+			if (KFD_IS_DGPU(dev->device_info->asic_family))
+				pdd->qpd.cwsr_base = DGPU_VM_BASE_DEFAULT;
+
 		}
 
 		dev_dbg(kfd_device, "node id %u\n", id);
@@ -374,7 +375,6 @@ int kfd_init_apertures(struct kfd_process *process)
 	return 0;
 
 err:
-	mutex_unlock(&process->mutex);
 	return -1;
 }
 

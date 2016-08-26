@@ -78,8 +78,7 @@ struct log_msg {
 /* Trace Message Information */
 struct trace_info {
 	u16		prev_source;		 /* Previous log source */
-	u32		log_pos;		 /* Mobicore log previous
-						    position */
+	u32		log_pos;		 /* log previous position */
 	u32		log_line_len;		 /* Log Line buffer current
 						    length */
 	char		log_line[LOG_LINE_SIZE]; /* Buffer for each line */

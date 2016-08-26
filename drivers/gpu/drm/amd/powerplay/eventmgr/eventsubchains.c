@@ -152,7 +152,7 @@ const pem_event_action set_boot_state_tasks[] = {
 const pem_event_action adjust_power_state_tasks[] = {
 	pem_task_notify_hw_mgr_display_configuration_change,
 	pem_task_adjust_power_state,
-	/*pem_task_notify_smc_display_config_after_power_state_adjustment,*/
+	pem_task_notify_smc_display_config_after_power_state_adjustment,
 	pem_task_update_allowed_performance_levels,
 	/* to do pem_task_Enable_disable_bapm, */
 	NULL
@@ -391,5 +391,20 @@ const pem_event_action reset_boot_state_tasks[] = {
 
 const pem_event_action create_new_user_performance_state_tasks[] = {
 	pem_task_create_user_performance_state,
+	NULL
+};
+
+const pem_event_action initialize_thermal_controller_tasks[] = {
+	pem_task_initialize_thermal_controller,
+	NULL
+};
+
+const pem_event_action uninitialize_thermal_controller_tasks[] = {
+	pem_task_uninitialize_thermal_controller,
+	NULL
+};
+
+const pem_event_action set_cpu_power_state[] = {
+	pem_task_set_cpu_power_state,
 	NULL
 };

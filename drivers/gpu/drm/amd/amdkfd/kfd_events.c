@@ -661,7 +661,7 @@ void kfd_signal_event_interrupt(unsigned int pasid, uint32_t partial_id,
 
 	/* Because we are called from arbitrary context (workqueue) as opposed
 	 * to process context, kfd_process could attempt to exit while we are
-	 * running so the lookup function returns a locked process. */
+	 * running so the lookup function returns a read-locked process. */
 	struct kfd_process *p = kfd_lookup_process_by_pasid(pasid);
 	if (!p)
 		return; /* Presumably process exited. */
@@ -691,7 +691,7 @@ void kfd_signal_event_interrupt(unsigned int pasid, uint32_t partial_id,
 	}
 
 	mutex_unlock(&p->event_mutex);
-	mutex_unlock(&p->mutex);
+	up_read(&p->lock);
 }
 
 static struct kfd_event_waiter *alloc_event_waiters(uint32_t num_events)
@@ -1022,7 +1022,7 @@ void kfd_signal_iommu_event(struct kfd_dev *dev, unsigned int pasid,
 	/*
 	 * Because we are called from arbitrary context (workqueue) as opposed
 	 * to process context, kfd_process could attempt to exit while we are
-	 * running so the lookup function returns a locked process.
+	 * running so the lookup function returns a read-locked process.
 	 */
 	struct kfd_process *p = kfd_lookup_process_by_pasid(pasid);
 
@@ -1067,7 +1067,7 @@ void kfd_signal_iommu_event(struct kfd_dev *dev, unsigned int pasid,
 			&memory_exception_data);
 
 	mutex_unlock(&p->event_mutex);
-	mutex_unlock(&p->mutex);
+	up_read(&p->lock);
 }
 
 void kfd_signal_hw_exception_event(unsigned int pasid)
@@ -1075,7 +1075,7 @@ void kfd_signal_hw_exception_event(unsigned int pasid)
 	/*
 	 * Because we are called from arbitrary context (workqueue) as opposed
 	 * to process context, kfd_process could attempt to exit while we are
-	 * running so the lookup function returns a locked process.
+	 * running so the lookup function returns a read-locked process.
 	 */
 	struct kfd_process *p = kfd_lookup_process_by_pasid(pasid);
 
@@ -1088,5 +1088,44 @@ void kfd_signal_hw_exception_event(unsigned int pasid)
 	lookup_events_by_type_and_signal(p, KFD_EVENT_TYPE_HW_EXCEPTION, NULL);
 
 	mutex_unlock(&p->event_mutex);
-	mutex_unlock(&p->mutex);
+	up_read(&p->lock);
 }
+
+void kfd_signal_vm_fault_event(struct kfd_dev *dev, unsigned int pasid,
+				struct kfd_vm_fault_info *info)
+{
+	struct kfd_event *ev;
+	int bkt;
+	struct kfd_process *p = kfd_lookup_process_by_pasid(pasid);
+	struct kfd_hsa_memory_exception_data memory_exception_data;
+
+	if (!p)
+		return; /* Presumably process exited. */
+	memset(&memory_exception_data, 0, sizeof(memory_exception_data));
+	memory_exception_data.gpu_id = dev->id;
+	memory_exception_data.failure.imprecise = true;
+	/* Set failure reason */
+	if (info) {
+		memory_exception_data.va = (info->page_addr) << PAGE_SHIFT;
+		memory_exception_data.failure.NotPresent =
+			info->prot_valid ? true : false;
+		memory_exception_data.failure.NoExecute =
+			info->prot_exec ? true : false;
+		memory_exception_data.failure.ReadOnly =
+			info->prot_write ? true : false;
+		memory_exception_data.failure.imprecise = false;
+	}
+	mutex_lock(&p->event_mutex);
+
+	hash_for_each(p->events, bkt, ev, events) {
+		if (ev->type == KFD_EVENT_TYPE_MEMORY) {
+			ev->memory_exception_data = memory_exception_data;
+			set_event(ev);
+		}
+	}
+
+	mutex_unlock(&p->event_mutex);
+	up_read(&p->lock);
+
+}
+

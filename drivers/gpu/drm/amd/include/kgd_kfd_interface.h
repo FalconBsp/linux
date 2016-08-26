@@ -30,6 +30,7 @@
 
 #include <linux/types.h>
 #include <linux/mm_types.h>
+#include <linux/scatterlist.h>
 
 struct pci_dev;
 
@@ -39,6 +40,19 @@ struct kfd_dev;
 struct kgd_dev;
 
 struct kgd_mem;
+struct kfd_process_device;
+struct amdgpu_bo;
+
+struct kfd_vm_fault_info {
+	uint64_t	page_addr;
+	uint32_t	vmid;
+	uint32_t	mc_id;
+	uint32_t	status;
+	bool		prot_valid;
+	bool		prot_read;
+	bool		prot_write;
+	bool		prot_exec;
+};
 
 struct kfd_cu_info {
 	uint32_t num_shader_engines;
@@ -56,7 +70,8 @@ struct kfd_cu_info {
 
 /* For getting GPU local memory information from KGD */
 struct kfd_local_mem_info {
-	uint64_t local_mem_size;
+	uint64_t local_mem_size_private;
+	uint64_t local_mem_size_public;
 	uint32_t vram_width;
 	uint32_t mem_clk_max;
 };
@@ -103,17 +118,21 @@ struct kgd2kfd_shared_resources {
 };
 
 /*
- * alloc_memory_of_gpu memory flags should be identical to the flags
- * on kfd_ioctl.h
+ * Allocation flag domains currently only VRAM and GTT domain supported
  */
+#define ALLOC_MEM_FLAGS_VRAM			(1 << 0)
+#define ALLOC_MEM_FLAGS_GTT				(1 << 1)
+#define ALLOC_MEM_FLAGS_USERPTR			(1 << 2)
 
-#define ALLOC_MEM_FLAGS_DGPU_HOST		(1 << 0)
-#define ALLOC_MEM_FLAGS_DGPU_DEVICE		(1 << 1)
-#define ALLOC_MEM_FLAGS_DGPU_SCRATCH	(1 << 2)
-#define ALLOC_MEM_FLAGS_APU_DEVICE		(1 << 3)
-#define ALLOC_MEM_FLAGS_APU_SCRATCH		(1 << 4)
-
-#define ALLOC_MEM_FLAGS_DGPU_AQL_QUEUE_MEM	(1 << 5)
+/*
+ * Allocation flags attributes/access options.
+ */
+#define ALLOC_MEM_FLAGS_NONPAGED		(1 << 31)
+#define ALLOC_MEM_FLAGS_READONLY		(1 << 30)
+#define ALLOC_MEM_FLAGS_PUBLIC			(1 << 29)
+#define ALLOC_MEM_FLAGS_NO_SUBSTITUTE	(1 << 28)
+#define ALLOC_MEM_FLAGS_AQL_QUEUE_MEM	(1 << 27)
+#define ALLOC_MEM_FLAGS_EXECUTE_ACCESS	(1 << 26)
 
 /**
  * struct kfd2kgd_calls
@@ -164,6 +183,12 @@ struct kgd2kfd_shared_resources {
  * IOMMU when address translation failed
  *
  * @get_cu_info: Retrieves activated cu info
+ *
+ * @get_dmabuf_info: Returns information about a dmabuf if it was
+ * created by the GPU driver
+ *
+ * @import_dmabuf: Imports a DMA buffer, creating a new kgd_mem object
+ * Supports only DMA buffers created by GPU driver on the same GPU
  *
  * This structure contains function pointers to services that the kgd driver
  * provides to amdkfd driver.
@@ -247,7 +272,8 @@ struct kfd2kgd_calls {
 	int (*alloc_memory_of_gpu)(struct kgd_dev *kgd, uint64_t va,
 			size_t size, void *vm,
 			struct kgd_mem **mem, uint64_t *offset,
-			void **kptr, uint32_t flags);
+			void **kptr, struct kfd_process_device *pdd,
+			uint32_t flags);
 	int (*free_memory_of_gpu)(struct kgd_dev *kgd, struct kgd_mem *mem);
 	int (*map_memory_to_gpu)(struct kgd_dev *kgd, struct kgd_mem *mem,
 			void *vm);
@@ -270,6 +296,26 @@ struct kfd2kgd_calls {
 			struct kgd_mem *mem, void **kptr);
 	void (*set_vm_context_page_table_base)(struct kgd_dev *kgd, uint32_t vmid,
 			uint32_t page_table_base);
+	struct kfd_process_device* (*get_pdd_from_buffer_object)
+		(struct kgd_dev *kgd, struct kgd_mem *mem);
+	int (*return_bo_size)(struct kgd_dev *kgd, struct kgd_mem *mem);
+
+	int (*pin_get_sg_table_bo)(struct kgd_dev *kgd,
+			struct kgd_mem *mem, uint64_t offset,
+			uint64_t size, struct sg_table **ret_sg);
+	void (*unpin_put_sg_table_bo)(struct kgd_mem *mem,
+			struct sg_table *sg);
+
+	int (*get_dmabuf_info)(struct kgd_dev *kgd, int dma_buf_fd,
+			       struct kgd_dev **dma_buf_kgd, uint64_t *bo_size,
+			       void *metadata_buffer, size_t buffer_size,
+			       uint32_t *metadata_size, uint32_t *flags);
+	int (*import_dmabuf)(struct kgd_dev *kgd, int dma_buf_fd, uint64_t va,
+			     void *vm, struct kgd_mem **mem, uint64_t *size);
+
+	int (*get_vm_fault_info)(struct kgd_dev *kgd,
+			struct kfd_vm_fault_info *info);
+
 };
 
 /**
@@ -288,6 +334,10 @@ struct kfd2kgd_calls {
  *
  * @resume: Notifies amdkfd about a resume action done to a kgd device
  *
+ * @quiesce_mm: Quiesce all user queue access to specified MM address space
+ *
+ * @resume_mm: Resume user queue access to specified MM address space
+ *
  * This structure contains function callback pointers so the kgd driver
  * will notify to the amdkfd about certain status changes.
  *
@@ -302,6 +352,10 @@ struct kgd2kfd_calls {
 	void (*interrupt)(struct kfd_dev *kfd, const void *ih_ring_entry);
 	void (*suspend)(struct kfd_dev *kfd);
 	int (*resume)(struct kfd_dev *kfd);
+	int (*evict_bo)(struct kfd_dev *dev, void *ptr);
+	int (*restore)(struct kfd_dev *kfd);
+	int (*quiesce_mm)(struct kfd_dev *kfd, struct mm_struct *mm);
+	int (*resume_mm)(struct kfd_dev *kfd, struct mm_struct *mm);
 };
 
 bool kgd2kfd_init(unsigned interface_version,

@@ -59,17 +59,28 @@ static struct attribute_group tee_attribute_group = {
 	.attrs = sysfs_attrs
 };
 
+static inline u32 get_last_err(int session_index)
+{
+	return tee_drv_data.tee_session[session_index].last_err;
+}
+
+/* Caller need to hold lock while making call to this funciton */
+static inline void set_last_err(int session_index, u32 err)
+{
+	pr_debug("%s:err=%d\n", __func__, (int)err);
+	tee_drv_data.tee_session[session_index].last_err = err;
+}
+
 u64 tee_allocate_memory(u32 requestedsize)
 {
 	void *addr;
-	u64 order = 0;
 
-	order = sizetoorder(requestedsize);
-	pr_debug(" %s : req-sz 0x%llx 4k-po 0x%llx\n",
-			__func__, (u64)requestedsize, (u64)order);
+	pr_debug(" %s : req-sz 0x%llx\n",
+			__func__, (u64)requestedsize);
 	do {
 		/* pages should be 4K aligned */
-		addr = (void *)__get_free_pages(GFP_KERNEL, order);
+		addr = (void *)__get_free_pages(GFP_KERNEL,
+					get_order(requestedsize));
 		if (NULL == addr) {
 			pr_err(
 			" %s : addr(bulk-comm/map/tci/user) failed 0x%llx\n",
@@ -84,25 +95,150 @@ u64 tee_allocate_memory(u32 requestedsize)
 
 void tee_free_memory(void *addr, u32 requestedsize)
 {
-	u64 order = 0;
-
-	order = sizetoorder(requestedsize);
 	if (addr) {
 		pr_debug("free (bulk-comm/map/tci/user) addr 0x%llx\n",
 				(u64)addr);
-		free_pages((u64)addr, sizetoorder(requestedsize));
+		free_pages((u64)addr, get_order(requestedsize));
 	}
 }
 
-static void tee_range_check(u32 location)
+/*
+ * Deletes wsm_map entry from linked list pointed by head.
+ * mmap_list is updated with new head.
+ */
+static inline void tee_del_mapping(struct wsm_mapping *wsm_map)
 {
-	if (location == MAX_SESSIONS_SUPPORTED) {
-		tee_drv_data.tee_error = TEE_ERR_UNKNOWN_SESSION;
-		pr_err(" %s : session exceed\n", __func__);
+	struct wsm_mapping *curr_head, *new_head;
+	int ret = 0;
+
+	ret = down_interruptible(&tee_drv_data.tee_sem);
+	if (0 != ret)
+		pr_debug(" %s : down_interruptible failed %d", __func__, ret);
+
+	BUG_ON(wsm_map == NULL);
+	curr_head = (struct wsm_mapping *)*wsm_map->mmap_list;
+	new_head = curr_head;
+
+	BUG_ON(curr_head == NULL);
+
+	pr_debug("%s:Head is at 0x%lx\n", __func__, (unsigned long)curr_head);
+
+	if (list_empty(&curr_head->node)) {
+		list_del(&curr_head->node);
+		*wsm_map->mmap_list = NULL;
+		up(&tee_drv_data.tee_sem);
+		return;
 	}
+
+	if (curr_head == wsm_map)
+		new_head = list_next_entry(curr_head, node);
+
+	pr_debug("%s:New Head is @ 0x%lx\n", __func__, (unsigned long)new_head);
+
+	list_del(&wsm_map->node);
+
+	*wsm_map->mmap_list = new_head;
+
+	up(&tee_drv_data.tee_sem);
 }
 
-static int tee_session_location(u32 session)
+/*
+ * wsm_map entry added to the linked list pointed by head.
+ */
+static inline void tee_add_mapping(struct wsm_mapping *head,
+					    struct wsm_mapping *wsm_map)
+{
+	int ret = 0;
+
+	BUG_ON(head == NULL);
+
+	if (wsm_map == NULL)
+		return;
+
+	ret = down_interruptible(&tee_drv_data.tee_sem);
+	if (0 != ret)
+		pr_debug(" %s : down_interruptible failed %d", __func__, ret);
+
+	list_add_tail(&wsm_map->node, &head->node);
+
+	up(&tee_drv_data.tee_sem);
+}
+
+/*
+ * Retrieves mmap info for given mmaped user space address
+ * If user_addr is not mmaped buffer then NULL is returned
+ * Caller function should hold lock
+ */
+static struct wsm_mapping *tee_search_mapping(struct wsm_mapping *head,
+						void *user_addr)
+{
+	struct wsm_mapping *map = head;
+
+	if (head == NULL)
+		return NULL;
+
+	pr_debug("%s:Searching mapping info for ua 0x%llx\n", __func__,
+			(u64)user_addr);
+
+	/* Check if head itself has the required map info */
+	if (map->u_vaddr == user_addr)
+		return map;
+
+	list_for_each_entry(map, &head->node, node) {
+		pr_debug("map 0x%lx, ua 0x%lx, kva 0x%lx, len %ld\n",
+				(unsigned long)map,
+				(unsigned long)map->u_vaddr,
+				(unsigned long)map->k_vaddr,
+				(unsigned long)map->length);
+		if (map->u_vaddr == user_addr)
+			return map;
+	}
+
+	pr_err(" %s failed. head is at 0x%lx\n", __func__,
+			(unsigned long) head);
+	return NULL;
+}
+
+/*
+ * This routine is called at the end of munmap system call.
+ * vm_private will hold details required to free memory
+ */
+static void tee_vma_close(struct vm_area_struct *vma)
+{
+	unsigned long vsize = vma->vm_end - vma->vm_start;
+	struct wsm_mapping *wsm_map = vma->vm_private_data;
+
+	if (wsm_map == NULL) {
+		pr_err("  [%s] err: mapping not found: uva=%lx, size=%lx\n",
+				__func__, vma->vm_start, vsize);
+		return;
+	}
+	pr_debug("%s:Freeing uva 0x%lx using kva 0x%lx\n",
+			__func__, (unsigned long)wsm_map->u_vaddr,
+			(unsigned long)wsm_map->k_vaddr);
+
+	tee_free_memory(wsm_map->k_vaddr, (u32)wsm_map->length);
+	pr_debug("%s:Deleting from mmap list\n", __func__);
+	tee_del_mapping(wsm_map);
+	vfree(wsm_map);
+	vma->vm_private_data = NULL;
+}
+
+static const struct vm_operations_struct tee_vma_ops = {
+	.close          = tee_vma_close,
+};
+
+static inline int tee_range_check(u32 location)
+{
+	if (location < MAX_SESSIONS_SUPPORTED)
+		return 0;
+	tee_drv_data.tee_error = TEE_ERR_UNKNOWN_SESSION;
+	pr_err(" %s : session exceed. location = %d\n",
+			__func__, location);
+	return -1;
+}
+
+static inline int tee_session_location(u32 session)
 {
 	int i;
 
@@ -110,7 +246,8 @@ static int tee_session_location(u32 session)
 		if (tee_drv_data.tee_session[i].sessionid == session)
 			break;
 	}
-	tee_range_check(i);
+	if (tee_range_check(i) < 0)
+		return -1;
 	return i;
 }
 
@@ -128,40 +265,39 @@ static void tee_terminate_wait(u32 session)
 			;
 		ret = down_interruptible(&tee_drv_data.tee_sem);
 		if (0 != ret)
-			pr_debug(" %s : down_interruptible failed %d",
+			pr_err(" %s : down_interruptible failed %d",
 					__func__, ret);
 	}
 }
 
 static void tee_clean_tci(u32 location)
 {
-	tee_free_memory((void *)tee_drv_data.tee_tci[location].virtaddr,
-			tee_drv_data.tee_tci[location].length);
+	if (tee_drv_data.tee_tci[location].useraddr != 0) {
+		tee_free_memory(
+			(void *)tee_drv_data.tee_tci[location].virtaddr,
+			get_pagealigned_size(
+				tee_drv_data.tee_tci[location].length));
+	}
 	tee_drv_data.tee_tci[location].virtaddr = 0x0;
 	tee_drv_data.tee_tci[location].uid = 0x0;
 	tee_drv_data.tee_tci[location].sessionid = 0x0;
-	tee_drv_data.tee_tci[location].physaddr = 0x0;
+	tee_drv_data.tee_tci[location].length = 0x0;
 	tee_drv_data.tee_tci[location].useraddr = 0x0;
 }
 
 static void tee_clean_map(u32 session, u32 location)
 {
-	tee_free_memory((void *)tee_drv_data.tee_session[session].
-			map_virtaddr[location],
-			tee_drv_data.tee_session[session].
-			map_length[location]);
 	tee_drv_data.tee_session[session].map_virtaddr[location] = 0x0;
-	tee_drv_data.tee_session[session].map_physaddr[location] = 0x0;
 	tee_drv_data.tee_session[session].map_secaddr[location] = 0x0;
 	tee_drv_data.tee_session[session].map_length[location] = 0x0;
-	tee_drv_data.tee_session[session].map_useraddr[location] = 0x0;
 }
 
-static void tee_close_session(u32 session)
+static int tee_close_session(u32 session)
 {
 	cmdbuf.cmdclose.sessionid = session;
-	psp_comm_send_buffer(TEE_CLIENT_TYPE, (union tee_cmd_buf *)&cmdbuf,
-			sizeof(union tee_cmd_buf), TEE_CMD_ID_CLOSE_SESSION);
+	return psp_comm_send_buffer(TEE_CLIENT_TYPE,
+		(union tee_cmd_buf *)&cmdbuf,
+		sizeof(union tee_cmd_buf), TEE_CMD_ID_CLOSE_SESSION);
 }
 
 int tee_driver_init(void)
@@ -248,7 +384,7 @@ int tee_open(struct inode *pinode, struct file *pfile)
 		}
 		instance = vzalloc(sizeof(struct tee_instance));
 		if (0 == instance) {
-			pr_debug(" %s : alloc(instance) failed\n",
+			pr_err(" %s : alloc(instance) failed\n",
 					__func__);
 			ret = -ENOMEM;
 			up(&tee_drv_data.tee_sem);
@@ -301,8 +437,10 @@ int tee_mmap(struct file *pfile, struct vm_area_struct *pvmarea)
 	u64 requestedsize = pvmarea->vm_end - pvmarea->vm_start;
 	int ret = 0;
 	u64 addr;
+	struct wsm_mapping *wsm_map = NULL;
 	struct tee_instance *instance =
 		(struct tee_instance *)pfile->private_data;
+
 	pr_debug(" %s :\n", __func__);
 	ret = down_interruptible(&instance->sem);
 	if (0 != ret)
@@ -316,7 +454,7 @@ int tee_mmap(struct file *pfile, struct vm_area_struct *pvmarea)
 		virtaddr = (void *)addr;
 		physaddr = (void *)virt_to_phys((void *)addr);
 		if (0 == virtaddr) {
-			pr_debug(" %s : alloc failed\n", __func__);
+			pr_err(" %s : alloc failed\n", __func__);
 			ret = -ENOMEM;
 			break;
 		}
@@ -337,13 +475,32 @@ int tee_mmap(struct file *pfile, struct vm_area_struct *pvmarea)
 			tee_free_memory((void *)addr, requestedsize);
 			break;
 		}
-		instance->mmap.length = requestedsize;
-		instance->mmap.virtaddr = (u64)virtaddr;
-		instance->mmap.physaddr = (u64)physaddr;
-		pr_debug(" mmap : pa 0x%llx va 0x%llx ,user vmas 0x%llx\n",
-			(u64)instance->mmap.physaddr,
-			(u64)instance->mmap.virtaddr,
-			(u64)pvmarea->vm_start);
+		pr_debug(" %s : head is at 0x%lx\n", __func__,
+					    (unsigned long) instance->head);
+
+		wsm_map = vzalloc(sizeof(struct wsm_mapping));
+		if (wsm_map == NULL) {
+			ret = -ENOMEM;
+			break;
+		}
+
+		if (instance->head == NULL) {
+			INIT_LIST_HEAD(&wsm_map->node);
+			instance->head = wsm_map;
+		}
+
+		wsm_map->k_vaddr = virtaddr;
+		wsm_map->u_vaddr = (void *)pvmarea->vm_start;
+		wsm_map->length  = requestedsize;
+		wsm_map->mmap_list  = (void **)&instance->head;
+
+		tee_add_mapping(instance->head, wsm_map);
+
+		pvmarea->vm_ops = &tee_vma_ops;
+		pvmarea->vm_private_data = wsm_map;
+
+		pr_debug(" %s : vm pdata is at 0x%lx\n", __func__,
+			(unsigned long) pvmarea->vm_private_data);
 	} while (FALSE);
 	up(&instance->sem);
 	pr_debug(" %s : ret %d\n", __func__, ret);
@@ -367,7 +524,7 @@ ssize_t tee_reset(struct kobject *kobj,
 	if (tee_drv_data.tee_instance_counter) {
 		ret = down_interruptible(&tee_drv_data.tee_sem);
 		if (0 != ret) {
-			pr_debug(" %s : down_interruptible failed %d",
+			pr_err(" %s : down_interruptible failed %d",
 					__func__, ret);
 			return 0;
 		}
@@ -466,7 +623,7 @@ ssize_t tee_status(struct kobject *kobj,
 				tee_drv_data.tee_instance_counter);
 		ret = down_interruptible(&tee_drv_data.tee_sem);
 		if (0 != ret) {
-			pr_debug(" %s : down_interruptible failed %d",
+			pr_err(" %s : down_interruptible failed %d",
 					__func__, ret);
 			return 0;
 		}
@@ -487,8 +644,11 @@ ssize_t tee_status(struct kobject *kobj,
 static int handle_open_session(struct tee_instance *instance,
 		union tee_open_session *puserparams)
 {
-	int ret = 0, i;
+	int ret = 0, i = MAX_SESSIONS_SUPPORTED;
 	union tee_open_session params;
+	struct wsm_mapping *tci_map, *tl_map;
+	u64 tci_addr = 0;
+	u64 tci_len = 0;
 
 	pr_debug(" %s :\n", __func__);
 	ret = down_interruptible(&tee_drv_data.tee_sem);
@@ -504,46 +664,88 @@ static int handle_open_session(struct tee_instance *instance,
 		if ((!tee_drv_data.tee_session) ||
 				(!tee_drv_data.tee_tci)) {
 			pr_err(" null data\n");
+			ret = -EINVAL;
 			break;
 		}
 		pr_debug("params.in.tci_useraddr 0x%llx\n",
-				params.in.tci_useraddr);
-		pr_debug("params.in.tl.virtaddr 0x%llx\n",
-				params.in.tl.virtaddr);
-		/* identify tci memory with sessionid */
+				params.in.tci.useraddr);
+		pr_debug("params.in.tl.useraddr 0x%llx\n",
+				params.in.tl.useraddr);
+
 		for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
-			if (tee_drv_data.tee_tci[i].uid == instance->uid) {
-				if (tee_drv_data.tee_tci[i].useraddr ==
-						params.in.tci_useraddr)
-					break;
+			if (tee_drv_data.tee_tci[i].uid == 0x0) {
+				tee_drv_data.tee_tci[i].uid = instance->uid;
+				pr_debug("UID=%lld; i =%d\n", instance->uid, i);
+				break;
 			}
 		}
-		tee_range_check(i);
-		cmdbuf.cmdopen.servicephyaddrhi =
-			high_adddress(
-					(void *)params.in.tl.physaddr);
-		cmdbuf.cmdopen.servicephyaddrlo =
-			low_adddress(
-					(void *)params.in.tl.physaddr);
-		cmdbuf.cmdopen.servicelen = params.in.tl.length;
-		cmdbuf.cmdopen.tcibufphyaddrhi =
-			high_adddress(
-					(void *)tee_drv_data.tee_tci[i].
-					physaddr);
-		cmdbuf.cmdopen.tcibufphyaddrlo =
-			low_adddress(
-				(void *)tee_drv_data.tee_tci[i].physaddr);
-		cmdbuf.cmdopen.tcibuflen = tee_drv_data.tee_tci[i].length;
 
-		flush_buffer((void *)params.in.tl.virtaddr,
-				params.in.tl.length);
-		psp_comm_send_buffer(TEE_CLIENT_TYPE,
+		ret = tee_range_check(i);
+		if (ret != 0)
+			break;
+
+		tl_map = tee_search_mapping(instance->head,
+					(void *)params.in.tl.useraddr);
+		if (tl_map == NULL) {
+			ret = -EINVAL;
+			break;
+		}
+
+		tci_map = tee_search_mapping(instance->head,
+					(void *)params.in.tci.useraddr);
+		/*
+		 * tci buffer is allocated using malloc
+		 * We need physically contiguous memory to communicate to
+		 * TEE device.
+		 * Create a temp buffer and use it to communicate with TEE
+		 * device
+		 */
+		if (tci_map == NULL) {
+			tci_len = params.in.tci.length;
+			tci_addr = tee_allocate_memory(get_pagealigned_size(
+						(u32)tci_len));
+			if (0 == tci_addr) {
+				pr_err(" %s : alloc failed\n", __func__);
+				ret = -ENOMEM;
+				break;
+			}
+		/*
+		 * tci buffer is allocated using tee mmap call
+		 * Can be directly used to communicate with TEE device
+		 */
+		} else {
+			tci_addr = (u64)tci_map->k_vaddr;
+			tci_len = tci_map->length;
+			if (params.in.tci.length > tci_len) {
+				pr_err(" %s : invalid tci length\n", __func__);
+				ret = -EINVAL;
+				break;
+			}
+		}
+		cmdbuf.cmdopen.servicephyaddrhi = upper_32_bits(virt_to_phys(
+						(void *)tl_map->k_vaddr));
+		cmdbuf.cmdopen.servicephyaddrlo = lower_32_bits(virt_to_phys(
+						(void *)tl_map->k_vaddr));
+		cmdbuf.cmdopen.servicelen = tl_map->length;
+
+		cmdbuf.cmdopen.tcibufphyaddrhi = upper_32_bits(virt_to_phys(
+						(void *)tci_addr));
+		cmdbuf.cmdopen.tcibufphyaddrlo = lower_32_bits(virt_to_phys(
+						(void *)tci_addr));
+		cmdbuf.cmdopen.tcibuflen = params.in.tci.length;
+
+		flush_buffer((void *)tl_map->k_vaddr, tl_map->length);
+		ret = psp_comm_send_buffer(TEE_CLIENT_TYPE,
 				(union tee_cmd_buf *)&cmdbuf,
 				sizeof(union tee_cmd_buf),
 				TEE_CMD_ID_OPEN_SESSION);
+		if (ret != 0)
+			break;
+
+		pr_debug(" sid %d\n", tee_drv_data.tee_tci[i].sessionid);
 		params.out.sessionid = cmdbuf.respopen.sessionid;
 		tee_drv_data.tee_tci[i].sessionid = params.out.sessionid;
-		pr_debug(" sid %d\n", tee_drv_data.tee_tci[i].sessionid);
+
 		for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
 			if (tee_drv_data.tee_session[i].sessionid == 0x0) {
 				tee_drv_data.tee_session[i].sessionid =
@@ -555,13 +757,20 @@ static int handle_open_session(struct tee_instance *instance,
 				break;
 			}
 		}
+
+		tee_drv_data.tee_tci[i].virtaddr = tci_addr;
+		tee_drv_data.tee_tci[i].length = tci_len;
+		if (tci_map == NULL) {
+			tee_drv_data.tee_tci[i].useraddr =
+							params.in.tci.useraddr;
+		}
 		ret = copy_to_user(
 				&(puserparams->out),
 				&(params.out),
 				sizeof(params.out));
-		if (0 != ret)
-			break;
 	} while (FALSE);
+	if (ret != 0 && i < MAX_SESSIONS_SUPPORTED)
+		tee_drv_data.tee_tci[i].uid = 0;
 	up(&tee_drv_data.tee_sem);
 	pr_info(" %s : open session handled\n", __func__);
 	return ret;
@@ -586,292 +795,94 @@ static int handle_close_session(struct tee_instance *instance,
 			break;
 		if ((!tee_drv_data.tee_session) || (!tee_drv_data.tee_tci)) {
 			pr_err(" null data\n");
+			ret = -EINVAL;
 			break;
 		}
-		tee_close_session(params.in.sessionid);
-		for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
-			if (tee_drv_data.tee_session[i].sessionid
-					== params.in.sessionid) {
-				for (j = 0; j < MAX_BUFFERS_MAPPED; j++)
-					tee_clean_map(i, j);
-				tee_drv_data.tee_session[i].sessionid = 0x0;
-				break;
-			}
+
+		if (params.in.sessionid == 0) {
+			pr_err("%s:0x%d is not a valid session ID\n", __func__,
+						(int)params.in.sessionid);
+			ret = -EINVAL;
+			break;
 		}
+
+		pr_debug("%s:Closing session ID %d.\n", __func__,
+						    (int)params.in.sessionid);
+
+		i = tee_session_location(params.in.sessionid);
+		if (i < 0) {
+			ret = i;
+			break;
+		}
+
+try_close_session:
+		ret = tee_close_session(params.in.sessionid);
+		if (ret != 0) {
+			pr_err("%s: Error while clossing sesssion %d.Erro %d\n"
+				, __func__, (int)params.in.sessionid, ret);
+
+			/*
+			 * Set state to TEE_NOTIFY_DONE so that we are
+			 * woken up if extra notification response
+			 * arrives. Abort attempt to close session if
+			 * signal is received.
+			 */
+			if ((ret & 0xFF) == TEE_SESSION_BUSY) {
+				tee_drv_data.tee_session[i].status =
+					TEE_NOTIFY_DONE;
+
+				up(&tee_drv_data.tee_sem);
+				ret = wait_event_interruptible_timeout(
+						tee_drv_data
+						.tee_session[i].wait,
+						tee_drv_data
+						.tee_session[i].status
+						== TEE_NOTIFY_CLEAR,
+						msecs_to_jiffies(5000));
+				if (ret < 0)
+					return ret;
+
+				ret = down_interruptible(&tee_drv_data.tee_sem);
+				if (0 != ret)
+					return ret;
+
+				tee_drv_data.tee_session[i].status =
+					TEE_NOTIFY_NONE;
+
+				goto try_close_session;
+			}
+			break;
+		}
+
+		for (j = 0; j < MAX_BUFFERS_MAPPED; j++)
+			tee_clean_map(i, j);
+		tee_clean_tci(i);
+		tee_drv_data.tee_session[i].sessionid = 0x0;
+		set_last_err(i, 0);
+
 	} while (FALSE);
 	up(&tee_drv_data.tee_sem);
 	pr_debug(" %s : ret %d\n", __func__, ret);
 	return ret;
 }
 
-static int handle_mmap_details(struct tee_instance *instance,
-		union tee_mmap_info *puserparams)
+static int handle_version_info(union tee_version_info *puserparams)
 {
 	int ret = 0;
-	union tee_mmap_info params;
-
-	pr_debug(" %s :\n", __func__);
-	ret = down_interruptible(&instance->sem);
-	if (0 != ret)
-		return ret;
-	do {
-		params.out.mmap.virtaddr = instance->mmap.virtaddr;
-		params.out.mmap.physaddr = instance->mmap.physaddr;
-		params.out.mmap.length = instance->mmap.length;
-		ret = copy_to_user(
-				&(puserparams->out),
-				&(params.out),
-				sizeof(params.out));
-		if (0 != ret)
-			break;
-	} while (FALSE);
-	up(&instance->sem);
-	pr_debug(" %s : ret %d\n", __func__, ret);
-	return ret;
-}
-
-static int handle_mmap_free(union tee_mmap_free *puserparams)
-{
-	int ret = 0;
-	union tee_mmap_free params;
-
-	pr_debug(" %s :\n", __func__);
-	do {
-		ret = copy_from_user(
-				&(params.in),
-				&(puserparams->in),
-				sizeof(params.in));
-		if (0 != ret)
-			break;
-		if ((!tee_drv_data.tee_session) || (!tee_drv_data.tee_tci)) {
-			pr_err(" null data\n");
-			break;
-		}
-		tee_free_memory((void *)params.in.mmap.virtaddr,
-				params.in.mmap.length);
-	} while (FALSE);
-	pr_debug(" %s : ret %d\n", __func__, ret);
-	return ret;
-}
-
-static int handle_map_info(union tee_map_info *puserparams)
-{
-	int ret = 0, i, j, k = 0;
-	union tee_map_info params;
+	union tee_version_info params;
 
 	pr_debug(" %s :\n", __func__);
 	ret = down_interruptible(&tee_drv_data.tee_sem);
 	if (0 != ret)
 		return ret;
 	do {
-		ret = copy_from_user(
-				&(params.in),
-				&(puserparams->in),
-				sizeof(params.in));
-		if (0 != ret)
-			break;
-		if ((!tee_drv_data.tee_session) || (!tee_drv_data.tee_tci)) {
-			pr_err(" null data\n");
-			break;
-		}
-		for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
-			if (tee_drv_data.tee_session[i].sessionid ==
-							params.in.sessionid) {
-				for (j = 0; j < MAX_BUFFERS_MAPPED; j++) {
-					if (tee_drv_data.tee_session[i]
-						.map_secaddr[j] ==
-						params.in.securevirtual) {
-						params.out.virtaddr =
-							tee_drv_data.
-						tee_session[i].map_virtaddr[j];
-						params.out.useraddr =
-							tee_drv_data.
-						tee_session[i].map_useraddr[j];
-						k = 1;
-						break;
-					}
-				}
-			}
-			if (k == 1)
-				break;
-		}
-		tee_range_check(i);
-		pr_debug(" %s : map sva 0x%llx kva 0x%llx\n",
-				__func__,
-				tee_drv_data.tee_session[i].map_secaddr[j],
-				tee_drv_data.tee_session[i].map_virtaddr[j]);
-		ret = copy_to_user(
-				&(puserparams->out),
-				&(params.out),
-				sizeof(params.out));
-		if (0 != ret)
-			break;
-	} while (FALSE);
-	up(&tee_drv_data.tee_sem);
-	pr_debug(" %s : ret %d\n", __func__, ret);
-	return ret;
-}
-
-static int handle_tci_store(struct tee_instance *instance,
-		union tee_tci_store *puserparams)
-{
-	int ret = 0, i;
-	union tee_tci_store params;
-
-	pr_debug(" %s :\n", __func__);
-	ret = down_interruptible(&tee_drv_data.tee_sem);
-	if (0 != ret)
-		return ret;
-	do {
-		ret = copy_from_user(
-				&(params.in),
-				&(puserparams->in),
-				sizeof(params.in));
-		if (0 != ret)
-			break;
-		if ((!tee_drv_data.tee_session) || (!tee_drv_data.tee_tci)) {
-			pr_err(" null data\n");
-			break;
-		}
-		pr_debug(" %s : tci ua 0x%llx kva 0x%llx uid 0x%llx\n",
-				__func__, (u64)params.in.useraddr,
-				(u64)params.in.tci.virtaddr,
-				instance->uid);
-		for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
-			if (tee_drv_data.tee_tci[i].uid == 0x0) {
-				tee_drv_data.tee_tci[i].uid = instance->uid;
-				tee_drv_data.tee_tci[i].virtaddr
-					= (u64)params.in.tci.virtaddr;
-				tee_drv_data.tee_tci[i].physaddr
-					= (u64)params.in.tci.physaddr;
-				tee_drv_data.tee_tci[i].useraddr =
-							params.in.useraddr;
-				tee_drv_data.tee_tci[i].length =
-							params.in.tci.length;
-				break;
-			}
-		}
-		pr_debug(" %s : tci ua 0x%llx kva 0x%llx uid 0x%llx\n",
-				__func__, (u64)params.in.useraddr,
-				(u64)tee_drv_data.tee_tci[i].virtaddr,
-				instance->uid);
-		tee_range_check(i);
-		pr_debug(" %s : tci location %d and ua 0x%llx\n",
-				__func__, i,
-				(u64)tee_drv_data.tee_tci[i].useraddr);
-	} while (FALSE);
-	up(&tee_drv_data.tee_sem);
-	pr_debug(" %s : ret %d\n", __func__, ret);
-	return ret;
-}
-
-static int handle_tci_info(struct tee_instance *instance,
-		union tee_tci_info *puserparams)
-{
-	int ret = 0, i;
-	union tee_tci_info params;
-
-	pr_debug(" %s :\n", __func__);
-	ret = down_interruptible(&tee_drv_data.tee_sem);
-	if (0 != ret)
-		return ret;
-	do {
-		ret = copy_from_user(
-				&(params.in),
-				&(puserparams->in),
-				sizeof(params.in));
-		if (0 != ret)
-			break;
-		if ((!tee_drv_data.tee_session) || (!tee_drv_data.tee_tci)) {
-			pr_err(" null data\n");
-			break;
-		}
-		for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
-			if ((tee_drv_data.tee_tci[i].uid == instance->uid) &&
-					(tee_drv_data.tee_tci[i].useraddr ==
-							params.in.useraddr)) {
-				params.out.tci.virtaddr
-					= tee_drv_data.tee_tci[i].virtaddr;
-				params.out.tci.physaddr
-					= tee_drv_data.tee_tci[i].physaddr;
-				params.out.tci.length = tee_drv_data
-							.tee_tci[i].length;
-				break;
-			}
-		}
-		tee_range_check(i);
-		pr_debug(" %s : tci ua 0x%llx kva 0x%llx\n",
-				__func__,
-				(u64)params.in.useraddr,
-				(u64)params.out.tci.virtaddr);
-		/* send session id to user */
-		ret = copy_to_user(
-				&(puserparams->out),
-				&(params.out),
-				sizeof(params.out));
-		if (0 != ret)
-			break;
-	} while (FALSE);
-	up(&tee_drv_data.tee_sem);
-	pr_debug(" %s : ret %d\n", __func__, ret);
-	return ret;
-}
-
-static int handle_tci_free(struct tee_instance *instance,
-		union tee_tci_free *puserparams)
-{
-	int ret = 0, i;
-	union tee_tci_free params;
-
-	pr_debug(" %s :\n", __func__);
-	ret = down_interruptible(&tee_drv_data.tee_sem);
-	if (0 != ret)
-		return ret;
-	do {
-		ret = copy_from_user(
-				&(params.in),
-				&(puserparams->in),
-				sizeof(params.in));
-		if (0 != ret)
-			break;
-		if ((!tee_drv_data.tee_session) || (!tee_drv_data.tee_tci)) {
-			pr_err(" null data\n");
-			break;
-		}
-		pr_debug(" %s : tci ua 0x%llx uid 0x%llx\n",
-				__func__,
-				(u64)params.in.useraddr,
-				instance->uid);
-		for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
-			if ((tee_drv_data.tee_tci[i].uid == instance->uid) &&
-					(tee_drv_data.tee_tci[i].useraddr ==
-							params.in.useraddr)) {
-				tee_clean_tci(i);
-				break;
-			}
-		}
-		tee_range_check(i);
-		pr_debug(" %s : tci location %d\n", __func__, i);
-	} while (FALSE);
-	up(&tee_drv_data.tee_sem);
-	pr_debug(" %s : ret %d\n", __func__, ret);
-	return ret;
-}
-
-static int handle_version_info(union tee_tbase_version_info *puserparams)
-{
-	int ret = 0;
-	union tee_tbase_version_info params;
-
-	pr_debug(" %s :\n", __func__);
-	ret = down_interruptible(&tee_drv_data.tee_sem);
-	if (0 != ret)
-		return ret;
-	do {
-		psp_comm_send_buffer(TEE_CLIENT_TYPE,
+		ret = psp_comm_send_buffer(TEE_CLIENT_TYPE,
 				(union tee_cmd_buf *)&cmdbuf,
 				sizeof(union tee_cmd_buf),
 				 TEE_CMD_ID_GET_VERSION_INFO);
+		if (ret != 0)
+			break;
+
 		params.out.versionmci =
 			cmdbuf.respgetversioninfo.
 			versioninfo.versionmci;
@@ -899,7 +910,7 @@ static int handle_version_info(union tee_tbase_version_info *puserparams)
 		memcpy(params.out.productid,
 				cmdbuf.respgetversioninfo.
 				versioninfo.productid,
-				TEE_TBASE_PRODUCT_ID_LEN);
+				TEE_PRODUCT_ID_LEN);
 		pr_debug(" tee version %s\n", params.out.productid);
 		ret = copy_to_user(
 				&(puserparams->out),
@@ -930,76 +941,36 @@ static int handle_session_error(union tee_get_session_error *puserparams)
 		if (0 != ret)
 			break;
 		if ((!tee_drv_data.tee_session) || (!tee_drv_data.tee_tci)) {
+			ret = -EINVAL;
 			pr_err(" null data\n");
 			break;
 		}
+
 		i = tee_session_location(params.in.sessionid);
-		if (i == MAX_SESSIONS_SUPPORTED)
+		if (i < 0) {
+			ret = i;
 			break;
-		params.out.error = tee_drv_data.tee_error;
+		}
+		params.out.error = get_last_err(i);
 		ret = copy_to_user(
 				&(puserparams->out),
 				&(params.out),
 				sizeof(params.out));
 		if (0 != ret)
 			break;
+
 	} while (FALSE);
 	up(&tee_drv_data.tee_sem);
 	pr_debug(" %s : ret %d\n", __func__, ret);
 	return ret;
 }
 
-static int handle_session_clean(union tee_get_session_clean *puserparams)
-{
-	int ret = 0, i, j;
-	union tee_get_session_clean params;
-
-	pr_debug(" %s :\n", __func__);
-	ret = down_interruptible(&tee_drv_data.tee_sem);
-	if (0 != ret)
-		return ret;
-	do {
-		if ((!tee_drv_data.tee_session) || (!tee_drv_data.tee_tci)) {
-			pr_err(" null data\n");
-			break;
-		}
-		params.out.session_mask = 0x0;
-		params.out.session_number = 0x0;
-		for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
-			if (tee_drv_data.tee_session[i].sessionid != 0x0) {
-				pr_debug(
-				" %s : sid:0x%llx position:%d closing\n",
-					__func__,
-				tee_drv_data.tee_session[i].sessionid, i);
-				tee_terminate_wait(i);
-				tee_close_session(tee_drv_data.
-						tee_session[i].sessionid);
-				/* copy session number and mask to user */
-				params.out.session_mask |=
-				1<<tee_drv_data.tee_session[i].sessionid;
-				params.out.session_number++;
-				tee_drv_data.tee_session[i].sessionid = 0x0;
-				for (j = 0; j < MAX_BUFFERS_MAPPED; j++)
-					tee_clean_map(i, j);
-				tee_clean_tci(i);
-			}
-		}
-		ret = copy_to_user(
-				&(puserparams->out),
-				&(params.out),
-				sizeof(params.out));
-		if (0 != ret)
-			break;
-	} while (FALSE);
-	up(&tee_drv_data.tee_sem);
-	pr_debug(" %s : ret %d\n", __func__, ret);
-	return ret;
-}
-
-static int handle_map_buffer(union tee_map_buffer *puserparams)
+static int handle_map_buffer(struct tee_instance *instance,
+				    union tee_map_buffer *puserparams)
 {
 	int ret = 0, i, j, k = 0;
 	union tee_map_buffer params;
+	struct wsm_mapping *map;
 
 	pr_debug(" %s :\n", __func__);
 	ret = down_interruptible(&tee_drv_data.tee_sem);
@@ -1014,25 +985,43 @@ static int handle_map_buffer(union tee_map_buffer *puserparams)
 			break;
 		if ((!tee_drv_data.tee_session) || (!tee_drv_data.tee_tci)) {
 			pr_err(" null data\n");
+			ret = -EINVAL;
 			break;
 		}
+
+		map = tee_search_mapping(instance->head,
+					(void *)params.in.map_buffer.useraddr);
+		if (map == NULL) {
+			ret = -EINVAL;
+			break;
+		}
+
 		cmdbuf.cmdmap.sessionid = params.in.sessionid;
-		cmdbuf.cmdmap.membuflen = params.in.map_buffer.length;
-		cmdbuf.cmdmap.memphyaddrhi =
-			high_adddress((void *)
-					params.in.map_buffer.physaddr);
-		cmdbuf.cmdmap.memphyaddrlo =
-			low_adddress((void *)
-					params.in.map_buffer.physaddr);
-		pr_debug(" %s : sid 0x%x map sva 0x%x pa 0x%x length 0x%x\n",
+		cmdbuf.cmdmap.membuflen = map->length;
+		cmdbuf.cmdmap.memphyaddrhi = upper_32_bits(virt_to_phys(
+							(void *)map->k_vaddr));
+		cmdbuf.cmdmap.memphyaddrlo = lower_32_bits(virt_to_phys(
+							(void *)map->k_vaddr));
+		pr_debug(" %s : sid 0x%x map pa 0x%x length 0x%x\n",
 				__func__,
 				cmdbuf.cmdmap.sessionid,
-				(u32)cmdbuf.respmap.securevirtadr,
 				(u32)cmdbuf.cmdmap.memphyaddrlo,
 				cmdbuf.cmdmap.membuflen);
-		psp_comm_send_buffer(TEE_CLIENT_TYPE,
+
+		ret = psp_comm_send_buffer(TEE_CLIENT_TYPE,
 				(union tee_cmd_buf *)&cmdbuf,
 				sizeof(union tee_cmd_buf), TEE_CMD_ID_MAP);
+		if (ret != 0)
+			break;
+
+		pr_debug("%s:sid 0x%x:Mapped pa 0x%x len 0x%x to sva 0x%x\n",
+				__func__,
+				(u32)params.in.sessionid,
+				(u32)((virt_to_phys((void *)map->k_vaddr))
+								& 0xffffffff),
+				(u32) cmdbuf.cmdmap.membuflen,
+				(u32) cmdbuf.respmap.securevirtadr);
+
 		/* save map buffer context for given session */
 		for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
 			if (tee_drv_data.tee_session[i].sessionid ==
@@ -1042,24 +1031,15 @@ static int handle_map_buffer(union tee_map_buffer *puserparams)
 								.map_secaddr[j]
 							== 0x0) {
 						tee_drv_data.tee_session[i]
-							.map_physaddr[j] =
-							(u64)params.in.
-							map_buffer.physaddr;
-						tee_drv_data.tee_session[i]
 							.map_virtaddr[j] =
-							(u64)params.in.
-							map_buffer.virtaddr;
+							(u64)map->k_vaddr;
 						tee_drv_data.tee_session[i]
 							.map_secaddr[j] =
 							cmdbuf.respmap.
 							securevirtadr;
 						tee_drv_data.tee_session[i]
 							.map_length[j] =
-							params.in.map_buffer
-								.length;
-						tee_drv_data.tee_session[i]
-							.map_useraddr[j] =
-							params.in.useraddr;
+							map->length;
 						k = 1;
 						break;
 					}
@@ -1068,13 +1048,11 @@ static int handle_map_buffer(union tee_map_buffer *puserparams)
 			if (k == 1)
 				break;
 		}
-		tee_range_check(i);
+		ret = tee_range_check(i);
+		if (ret != 0)
+			break;
+
 		params.out.securevirtual = cmdbuf.respmap.securevirtadr;
-		pr_debug(" %s : map sva 0x%x kva 0x%llx length 0x%llx\n",
-				__func__,
-				cmdbuf.respmap.securevirtadr,
-				params.in.map_buffer.virtaddr,
-				params.in.map_buffer.length);
 		ret = copy_to_user(
 				&(puserparams->out),
 				&(params.out),
@@ -1109,10 +1087,13 @@ static int handle_unmap_buffer(union tee_unmap_buffer *puserparams)
 		}
 		cmdbuf.cmdunmap.sessionid = params.in.sessionid;
 		cmdbuf.cmdunmap.securevirtadr = params.in.securevirtual;
-		psp_comm_send_buffer(TEE_CLIENT_TYPE,
+		ret = psp_comm_send_buffer(TEE_CLIENT_TYPE,
 					 (union tee_cmd_buf *)&cmdbuf,
 						sizeof(union tee_cmd_buf),
 						TEE_CMD_ID_UNMAP);
+		if (ret != 0)
+			break;
+
 		for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
 			if (tee_drv_data.tee_session[i].sessionid ==
 							params.in.sessionid) {
@@ -1138,7 +1119,10 @@ static int handle_unmap_buffer(union tee_unmap_buffer *puserparams)
 			if (k == 1)
 				break;
 		}
-		tee_range_check(i);
+		ret = tee_range_check(i);
+		if (ret != 0)
+			break;
+
 	} while (FALSE);
 	up(&tee_drv_data.tee_sem);
 	pr_debug(" %s : ret %d\n", __func__, ret);
@@ -1168,12 +1152,24 @@ static int handle_notify(struct tee_instance *instance,
 		}
 		pr_debug(" %s : sid 0x%llx\n",
 				__func__, params.in.sessionid);
-		psp_comm_send_notification(TEE_CLIENT_TYPE,
-					(uint64_t *)&params.in.sessionid);
 		i = tee_session_location(params.in.sessionid);
-		if (i == MAX_SESSIONS_SUPPORTED)
+		if (i < 0) {
+			ret = i;
 			break;
-		tee_drv_data.tee_session[i].status = TEE_NOTIFY_DONE;
+		}
+
+		/* Copy malloced TCI contents */
+		if (tee_drv_data.tee_tci[i].useraddr != 0) {
+			memcpy((void *)tee_drv_data.tee_tci[i].virtaddr,
+				(void *)tee_drv_data.tee_tci[i].useraddr,
+				tee_drv_data.tee_tci[i].length);
+		}
+
+		ret = psp_comm_send_notification(TEE_CLIENT_TYPE,
+					(uint64_t *)&params.in.sessionid);
+		if (0 == ret)
+			tee_drv_data.tee_session[i].status = TEE_NOTIFY_DONE;
+
 		for (j = 0; j < MAX_BUFFERS_MAPPED; j++) {
 			flush_buffer((void *)tee_drv_data.tee_session[i]
 							.map_virtaddr[j],
@@ -1219,37 +1215,72 @@ static int handle_waitfornotification(struct tee_instance *instance,
 			break;
 		}
 		i = tee_session_location(params.in.sessionid);
-		if (i == MAX_SESSIONS_SUPPORTED) {
+		if (i < 0) {
+			ret = i;
 			up(&tee_drv_data.tee_sem);
 			break;
 		}
-		if (tee_drv_data.tee_session[i].status == TEE_NOTIFY_NONE) {
-			pr_err(" %s : sid 0x%llx no notify in place\n",
-								__func__,
+		/*
+		 * TEE_GP_TA_EXIT is received for both success and failure
+		 * cases.
+		 * Also, this is not the last session error code received.
+		 * This check is added to ensure that driver waits for
+		 * notification response even after TEE_GP_TA_EXIT is received.
+		 */
+		if (get_last_err(i) != 0 && get_last_err(i) != TEE_GP_TA_EXIT) {
+			ret = DRV_INFO_NOTIFICATION;
+			up(&tee_drv_data.tee_sem);
+			break;
+		}
+
+		if (tee_drv_data.tee_session[i].status != TEE_NOTIFY_CLEAR) {
+			up(&tee_drv_data.tee_sem);
+			pr_debug(" %s : sid 0x%llx\n", __func__,
 					params.in.sessionid);
-			up(&tee_drv_data.tee_sem);
-			break;
+			pr_debug(" %s : waiting for interrupt\n", __func__);
+			pr_debug(" %s : timeout 0x%llx\n", __func__,
+					params.in.timeout);
+			timeout = params.in.timeout;
+			if (timeout < 0x0) {
+				ret = wait_event_interruptible(tee_drv_data
+						.tee_session[i].wait,
+						tee_drv_data
+						.tee_session[i].status
+						== TEE_NOTIFY_CLEAR);
+				if (ret != 0)
+					break;
+			} else {
+				ret = wait_event_interruptible_timeout(
+						tee_drv_data
+						.tee_session[i].wait,
+						tee_drv_data
+						.tee_session[i].status
+						== TEE_NOTIFY_CLEAR,
+						msecs_to_jiffies(timeout));
+				if (ret < 1) {
+					pr_err("%s:Timeout occurred\n",
+								__func__);
+					tee_drv_data.tee_session[i].status =
+								TEE_NOTIFY_NONE;
+					ret = -ETIMEDOUT;
+					break;
+				}
+			}
+			ret = down_interruptible(&tee_drv_data.tee_sem);
+			if (0 != ret)
+				break;
 		}
-		up(&tee_drv_data.tee_sem);
-		pr_debug(" %s : sid 0x%llx\n", __func__,
-				params.in.sessionid);
-		pr_debug(" %s : waiting for interrupt\n", __func__);
-		pr_debug(" %s : timeout 0x%llx\n", __func__,
-				params.in.timeout);
-		timeout = params.in.timeout;
-		if (timeout < 0x0)
-			timeout = TEE_RESPONSE_TIMEOUT;
-		/* negative timeout is as good as infinite timeout */
-		wait_event_interruptible_timeout(tee_drv_data
-					.tee_session[i].wait,
-				tee_drv_data
-					.tee_session[i].status
-				== TEE_NOTIFY_CLEAR,
-				msecs_to_jiffies(timeout));
-		ret = down_interruptible(&tee_drv_data.tee_sem);
-		if (0 != ret)
-			break;
 		tee_drv_data.tee_session[i].status = TEE_NOTIFY_NONE;
+
+		/*
+		 * As per specification, if payload is non zero return error
+		 * GP Client lib expects low level driver to return
+		 * DRV_INFO_NOTIFICATION even for TEE_GP_TA_EXIT session
+		 * error code.
+		 */
+		if (get_last_err(i) != 0)
+			ret = DRV_INFO_NOTIFICATION;
+
 		for (j = 0; j < MAX_BUFFERS_MAPPED; j++) {
 			invalidate_buffer(
 					(void *)tee_drv_data.tee_session[i]
@@ -1257,6 +1288,14 @@ static int handle_waitfornotification(struct tee_instance *instance,
 					tee_drv_data.tee_session[i]
 							.map_length[j]);
 		}
+
+		/* Copy contents to malloced TCI */
+		if (tee_drv_data.tee_tci[i].useraddr != 0) {
+			memcpy((void *)tee_drv_data.tee_tci[i].useraddr,
+				(void *)tee_drv_data.tee_tci[i].virtaddr,
+					tee_drv_data.tee_tci[i].length);
+		}
+
 		for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
 			if (tee_drv_data.tee_tci[i].sessionid ==
 						params.in.sessionid) {
@@ -1285,67 +1324,36 @@ long tee_ioctl(struct file *pfile, unsigned int cmd, unsigned long arg)
 
 	pr_debug(" %s command %d :\n", __func__, _IOC_NR(cmd));
 	switch (_IOC_NR(cmd)) {
-	case TEE_MMAP_DETAILS:
-			ret = handle_mmap_details(instance,
-					(union tee_mmap_info *)arg);
-			break;
-	case TEE_MMAP_FREE:
-			ret = handle_mmap_free(
-					(union tee_mmap_free *)arg);
-			break;
 	case TEE_OPEN_SESSION:
-			ret = handle_open_session(instance,
-					(union tee_open_session *)arg);
-			break;
+		ret = handle_open_session(instance,
+				(union tee_open_session *)arg);
+		break;
 	case TEE_CLOSE_SESSION:
-			ret = handle_close_session(instance,
-					(union tee_close_session *)arg);
-			break;
+		ret = handle_close_session(instance,
+				(union tee_close_session *)arg);
+		break;
 	case TEE_MAP_BUFFER:
-			ret = handle_map_buffer((union tee_map_buffer *)arg);
-			break;
-	case TEE_MAP_INFO:
-			ret = handle_map_info((union tee_map_info *)arg);
-			break;
+		ret = handle_map_buffer(instance, (union tee_map_buffer *)arg);
+		break;
 	case TEE_UNMAP_BUFFER:
-			ret = handle_unmap_buffer((union tee_unmap_buffer *)
-									arg);
-			break;
+		ret = handle_unmap_buffer((union tee_unmap_buffer *)arg);
+		break;
 	case TEE_NOTIFY:
-			ret = handle_notify(instance,
-					(union tee_notify *)arg);
-			break;
+		ret = handle_notify(instance, (union tee_notify *)arg);
+		break;
 	case TEE_WAIT_FOR_NOTIFICATION:
-			ret = handle_waitfornotification(instance,
-					(union tee_waitfornotification *)arg);
-			break;
-	case TEE_TCI_STORE:
-			ret = handle_tci_store(instance,
-					(union tee_tci_store *)arg);
-			break;
-	case TEE_TCI_INFO:
-			ret = handle_tci_info(instance,
-					(union tee_tci_info *)arg);
-			break;
-	case TEE_TCI_FREE:
-			ret = handle_tci_free(instance,
-					(union tee_tci_free *)arg);
-			break;
+		ret = handle_waitfornotification(instance,
+				(union tee_waitfornotification *)arg);
+		break;
 	case TEE_VERSION_INFO:
-			ret = handle_version_info(
-					(union tee_tbase_version_info *)arg);
-			break;
+		ret = handle_version_info((union tee_version_info *)arg);
+		break;
 	case TEE_SESSION_ERROR:
-			ret = handle_session_error(
-					(union tee_get_session_error *)arg);
-			break;
-	case TEE_SESSION_CLEAN:
-			ret = handle_session_clean(
-					(union tee_get_session_clean *)arg);
-			break;
+		ret = handle_session_error((union tee_get_session_error *)arg);
+		break;
 	default:
-			ret = -EFAULT;
-			break;
+		ret = -ENOTTY;
+		break;
 	}
 	pr_debug(" %s : ret %d\n", __func__, ret);
 	return (int)ret;
@@ -1353,18 +1361,39 @@ long tee_ioctl(struct file *pfile, unsigned int cmd, unsigned long arg)
 
 int tee_callbackfunc(void *notification_data)
 {
-	int i = 0;
+	int i = 0, ret = 0;
+	struct tee_callback_data *cb = NULL;
 
-	for (i = 0; i < MAX_SESSIONS_SUPPORTED; i++) {
-		if (tee_drv_data.tee_session[i].sessionid ==
-					*(u32 *)notification_data) {
-			tee_drv_data.tee_session[i].status
-				= TEE_NOTIFY_CLEAR;
-			wake_up_interruptible(
-					&tee_drv_data.tee_session[i].wait);
-		}
+	if (notification_data == NULL)
+		return -EINVAL;
+
+	cb = (struct tee_callback_data *)notification_data;
+
+	ret = down_interruptible(&tee_drv_data.tee_sem);
+	if (0 != ret)
+		return ret;
+
+	/* Retrieve Session ID */
+	i = tee_session_location(cb->session_id);
+	if (i < 0) {
+		up(&tee_drv_data.tee_sem);
+		return -EINVAL;
 	}
-	return 0;
+	pr_debug("%s:i=%d; sid=%d\n", __func__, i, cb->session_id);
+	if (cb->payload)
+		set_last_err(i, cb->payload);
+
+	/* This is to handle multiple callback for single McNotify */
+	if (tee_drv_data.tee_session[i].status != TEE_NOTIFY_DONE) {
+		up(&tee_drv_data.tee_sem);
+		pr_debug("%s:sid=0x%x, payload=0x%x\n", __func__,
+						cb->session_id, cb->payload);
+		return -EINVAL;
+	}
+	tee_drv_data.tee_session[i].status = TEE_NOTIFY_CLEAR;
+	wake_up_interruptible(&tee_drv_data.tee_session[i].wait);
+	up(&tee_drv_data.tee_sem);
+	return ret;
 }
 
 static int __init tee_init(
@@ -1398,11 +1427,11 @@ static int __init tee_init(
 			sysfs_remove_group(tee_kobj, &tee_attribute_group);
 			kobject_put(tee_kobj);
 			misc_deregister(&tee_device);
+			break;
 		}
 		sema_init(&tee_drv_data.tee_sem, 0x1);
 	} while (FALSE);
-	pr_info(" %s : tee driver initialized ret : %d\n", __func__,
-								ret);
+	pr_info(" %s : tee driver initialized ret : %d\n", __func__, ret);
 	return (int)ret;
 }
 
@@ -1416,7 +1445,7 @@ static void __exit tee_exit(
 	psp_comm_unregister_client(TEE_CLIENT_TYPE);
 }
 
-module_init(tee_init);
+late_initcall(tee_init);
 module_exit(tee_exit);
 
 MODULE_AUTHOR("Advanced Micro Devices, Inc.");

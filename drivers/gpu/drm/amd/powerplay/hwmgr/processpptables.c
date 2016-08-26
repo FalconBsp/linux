@@ -27,6 +27,7 @@
 #include "processpptables.h"
 #include <atom-types.h>
 #include <atombios.h>
+#include "pp_debug.h"
 #include "pptable.h"
 #include "power_state.h"
 #include "hwmgr.h"
@@ -734,8 +735,8 @@ static int init_non_clock_fields(struct pp_hwmgr *hwmgr,
 
 	ps->memory.dllOff = (0 != tmp);
 
-	ps->memory.m3arb = (uint8_t)(le32_to_cpu(pnon_clock_info->ulCapsAndSettings) &
-						ATOM_PPLIB_M3ARB_MASK) >> ATOM_PPLIB_M3ARB_SHIFT;
+	ps->memory.m3arb = (le32_to_cpu(pnon_clock_info->ulCapsAndSettings) &
+			    ATOM_PPLIB_M3ARB_MASK) >> ATOM_PPLIB_M3ARB_SHIFT;
 
 	ps->temperatures.min = PP_TEMPERATURE_UNITS_PER_CENTIGRADES *
 				     pnon_clock_info->ucMinTemperature;
@@ -1163,8 +1164,8 @@ static int init_clock_voltage_dependency(struct pp_hwmgr *hwmgr,
 	hwmgr->dyn_state.vddc_dependency_on_mclk = NULL;
 	hwmgr->dyn_state.vddc_dep_on_dal_pwrl = NULL;
 	hwmgr->dyn_state.mvdd_dependency_on_mclk = NULL;
-	hwmgr->dyn_state.vce_clocl_voltage_dependency_table = NULL;
-	hwmgr->dyn_state.uvd_clocl_voltage_dependency_table = NULL;
+	hwmgr->dyn_state.vce_clock_voltage_dependency_table = NULL;
+	hwmgr->dyn_state.uvd_clock_voltage_dependency_table = NULL;
 	hwmgr->dyn_state.samu_clock_voltage_dependency_table = NULL;
 	hwmgr->dyn_state.acp_clock_voltage_dependency_table = NULL;
 	hwmgr->dyn_state.ppm_parameter_table = NULL;
@@ -1182,7 +1183,7 @@ static int init_clock_voltage_dependency(struct pp_hwmgr *hwmgr,
 				(const ATOM_PPLIB_VCE_Clock_Voltage_Limit_Table *)
 				(((unsigned long) powerplay_table) + table_offset);
 		result = get_vce_clock_voltage_limit_table(hwmgr,
-				&hwmgr->dyn_state.vce_clocl_voltage_dependency_table,
+				&hwmgr->dyn_state.vce_clock_voltage_dependency_table,
 				table, array);
 	}
 
@@ -1197,7 +1198,7 @@ static int init_clock_voltage_dependency(struct pp_hwmgr *hwmgr,
 				(const ATOM_PPLIB_UVD_Clock_Voltage_Limit_Table *)
 				(((unsigned long) powerplay_table) + table_offset);
 		result = get_uvd_clock_voltage_limit_table(hwmgr,
-				&hwmgr->dyn_state.uvd_clocl_voltage_dependency_table, ptable, array);
+				&hwmgr->dyn_state.uvd_clock_voltage_dependency_table, ptable, array);
 	}
 
 	table_offset = get_samu_clock_voltage_limit_table_offset(hwmgr,
@@ -1321,10 +1322,16 @@ static int get_cac_leakage_table(struct pp_hwmgr *hwmgr,
 	struct phm_cac_leakage_table  *cac_leakage_table;
 	unsigned long            table_size, i;
 
+	if (hwmgr == NULL || table == NULL || ptable == NULL)
+		return -EINVAL;
+
 	table_size = sizeof(ULONG) +
 		(sizeof(struct phm_cac_leakage_table) * table->ucNumEntries);
 
 	cac_leakage_table = kzalloc(table_size, GFP_KERNEL);
+
+	if (cac_leakage_table == NULL)
+		return -ENOMEM;
 
 	cac_leakage_table->count = (ULONG)table->ucNumEntries;
 
@@ -1348,7 +1355,7 @@ static int get_cac_leakage_table(struct pp_hwmgr *hwmgr,
 static int get_platform_power_management_table(struct pp_hwmgr *hwmgr,
 			ATOM_PPLIB_PPM_Table *atom_ppm_table)
 {
-	struct phm_ppm_table *ptr = kzalloc(sizeof(ATOM_PPLIB_PPM_Table), GFP_KERNEL);
+	struct phm_ppm_table *ptr = kzalloc(sizeof(struct phm_ppm_table), GFP_KERNEL);
 
 	if (NULL == ptr)
 		return -ENOMEM;
@@ -1465,6 +1472,9 @@ static int init_phase_shedding_table(struct pp_hwmgr *hwmgr,
 
 			table = kzalloc(size, GFP_KERNEL);
 
+			if (table == NULL)
+				return -ENOMEM;
+
 			table->count = (unsigned long)ptable->ucNumEntries;
 
 			for (i = 0; i < table->count; i++) {
@@ -1533,29 +1543,46 @@ static int pp_tables_initialize(struct pp_hwmgr *hwmgr)
 	int result;
 	const ATOM_PPLIB_POWERPLAYTABLE *powerplay_table;
 
+	hwmgr->need_pp_table_upload = true;
+
 	powerplay_table = get_powerplay_table(hwmgr);
 
 	result = init_powerplay_tables(hwmgr, powerplay_table);
 
-	if (0 == result)
-		result = set_platform_caps(hwmgr,
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "init_powerplay_tables failed", return result);
+
+	result = set_platform_caps(hwmgr,
 				le32_to_cpu(powerplay_table->ulPlatformCaps));
 
-	if (0 == result)
-		result = init_thermal_controller(hwmgr, powerplay_table);
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "set_platform_caps failed", return result);
 
-	if (0 == result)
-		result = init_overdrive_limits(hwmgr, powerplay_table);
+	result = init_thermal_controller(hwmgr, powerplay_table);
 
-	if (0 == result)
-		result = init_clock_voltage_dependency(hwmgr,
-						powerplay_table);
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "init_thermal_controller failed", return result);
 
-	if (0 == result)
-		result = init_dpm2_parameters(hwmgr, powerplay_table);
+	result = init_overdrive_limits(hwmgr, powerplay_table);
 
-	if (0 == result)
-		result = init_phase_shedding_table(hwmgr, powerplay_table);
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "init_overdrive_limits failed", return result);
+
+	result = init_clock_voltage_dependency(hwmgr,
+					       powerplay_table);
+
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "init_clock_voltage_dependency failed", return result);
+
+	result = init_dpm2_parameters(hwmgr, powerplay_table);
+
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "init_dpm2_parameters failed", return result);
+
+	result = init_phase_shedding_table(hwmgr, powerplay_table);
+
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "init_phase_shedding_table failed", return result);
 
 	return result;
 }
@@ -1607,14 +1634,14 @@ static int pp_tables_uninitialize(struct pp_hwmgr *hwmgr)
 		hwmgr->dyn_state.vddc_phase_shed_limits_table = NULL;
 	}
 
-	if (NULL != hwmgr->dyn_state.vce_clocl_voltage_dependency_table) {
-		kfree(hwmgr->dyn_state.vce_clocl_voltage_dependency_table);
-		hwmgr->dyn_state.vce_clocl_voltage_dependency_table = NULL;
+	if (NULL != hwmgr->dyn_state.vce_clock_voltage_dependency_table) {
+		kfree(hwmgr->dyn_state.vce_clock_voltage_dependency_table);
+		hwmgr->dyn_state.vce_clock_voltage_dependency_table = NULL;
 	}
 
-	if (NULL != hwmgr->dyn_state.uvd_clocl_voltage_dependency_table) {
-		kfree(hwmgr->dyn_state.uvd_clocl_voltage_dependency_table);
-		hwmgr->dyn_state.uvd_clocl_voltage_dependency_table = NULL;
+	if (NULL != hwmgr->dyn_state.uvd_clock_voltage_dependency_table) {
+		kfree(hwmgr->dyn_state.uvd_clock_voltage_dependency_table);
+		hwmgr->dyn_state.uvd_clock_voltage_dependency_table = NULL;
 	}
 
 	if (NULL != hwmgr->dyn_state.samu_clock_voltage_dependency_table) {

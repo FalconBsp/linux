@@ -36,7 +36,7 @@ static int amdgpu_debugfs_pm_init(struct amdgpu_device *adev);
 
 void amdgpu_pm_acpi_event_handler(struct amdgpu_device *adev)
 {
-	if (amdgpu_powerplay)
+	if (adev->pp_enabled)
 		/* TODO */
 		return;
 
@@ -60,9 +60,8 @@ static ssize_t amdgpu_get_dpm_state(struct device *dev,
 	struct amdgpu_device *adev = ddev->dev_private;
 	enum amd_pm_state_type pm;
 
-	if (amdgpu_powerplay) {
+	if (adev->pp_enabled) {
 		pm = amdgpu_dpm_get_current_power_state(adev);
-		return 0;
 	} else
 		pm = adev->pm.dpm.user_state;
 
@@ -91,7 +90,7 @@ static ssize_t amdgpu_set_dpm_state(struct device *dev,
 		goto fail;
 	}
 
-	if (amdgpu_powerplay) {
+	if (adev->pp_enabled) {
 		amdgpu_dpm_dispatch_task(adev, AMD_PP_EVENT_ENABLE_USER_STATE, &state, NULL);
 	} else {
 		mutex_lock(&adev->pm.mutex);
@@ -114,13 +113,19 @@ static ssize_t amdgpu_get_dpm_forced_performance_level(struct device *dev,
 	struct drm_device *ddev = dev_get_drvdata(dev);
 	struct amdgpu_device *adev = ddev->dev_private;
 
-	if (amdgpu_powerplay) {
+	if  ((adev->flags & AMD_IS_PX) &&
+	     (ddev->switch_power_state != DRM_SWITCH_POWER_ON))
+		return snprintf(buf, PAGE_SIZE, "off\n");
+
+	if (adev->pp_enabled) {
 		enum amd_dpm_forced_level level;
 
 		level = amdgpu_dpm_get_performance_level(adev);
 		return snprintf(buf, PAGE_SIZE, "%s\n",
 				(level == AMD_DPM_FORCED_LEVEL_AUTO) ? "auto" :
-				(level == AMD_DPM_FORCED_LEVEL_LOW) ? "low" : "high");
+				(level == AMD_DPM_FORCED_LEVEL_LOW) ? "low" :
+				(level == AMD_DPM_FORCED_LEVEL_HIGH) ? "high" :
+				(level == AMD_DPM_FORCED_LEVEL_MANUAL) ? "manual" : "unknown");
 	} else {
 		enum amdgpu_dpm_forced_level level;
 
@@ -141,23 +146,31 @@ static ssize_t amdgpu_set_dpm_forced_performance_level(struct device *dev,
 	enum amdgpu_dpm_forced_level level;
 	int ret = 0;
 
+	/* Can't force performance level when the card is off */
+	if  ((adev->flags & AMD_IS_PX) &&
+	     (ddev->switch_power_state != DRM_SWITCH_POWER_ON))
+		return -EINVAL;
+
 	if (strncmp("low", buf, strlen("low")) == 0) {
 		level = AMDGPU_DPM_FORCED_LEVEL_LOW;
 	} else if (strncmp("high", buf, strlen("high")) == 0) {
 		level = AMDGPU_DPM_FORCED_LEVEL_HIGH;
 	} else if (strncmp("auto", buf, strlen("auto")) == 0) {
 		level = AMDGPU_DPM_FORCED_LEVEL_AUTO;
+	} else if (strncmp("manual", buf, strlen("manual")) == 0) {
+		level = AMDGPU_DPM_FORCED_LEVEL_MANUAL;
 	} else {
 		count = -EINVAL;
 		goto fail;
 	}
 
-	if (amdgpu_powerplay)
+	if (adev->pp_enabled)
 		amdgpu_dpm_force_performance_level(adev, level);
 	else {
 		mutex_lock(&adev->pm.mutex);
 		if (adev->pm.dpm.thermal_active) {
 			count = -EINVAL;
+			mutex_unlock(&adev->pm.mutex);
 			goto fail;
 		}
 		ret = amdgpu_dpm_force_performance_level(adev, level);
@@ -168,8 +181,293 @@ static ssize_t amdgpu_set_dpm_forced_performance_level(struct device *dev,
 		mutex_unlock(&adev->pm.mutex);
 	}
 fail:
-	mutex_unlock(&adev->pm.mutex);
+	return count;
+}
 
+static ssize_t amdgpu_get_pp_num_states(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	struct pp_states_info data;
+	int i, buf_len;
+
+	if (adev->pp_enabled)
+		amdgpu_dpm_get_pp_num_states(adev, &data);
+
+	buf_len = snprintf(buf, PAGE_SIZE, "states: %d\n", data.nums);
+	for (i = 0; i < data.nums; i++)
+		buf_len += snprintf(buf + buf_len, PAGE_SIZE, "%d %s\n", i,
+				(data.states[i] == POWER_STATE_TYPE_INTERNAL_BOOT) ? "boot" :
+				(data.states[i] == POWER_STATE_TYPE_BATTERY) ? "battery" :
+				(data.states[i] == POWER_STATE_TYPE_BALANCED) ? "balanced" :
+				(data.states[i] == POWER_STATE_TYPE_PERFORMANCE) ? "performance" : "default");
+
+	return buf_len;
+}
+
+static ssize_t amdgpu_get_pp_cur_state(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	struct pp_states_info data;
+	enum amd_pm_state_type pm = 0;
+	int i = 0;
+
+	if (adev->pp_enabled) {
+
+		pm = amdgpu_dpm_get_current_power_state(adev);
+		amdgpu_dpm_get_pp_num_states(adev, &data);
+
+		for (i = 0; i < data.nums; i++) {
+			if (pm == data.states[i])
+				break;
+		}
+
+		if (i == data.nums)
+			i = -EINVAL;
+	}
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", i);
+}
+
+static ssize_t amdgpu_get_pp_force_state(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	struct pp_states_info data;
+	enum amd_pm_state_type pm = 0;
+	int i;
+
+	if (adev->pp_force_state_enabled && adev->pp_enabled) {
+		pm = amdgpu_dpm_get_current_power_state(adev);
+		amdgpu_dpm_get_pp_num_states(adev, &data);
+
+		for (i = 0; i < data.nums; i++) {
+			if (pm == data.states[i])
+				break;
+		}
+
+		if (i == data.nums)
+			i = -EINVAL;
+
+		return snprintf(buf, PAGE_SIZE, "%d\n", i);
+
+	} else
+		return snprintf(buf, PAGE_SIZE, "\n");
+}
+
+static ssize_t amdgpu_set_pp_force_state(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf,
+		size_t count)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	enum amd_pm_state_type state = 0;
+	long idx;
+	int ret;
+
+	if (strlen(buf) == 1)
+		adev->pp_force_state_enabled = false;
+	else {
+		ret = kstrtol(buf, 0, &idx);
+
+		if (ret) {
+			count = -EINVAL;
+			goto fail;
+		}
+
+		if (adev->pp_enabled) {
+			struct pp_states_info data;
+			amdgpu_dpm_get_pp_num_states(adev, &data);
+			state = data.states[idx];
+			/* only set user selected power states */
+			if (state != POWER_STATE_TYPE_INTERNAL_BOOT &&
+				state != POWER_STATE_TYPE_DEFAULT) {
+				amdgpu_dpm_dispatch_task(adev,
+						AMD_PP_EVENT_ENABLE_USER_STATE, &state, NULL);
+				adev->pp_force_state_enabled = true;
+			}
+		}
+	}
+fail:
+	return count;
+}
+
+static ssize_t amdgpu_get_pp_table(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	char *table = NULL;
+	int size, i;
+
+	if (adev->pp_enabled)
+		size = amdgpu_dpm_get_pp_table(adev, &table);
+	else
+		return 0;
+
+	if (size >= PAGE_SIZE)
+		size = PAGE_SIZE - 1;
+
+	for (i = 0; i < size; i++) {
+		sprintf(buf + i, "%02x", table[i]);
+	}
+	sprintf(buf + i, "\n");
+
+	return size;
+}
+
+static ssize_t amdgpu_set_pp_table(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf,
+		size_t count)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+
+	if (adev->pp_enabled)
+		amdgpu_dpm_set_pp_table(adev, buf, count);
+
+	return count;
+}
+
+static ssize_t amdgpu_get_pp_dpm_sclk(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	ssize_t size = 0;
+
+	if (adev->pp_enabled)
+		size = amdgpu_dpm_print_clock_levels(adev, PP_SCLK, buf);
+
+	return size;
+}
+
+static ssize_t amdgpu_set_pp_dpm_sclk(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf,
+		size_t count)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	int ret;
+	long level;
+	uint32_t i, mask = 0;
+	char sub_str[2];
+
+	for (i = 0; i < strlen(buf) - 1; i++) {
+		sub_str[0] = *(buf + i);
+		sub_str[1] = '\0';
+		ret = kstrtol(sub_str, 0, &level);
+
+		if (ret) {
+			count = -EINVAL;
+			goto fail;
+		}
+		mask |= 1 << level;
+	}
+
+	if (adev->pp_enabled)
+		amdgpu_dpm_force_clock_level(adev, PP_SCLK, mask);
+fail:
+	return count;
+}
+
+static ssize_t amdgpu_get_pp_dpm_mclk(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	ssize_t size = 0;
+
+	if (adev->pp_enabled)
+		size = amdgpu_dpm_print_clock_levels(adev, PP_MCLK, buf);
+
+	return size;
+}
+
+static ssize_t amdgpu_set_pp_dpm_mclk(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf,
+		size_t count)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	int ret;
+	long level;
+	uint32_t i, mask = 0;
+	char sub_str[2];
+
+	for (i = 0; i < strlen(buf) - 1; i++) {
+		sub_str[0] = *(buf + i);
+		sub_str[1] = '\0';
+		ret = kstrtol(sub_str, 0, &level);
+
+		if (ret) {
+			count = -EINVAL;
+			goto fail;
+		}
+		mask |= 1 << level;
+	}
+
+	if (adev->pp_enabled)
+		amdgpu_dpm_force_clock_level(adev, PP_MCLK, mask);
+fail:
+	return count;
+}
+
+static ssize_t amdgpu_get_pp_dpm_pcie(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	ssize_t size = 0;
+
+	if (adev->pp_enabled)
+		size = amdgpu_dpm_print_clock_levels(adev, PP_PCIE, buf);
+
+	return size;
+}
+
+static ssize_t amdgpu_set_pp_dpm_pcie(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf,
+		size_t count)
+{
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct amdgpu_device *adev = ddev->dev_private;
+	int ret;
+	long level;
+	uint32_t i, mask = 0;
+	char sub_str[2];
+
+	for (i = 0; i < strlen(buf) - 1; i++) {
+		sub_str[0] = *(buf + i);
+		sub_str[1] = '\0';
+		ret = kstrtol(sub_str, 0, &level);
+
+		if (ret) {
+			count = -EINVAL;
+			goto fail;
+		}
+		mask |= 1 << level;
+	}
+
+	if (adev->pp_enabled)
+		amdgpu_dpm_force_clock_level(adev, PP_PCIE, mask);
+fail:
 	return count;
 }
 
@@ -177,18 +475,41 @@ static DEVICE_ATTR(power_dpm_state, S_IRUGO | S_IWUSR, amdgpu_get_dpm_state, amd
 static DEVICE_ATTR(power_dpm_force_performance_level, S_IRUGO | S_IWUSR,
 		   amdgpu_get_dpm_forced_performance_level,
 		   amdgpu_set_dpm_forced_performance_level);
+static DEVICE_ATTR(pp_num_states, S_IRUGO, amdgpu_get_pp_num_states, NULL);
+static DEVICE_ATTR(pp_cur_state, S_IRUGO, amdgpu_get_pp_cur_state, NULL);
+static DEVICE_ATTR(pp_force_state, S_IRUGO | S_IWUSR,
+		amdgpu_get_pp_force_state,
+		amdgpu_set_pp_force_state);
+static DEVICE_ATTR(pp_table, S_IRUGO | S_IWUSR,
+		amdgpu_get_pp_table,
+		amdgpu_set_pp_table);
+static DEVICE_ATTR(pp_dpm_sclk, S_IRUGO | S_IWUSR,
+		amdgpu_get_pp_dpm_sclk,
+		amdgpu_set_pp_dpm_sclk);
+static DEVICE_ATTR(pp_dpm_mclk, S_IRUGO | S_IWUSR,
+		amdgpu_get_pp_dpm_mclk,
+		amdgpu_set_pp_dpm_mclk);
+static DEVICE_ATTR(pp_dpm_pcie, S_IRUGO | S_IWUSR,
+		amdgpu_get_pp_dpm_pcie,
+		amdgpu_set_pp_dpm_pcie);
 
 static ssize_t amdgpu_hwmon_show_temp(struct device *dev,
 				      struct device_attribute *attr,
 				      char *buf)
 {
 	struct amdgpu_device *adev = dev_get_drvdata(dev);
+	struct drm_device *ddev = adev->ddev;
 	int temp;
 
-	if (adev->pm.funcs->get_temperature)
-		temp = amdgpu_dpm_get_temperature(adev);
-	else
+	/* Can't get temperature when the card is off */
+	if  ((adev->flags & AMD_IS_PX) &&
+	     (ddev->switch_power_state != DRM_SWITCH_POWER_ON))
+		return -EINVAL;
+
+	if (!adev->pp_enabled && !adev->pm.funcs->get_temperature)
 		temp = 0;
+	else
+		temp = amdgpu_dpm_get_temperature(adev);
 
 	return snprintf(buf, PAGE_SIZE, "%d\n", temp);
 }
@@ -216,8 +537,10 @@ static ssize_t amdgpu_hwmon_get_pwm1_enable(struct device *dev,
 	struct amdgpu_device *adev = dev_get_drvdata(dev);
 	u32 pwm_mode = 0;
 
-	if (adev->pm.funcs->get_fan_control_mode)
-		pwm_mode = amdgpu_dpm_get_fan_control_mode(adev);
+	if (!adev->pp_enabled && !adev->pm.funcs->get_fan_control_mode)
+		return -EINVAL;
+
+	pwm_mode = amdgpu_dpm_get_fan_control_mode(adev);
 
 	/* never 0 (full-speed), fuse or smc-controlled always */
 	return sprintf(buf, "%i\n", pwm_mode == FDO_PWM_MODE_STATIC ? 1 : 2);
@@ -232,7 +555,7 @@ static ssize_t amdgpu_hwmon_set_pwm1_enable(struct device *dev,
 	int err;
 	int value;
 
-	if (!adev->pm.funcs->set_fan_control_mode)
+	if (!adev->pp_enabled && !adev->pm.funcs->set_fan_control_mode)
 		return -EINVAL;
 
 	err = kstrtoint(buf, 10, &value);
@@ -325,19 +648,22 @@ static struct attribute *hwmon_attributes[] = {
 static umode_t hwmon_attributes_visible(struct kobject *kobj,
 					struct attribute *attr, int index)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
+	struct device *dev = kobj_to_dev(kobj);
 	struct amdgpu_device *adev = dev_get_drvdata(dev);
 	umode_t effective_mode = attr->mode;
-
-
-	if (amdgpu_powerplay)
-		return 0;  /* to do */
 
 	/* Skip limit attributes if DPM is not enabled */
 	if (!adev->pm.dpm_enabled &&
 	    (attr == &sensor_dev_attr_temp1_crit.dev_attr.attr ||
-	     attr == &sensor_dev_attr_temp1_crit_hyst.dev_attr.attr))
+	     attr == &sensor_dev_attr_temp1_crit_hyst.dev_attr.attr ||
+	     attr == &sensor_dev_attr_pwm1.dev_attr.attr ||
+	     attr == &sensor_dev_attr_pwm1_enable.dev_attr.attr ||
+	     attr == &sensor_dev_attr_pwm1_max.dev_attr.attr ||
+	     attr == &sensor_dev_attr_pwm1_min.dev_attr.attr))
 		return 0;
+
+	if (adev->pp_enabled)
+		return effective_mode;
 
 	/* Skip fan attributes if fan is not present */
 	if (adev->pm.no_fan &&
@@ -375,10 +701,12 @@ static const struct attribute_group hwmon_attrgroup = {
 	.is_visible = hwmon_attributes_visible,
 };
 
+#if 0
 static const struct attribute_group *hwmon_groups[] = {
 	&hwmon_attrgroup,
 	NULL
 };
+#endif
 
 void amdgpu_dpm_thermal_work_handler(struct work_struct *work)
 {
@@ -619,23 +947,15 @@ force:
 		amdgpu_dpm_print_power_state(adev, adev->pm.dpm.requested_ps);
 	}
 
-	mutex_lock(&adev->ddev->struct_mutex);
-	mutex_lock(&adev->ring_lock);
-
 	/* update whether vce is active */
 	ps->vce_active = adev->pm.dpm.vce_active;
 
 	ret = amdgpu_dpm_pre_set_power_state(adev);
 	if (ret)
-		goto done;
+		return;
 
 	/* update display watermarks based on new power state */
 	amdgpu_display_bandwidth_update(adev);
-	/* update displays */
-	amdgpu_dpm_display_configuration_changed(adev);
-
-	adev->pm.dpm.current_active_crtcs = adev->pm.dpm.new_active_crtcs;
-	adev->pm.dpm.current_active_crtc_count = adev->pm.dpm.new_active_crtc_count;
 
 	/* wait for the rings to drain */
 	for (i = 0; i < AMDGPU_MAX_RINGS; i++) {
@@ -652,6 +972,12 @@ force:
 
 	amdgpu_dpm_post_set_power_state(adev);
 
+	/* update displays */
+	amdgpu_dpm_display_configuration_changed(adev);
+
+	adev->pm.dpm.current_active_crtcs = adev->pm.dpm.new_active_crtcs;
+	adev->pm.dpm.current_active_crtc_count = adev->pm.dpm.new_active_crtc_count;
+
 	if (adev->pm.funcs->force_performance_level) {
 		if (adev->pm.dpm.thermal_active) {
 			enum amdgpu_dpm_forced_level level = adev->pm.dpm.forced_level;
@@ -664,15 +990,11 @@ force:
 			amdgpu_dpm_force_performance_level(adev, adev->pm.dpm.forced_level);
 		}
 	}
-
-done:
-	mutex_unlock(&adev->ring_lock);
-	mutex_unlock(&adev->ddev->struct_mutex);
 }
 
 void amdgpu_dpm_enable_uvd(struct amdgpu_device *adev, bool enable)
 {
-	if (amdgpu_powerplay)
+	if (adev->pp_enabled)
 		amdgpu_dpm_powergate_uvd(adev, !enable);
 	else {
 		if (adev->pm.funcs->powergate_uvd) {
@@ -699,10 +1021,10 @@ void amdgpu_dpm_enable_uvd(struct amdgpu_device *adev, bool enable)
 
 void amdgpu_dpm_enable_vce(struct amdgpu_device *adev, bool enable)
 {
-	if (amdgpu_powerplay)
+	if (adev->pp_enabled)
 		amdgpu_dpm_powergate_vce(adev, !enable);
 	else {
-		if (adev->pm.funcs->powergate_uvd) {
+		if (adev->pm.funcs->powergate_vce) {
 			mutex_lock(&adev->pm.mutex);
 			amdgpu_dpm_powergate_vce(adev, !enable);
 			mutex_unlock(&adev->pm.mutex);
@@ -727,7 +1049,7 @@ void amdgpu_pm_print_power_states(struct amdgpu_device *adev)
 {
 	int i;
 
-	if (amdgpu_powerplay)
+	if (adev->pp_enabled)
 		/* TO DO */
 		return;
 
@@ -740,7 +1062,10 @@ int amdgpu_pm_sysfs_init(struct amdgpu_device *adev)
 {
 	int ret;
 
-	if (!amdgpu_powerplay) {
+	if (adev->pm.sysfs_initialized)
+		return 0;
+
+	if (!adev->pp_enabled) {
 		if (adev->pm.funcs->get_temperature == NULL)
 			return 0;
 	}
@@ -784,11 +1109,51 @@ int amdgpu_pm_sysfs_init(struct amdgpu_device *adev)
 		DRM_ERROR("failed to create device file for dpm state\n");
 		return ret;
 	}
+
+	if (adev->pp_enabled) {
+		ret = device_create_file(adev->dev, &dev_attr_pp_num_states);
+		if (ret) {
+			DRM_ERROR("failed to create device file pp_num_states\n");
+			return ret;
+		}
+		ret = device_create_file(adev->dev, &dev_attr_pp_cur_state);
+		if (ret) {
+			DRM_ERROR("failed to create device file pp_cur_state\n");
+			return ret;
+		}
+		ret = device_create_file(adev->dev, &dev_attr_pp_force_state);
+		if (ret) {
+			DRM_ERROR("failed to create device file pp_force_state\n");
+			return ret;
+		}
+		ret = device_create_file(adev->dev, &dev_attr_pp_table);
+		if (ret) {
+			DRM_ERROR("failed to create device file pp_table\n");
+			return ret;
+		}
+		ret = device_create_file(adev->dev, &dev_attr_pp_dpm_sclk);
+		if (ret) {
+			DRM_ERROR("failed to create device file pp_dpm_sclk\n");
+			return ret;
+		}
+		ret = device_create_file(adev->dev, &dev_attr_pp_dpm_mclk);
+		if (ret) {
+			DRM_ERROR("failed to create device file pp_dpm_mclk\n");
+			return ret;
+		}
+		ret = device_create_file(adev->dev, &dev_attr_pp_dpm_pcie);
+		if (ret) {
+			DRM_ERROR("failed to create device file pp_dpm_pcie\n");
+			return ret;
+		}
+	}
 	ret = amdgpu_debugfs_pm_init(adev);
 	if (ret) {
 		DRM_ERROR("Failed to register debugfs file for dpm!\n");
 		return ret;
 	}
+
+	adev->pm.sysfs_initialized = true;
 
 	return 0;
 }
@@ -806,6 +1171,15 @@ void amdgpu_pm_sysfs_fini(struct amdgpu_device *adev)
 #endif		
 	device_remove_file(adev->dev, &dev_attr_power_dpm_state);
 	device_remove_file(adev->dev, &dev_attr_power_dpm_force_performance_level);
+	if (adev->pp_enabled) {
+		device_remove_file(adev->dev, &dev_attr_pp_num_states);
+		device_remove_file(adev->dev, &dev_attr_pp_cur_state);
+		device_remove_file(adev->dev, &dev_attr_pp_force_state);
+		device_remove_file(adev->dev, &dev_attr_pp_table);
+		device_remove_file(adev->dev, &dev_attr_pp_dpm_sclk);
+		device_remove_file(adev->dev, &dev_attr_pp_dpm_mclk);
+		device_remove_file(adev->dev, &dev_attr_pp_dpm_pcie);
+	}
 }
 
 void amdgpu_pm_compute_clocks(struct amdgpu_device *adev)
@@ -817,17 +1191,15 @@ void amdgpu_pm_compute_clocks(struct amdgpu_device *adev)
 	if (!adev->pm.dpm_enabled)
 		return;
 
-	if (amdgpu_powerplay) {
+	if (adev->pp_enabled) {
 		int i = 0;
 
 		amdgpu_display_bandwidth_update(adev);
-		mutex_lock(&adev->ring_lock);
-			for (i = 0; i < AMDGPU_MAX_RINGS; i++) {
-				struct amdgpu_ring *ring = adev->rings[i];
-				if (ring && ring->ready)
-					amdgpu_fence_wait_empty(ring);
-				}
-		mutex_unlock(&adev->ring_lock);
+		for (i = 0; i < AMDGPU_MAX_RINGS; i++) {
+			struct amdgpu_ring *ring = adev->rings[i];
+			if (ring && ring->ready)
+				amdgpu_fence_wait_empty(ring);
+		}
 
 		amdgpu_dpm_dispatch_task(adev, AMD_PP_EVENT_DISPLAY_CONFIG_CHANGE, NULL, NULL);
 	} else {
@@ -866,12 +1238,16 @@ static int amdgpu_debugfs_pm_info(struct seq_file *m, void *data)
 	struct drm_info_node *node = (struct drm_info_node *) m->private;
 	struct drm_device *dev = node->minor->dev;
 	struct amdgpu_device *adev = dev->dev_private;
+	struct drm_device *ddev = adev->ddev;
 
 	if (!adev->pm.dpm_enabled) {
 		seq_printf(m, "dpm not enabled\n");
 		return 0;
 	}
-	if (amdgpu_powerplay) {
+	if  ((adev->flags & AMD_IS_PX) &&
+	     (ddev->switch_power_state != DRM_SWITCH_POWER_ON)) {
+		seq_printf(m, "PX asic powered off\n");
+	} else if (adev->pp_enabled) {
 		amdgpu_dpm_debugfs_print_current_performance_level(adev, m);
 	} else {
 		mutex_lock(&adev->pm.mutex);
@@ -885,7 +1261,7 @@ static int amdgpu_debugfs_pm_info(struct seq_file *m, void *data)
 	return 0;
 }
 
-static struct drm_info_list amdgpu_pm_info_list[] = {
+static const struct drm_info_list amdgpu_pm_info_list[] = {
 	{"amdgpu_pm_info", amdgpu_debugfs_pm_info, 0, NULL},
 };
 #endif

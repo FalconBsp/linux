@@ -37,10 +37,10 @@ enum gpio_result dal_irq_get_value(
 	const struct irq *irq,
 	uint32_t *value);
 
-enum dal_irq_source dal_irq_get_source(
+enum dc_irq_source dal_irq_get_source(
 	const struct irq *irq);
 
-enum dal_irq_source dal_irq_get_rx_source(
+enum dc_irq_source dal_irq_get_rx_source(
 	const struct irq *irq);
 
 enum gpio_result dal_irq_setup_hpd_filter(

@@ -29,7 +29,6 @@
 #include <linux/psp_comm_if.h>
 
 static const struct pci_device_id driver_ids[] = {
-	{ PCI_DEVICE(AMD_VENDOR_ID, CCP_AMUR_DEVICE_ID) },
 	{ PCI_DEVICE(AMD_VENDOR_ID, CCP_CARRIZO_DEVICE_ID) },
 	{ 0, }
 };
@@ -74,25 +73,6 @@ static inline u32 getnrofpagesforbuffer(void *addrStart,
 	return (getoffsetinpage(addrStart) + len + PAGE_SIZE-1) / PAGE_SIZE;
 }
 
-static u32 sizetoorder(u32 size)
-{
-	u32 order = INVALID_ORDER;
-
-	if (0 != size) {
-		order = __builtin_clz(getnrofpagesforbuffer(NULL, size));
-		/* there is a size overflow in getnrofpagesforbuffer when
-		   the size is too large */
-		if (unlikely(order > 31))
-			return INVALID_ORDER;
-		order = 31 - order;
-		/* above algorithm rounds down: clz(5)=2 instead of 3
-		   quick correction to fix it: */
-		if (((1<<order)*PAGE_SIZE) < size)
-			order++;
-	}
-	return order;
-}
-
 static void flush_buffer(void *addr, u32 size)
 {
 	struct page *page;
@@ -116,16 +96,20 @@ int psp_comm_register_client(u32 client_type, int(*callback)(void *))
 	int ret = 0;
 	struct client_context *client_data;
 
+	if (!psp_comm_data.psp_init_done) {
+		dev_err(dev, "PSP initialization failed\n");
+		return -ENODEV;
+	}
+
 	if (psp_comm_data.client_data[client_type] != NULL) {
-		dev_dbg(dev, " %s : client already registered\n", __func__);
+		dev_err(dev, " %s : client already registered\n", __func__);
 		ret = -EINVAL;
 		return ret;
 	}
 	client_data = vzalloc(sizeof(struct client_context));
 	if (NULL == client_data) {
-		dev_err(dev, " %s : alloc clientdata failed\n",
-				__func__);
 		ret = -ENOMEM;
+		dev_err(dev, " %s : alloc clientdata failed\n", __func__);
 		return ret;
 	}
 	mutex_lock(&psp_comm_data.psp_comm_lock);
@@ -156,25 +140,67 @@ EXPORT_SYMBOL_GPL(psp_comm_unregister_client);
 
 void psp_comm_process_work(struct work_struct *psp_comm_workqueue)
 {
-	u32 outqueuerdptr, outqueuewrtptr;
+	u32 outqueuerdptr, outqueuewrtptr, client_type;
 	struct psp_comm_buf *comm_buf;
+	struct client_context **client_data;
 
+	mutex_lock(&psp_comm_data.psp_comm_lock);
+
+	client_data = psp_comm_data.client_data;
 	comm_buf = psp_comm_data.psp_comm_virtual_addr;
 	outqueuerdptr = psp_comm_read_out_queue_rdptr();
 	outqueuewrtptr = psp_comm_read_out_queue_wrptr();
+
 	while (outqueuerdptr != outqueuewrtptr) {
+		dev_dbg(dev, "Outqueue:Readptr 0x%x;Writeptr 0x%x\n",
+				outqueuerdptr, outqueuewrtptr);
+
 		flush_buffer((void *)psp_comm_data
 				.psp_comm_virtual_addr
 				, sizeof(struct psp_comm_buf));
-		psp_comm_data.client_data[comm_buf->outqueue[outqueuerdptr]
-							.client_type]->
-					callbackfunc((void *)&(comm_buf->
-					outqueue[outqueuerdptr].payload));
 
-		outqueuerdptr = (outqueuerdptr + 1) %
-						PSP_COMM_MAX_QUEUES_ENTRIES;
-		psp_comm_write_out_queue_rdptr(outqueuerdptr);
+		if ((outqueuewrtptr > PSP_COMM_MAX_OUT_WRTPTR_VALUE) ||
+				(outqueuerdptr > PSP_COMM_MAX_OUT_RDPTR_VALUE)
+		   ) {
+			dev_err(dev, "%s:Out queue: read ptr 0x%x",
+					__func__, outqueuerdptr);
+			dev_err(dev, "%s:Out queue: write ptr 0x%x",
+					__func__, outqueuewrtptr);
+			psp_comm_write_out_queue_rdptr(outqueuewrtptr);
+			break;
+		}
+
+			if (!((comm_buf->outqueue[outqueuerdptr].session_id) <
+						MAX_SESSIONS_SUPPORTED)) {
+				dev_err(dev, "Invalid session ID 0x%x\n",
+					comm_buf->outqueue[outqueuerdptr].
+					session_id);
+				mutex_unlock(&psp_comm_data.psp_comm_lock);
+				psp_comm_write_out_queue_rdptr(outqueuewrtptr);
+				break;
+		}
+
+		client_type = comm_buf->outqueue[outqueuerdptr].client_type;
+		if (!(client_type < PSP_COMM_CLIENT_TYPE_INVALID)) {
+			dev_dbg(dev, "Invalid client ID 0x%x\n", client_type);
+			dev_dbg(dev, "SID 0x%x; payload=0x%x\n",
+				comm_buf->outqueue[outqueuerdptr].session_id,
+				comm_buf->outqueue[outqueuerdptr].payload);
+			client_type = PSP_COMM_CLIENT_TYPE_TEE;
+		}
+
+		psp_comm_write_out_queue_rdptr((outqueuerdptr + 1) %
+				PSP_COMM_MAX_QUEUES_ENTRIES);
+		mutex_unlock(&psp_comm_data.psp_comm_lock);
+
+		psp_comm_data.client_data[client_type]->callbackfunc
+		((void *)&(comm_buf->outqueue[outqueuerdptr]));
+
+		mutex_lock(&psp_comm_data.psp_comm_lock);
+		outqueuerdptr = psp_comm_read_out_queue_rdptr();
+		outqueuewrtptr = psp_comm_read_out_queue_wrptr();
 	}
+	mutex_unlock(&psp_comm_data.psp_comm_lock);
 }
 
 irqreturn_t psp_comm_interrupt_callback(int intr, void *pcontext)
@@ -313,6 +339,7 @@ void psp_comm_pci_remove(struct pci_dev *pdev)
 	mutex_destroy(&psp_comm_data.psp_comm_lock);
 	psp_comm_deallocate_memory((u64)psp_comm_data.psp_comm_virtual_addr,
 			sizeof(struct psp_comm_buf));
+	psp_comm_data.psp_init_done = 0;
 #ifdef CONFIG_PSP_TRACE
 	free_psp_trace_resources(&psp_comm_data.trace_buf_info);
 #endif
@@ -367,6 +394,7 @@ int psp_comm_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 			pci_disable_device(pdev);
 			break;
 		}
+		psp_comm_data.psp_init_done = 1;
 		dev_info(dev, " %s : psp comm probe successful\n", __func__);
 	} while (FALSE);
 
@@ -435,10 +463,18 @@ int psp_comm_command(u32 command)
 			sizeof(struct psp_comm_buf));
 	psp_comm_data.command_status = FALSE;
 	psp_comm_write_command(command,	upper_32_bits(val), lower_32_bits(val));
-	wait_event_interruptible_timeout(psp_comm_data.command_wait,
+	ret = wait_event_interruptible_timeout(psp_comm_data.command_wait,
 			psp_comm_data.command_status
 			== TRUE,
-			PSP_COMM_RESPONSE_TIMEOUT);
+			msecs_to_jiffies(PSP_COMMAND_WAIT_TIMEOUT));
+
+	if (ret < 1) {
+		dev_dbg(dev, "%s: Timeout occurred\n", __func__);
+
+		invalidate_buffer(psp_comm_data.psp_comm_virtual_addr,
+				sizeof(struct psp_comm_buf));
+		return -1;
+	}
 
 	command_resp = psp_comm_read_cmdresp_register();
 	if ((command_resp & PSP_COMM_MSB_MASK)) {
@@ -446,8 +482,8 @@ int psp_comm_command(u32 command)
 		if (error_code != 0) {
 			dev_err(dev, "%s : error in command error Code %d\n",
 					__func__, error_code);
-			ret = -1;
 		}
+		ret = error_code;
 	}
 
 	invalidate_buffer(psp_comm_data.psp_comm_virtual_addr,
@@ -473,14 +509,13 @@ void psp_comm_wait_for_status(void)
 u64 psp_comm_allocate_memory(u32 requestedsize)
 {
 	void *addr;
-	u64 order = 0;
 
-	order = sizetoorder(requestedsize);
-	dev_dbg(dev, " %s : req-sz 0x%llx 4k-po 0x%llx\n",
-			__func__, (u64)requestedsize, (u64)order);
+	dev_dbg(dev, " %s : req-sz 0x%llx\n",
+			__func__, (u64)requestedsize);
 	do {
 		/* pages should be 4K aligned */
-		addr = (void *)__get_free_pages(GFP_KERNEL, order);
+		addr = (void *)__get_free_pages(GFP_KERNEL,
+						get_order(requestedsize));
 		if (NULL == addr) {
 			dev_err(dev,
 				" %s : addr failed 0x%llx\n",
@@ -495,10 +530,7 @@ u64 psp_comm_allocate_memory(u32 requestedsize)
 
 void psp_comm_deallocate_memory(u64 addr, u32 requestedsize)
 {
-	u64 order = 0;
-
-	order  = sizetoorder(requestedsize);
-	free_pages((u64)addr, order);
+	free_pages((u64)addr, get_order(requestedsize));
 }
 
 struct device *psp_get_device(void)
@@ -529,7 +561,6 @@ int psp_comm_send_buffer(u32 client_type, void *buf, u32 buf_size, u32 cmd_id)
 	memcpy(buf, &comm_buf->cmdbuf, buf_size);
 	if (ret != 0) {
 		dev_err(dev, " %s : error in sending command\n", __func__);
-		ret = -1;
 	}
 	mutex_unlock(&psp_comm_data.psp_comm_lock);
 	return ret;
@@ -553,7 +584,7 @@ int psp_comm_send_notification(u32 client_type, void *notification_data)
 	comm_buf = (struct psp_comm_buf *)psp_comm_data.psp_comm_virtual_addr;
 	inqueuewrtptr = psp_comm_read_in_queue_wrptr();
 	outqueuerdptr = psp_comm_read_out_queue_rdptr();
-	comm_buf->inqueue[inqueuewrtptr].payload = *(u32 *)notification_data;
+	comm_buf->inqueue[inqueuewrtptr].session_id = *(u32 *)notification_data;
 	comm_buf->outqueue[outqueuerdptr].client_type = client_type;
 	inqueuewrtptr = (inqueuewrtptr + 1) % PSP_COMM_MAX_QUEUES_ENTRIES;
 	psp_comm_trigger_interrupt(inqueuewrtptr);
@@ -592,10 +623,12 @@ int psp_comm_init(void)
 			ret = -ENOMEM;
 			break;
 		}
+
 		psp_comm_data.psp_comm_physical_addr = (struct psp_comm_buf *)
 			virt_to_phys((void *)
 					psp_comm_data
 					.psp_comm_virtual_addr);
+
 		comm_buf = (struct psp_comm_buf *)psp_comm_data
 						.psp_comm_virtual_addr;
 		comm_buf->bufsize = sizeof(struct psp_comm_buf);
@@ -629,6 +662,9 @@ int psp_comm_init(void)
 static int __init psp_comm_driver_init(void)
 {
 	int ret = -EIO;
+
+	/* Set initial state of PSP initialization */
+	psp_comm_data.psp_init_done = 0;
 
 	do {
 		ret = pci_register_driver(&psp_comm_pci_device);

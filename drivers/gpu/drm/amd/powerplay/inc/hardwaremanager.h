@@ -29,6 +29,19 @@ struct pp_hwmgr;
 struct pp_hw_power_state;
 struct pp_power_state;
 enum amd_dpm_forced_level;
+struct PP_TemperatureRange;
+
+
+struct phm_fan_speed_info {
+	uint32_t min_percent;
+	uint32_t max_percent;
+	uint32_t min_rpm;
+	uint32_t max_rpm;
+	bool supports_percent_read;
+	bool supports_percent_write;
+	bool supports_rpm_read;
+	bool supports_rpm_write;
+};
 
 /* Automatic Power State Throttling */
 enum PHM_AutoThrottleSource
@@ -198,6 +211,7 @@ enum phm_platform_caps {
 	PHM_PlatformCaps_ClockStretcher,
 	PHM_PlatformCaps_TablelessHardwareInterface,
 	PHM_PlatformCaps_EnableDriverEVV,
+	PHM_PlatformCaps_SPLLShutdownSupport,
 	PHM_PlatformCaps_Max
 };
 
@@ -278,6 +292,15 @@ struct PP_Clocks {
 	uint32_t engineClockInSR;
 };
 
+struct pp_clock_info {
+	uint32_t min_mem_clk;
+	uint32_t max_mem_clk;
+	uint32_t min_eng_clk;
+	uint32_t max_eng_clk;
+	uint32_t min_bus_bandwidth;
+	uint32_t max_bus_bandwidth;
+};
+
 struct phm_platform_descriptor {
 	uint32_t platformCaps[PHM_MAX_NUM_CAPS_ULONG_ENTRIES];
 	uint32_t vbiosInterruptId;
@@ -310,6 +333,7 @@ struct phm_clocks {
 	uint32_t num_of_entries;
 	uint32_t clock[MAX_NUM_CLOCKS];
 };
+
 extern int phm_enable_clock_power_gatings(struct pp_hwmgr *hwmgr);
 extern int phm_powergate_uvd(struct pp_hwmgr *hwmgr, bool gate);
 extern int phm_powergate_vce(struct pp_hwmgr *hwmgr, bool gate);
@@ -328,4 +352,41 @@ extern int phm_apply_state_adjust_rules(struct pp_hwmgr *hwmgr,
 			     const struct pp_power_state *current_ps);
 
 extern int phm_force_dpm_levels(struct pp_hwmgr *hwmgr, enum amd_dpm_forced_level level);
+extern int phm_display_configuration_changed(struct pp_hwmgr *hwmgr);
+extern int phm_notify_smc_display_config_after_ps_adjustment(struct pp_hwmgr *hwmgr);
+extern int phm_register_thermal_interrupt(struct pp_hwmgr *hwmgr, const void *info);
+extern int phm_start_thermal_controller(struct pp_hwmgr *hwmgr, struct PP_TemperatureRange *temperature_range);
+extern int phm_stop_thermal_controller(struct pp_hwmgr *hwmgr);
+extern bool phm_check_smc_update_required_for_display_configuration(struct pp_hwmgr *hwmgr);
+
+extern int phm_check_states_equal(struct pp_hwmgr *hwmgr,
+				 const struct pp_hw_power_state *pstate1,
+				 const struct pp_hw_power_state *pstate2,
+				 bool *equal);
+
+extern int phm_store_dal_configuration_data(struct pp_hwmgr *hwmgr,
+		const struct amd_pp_display_configuration *display_config);
+
+extern int phm_get_dal_power_level(struct pp_hwmgr *hwmgr,
+		struct amd_pp_simple_clock_info *info);
+
+extern int phm_set_cpu_power_state(struct pp_hwmgr *hwmgr);
+
+extern int phm_power_down_asic(struct pp_hwmgr *hwmgr);
+
+extern int phm_get_performance_level(struct pp_hwmgr *hwmgr, const struct pp_hw_power_state *state,
+				PHM_PerformanceLevelDesignation designation, uint32_t index,
+				PHM_PerformanceLevel *level);
+
+extern int phm_get_clock_info(struct pp_hwmgr *hwmgr, const struct pp_hw_power_state *state,
+			struct pp_clock_info *pclock_info,
+			PHM_PerformanceLevelDesignation designation);
+
+extern int phm_get_current_shallow_sleep_clocks(struct pp_hwmgr *hwmgr, const struct pp_hw_power_state *state, struct pp_clock_info *clock_info);
+
+extern int phm_get_clock_by_type(struct pp_hwmgr *hwmgr, enum amd_pp_clock_type type, struct amd_pp_clocks *clocks);
+
+extern int phm_get_max_high_clocks(struct pp_hwmgr *hwmgr, struct amd_pp_simple_clock_info *clocks);
+
 #endif /* _HARDWARE_MANAGER_H_ */
+

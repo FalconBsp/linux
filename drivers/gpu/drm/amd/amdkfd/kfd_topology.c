@@ -29,6 +29,7 @@
 #include <linux/cpufreq.h>
 #include <linux/log2.h>
 #include <linux/dmi.h>
+#include <linux/atomic.h>
 
 #include "kfd_priv.h"
 #include "kfd_crat.h"
@@ -39,6 +40,7 @@ struct list_head topology_device_list;
 static struct kfd_system_properties sys_props;
 
 static DECLARE_RWSEM(topology_lock);
+static atomic_t topology_crat_proximity_domain;
 
 struct kfd_dev *kfd_device_by_id(uint32_t gpu_id)
 {
@@ -58,6 +60,24 @@ struct kfd_dev *kfd_device_by_id(uint32_t gpu_id)
 	return device;
 }
 
+uint32_t kfd_get_gpu_id(struct kfd_dev *dev)
+{
+	struct kfd_topology_device *top_dev;
+	uint32_t gpu_id = 0;
+
+	down_read(&topology_lock);
+
+	list_for_each_entry(top_dev, &topology_device_list, list)
+		if (top_dev->gpu == dev) {
+			gpu_id = top_dev->gpu_id;
+			break;
+		}
+
+	up_read(&topology_lock);
+
+	return gpu_id;
+}
+
 struct kfd_dev *kfd_device_by_pci_dev(const struct pci_dev *pdev)
 {
 	struct kfd_topology_device *top_dev;
@@ -66,7 +86,25 @@ struct kfd_dev *kfd_device_by_pci_dev(const struct pci_dev *pdev)
 	down_read(&topology_lock);
 
 	list_for_each_entry(top_dev, &topology_device_list, list)
-		if (top_dev->gpu->pdev == pdev) {
+		if (top_dev->gpu && top_dev->gpu->pdev == pdev) {
+			device = top_dev->gpu;
+			break;
+		}
+
+	up_read(&topology_lock);
+
+	return device;
+}
+
+struct kfd_dev *kfd_device_by_kgd(const struct kgd_dev *kgd)
+{
+	struct kfd_topology_device *top_dev;
+	struct kfd_dev *device = NULL;
+
+	down_read(&topology_lock);
+
+	list_for_each_entry(top_dev, &topology_device_list, list)
+		if (top_dev->gpu && top_dev->gpu->kgd == kgd) {
 			device = top_dev->gpu;
 			break;
 		}
@@ -401,7 +439,8 @@ static ssize_t node_show(struct kobject *kobj, struct attribute *attr,
 			dev->gpu->kfd2kgd->get_local_mem_info(dev->gpu->kgd,
 				&local_mem_info);
 			sysfs_show_64bit_prop(buffer, "local_mem_size",
-					local_mem_info.local_mem_size);
+					local_mem_info.local_mem_size_private +
+					local_mem_info.local_mem_size_public);
 		}
 		else
 			sysfs_show_64bit_prop(buffer, "local_mem_size",
@@ -693,11 +732,16 @@ static void kfd_topology_release_sysfs(void)
 }
 
 /* Called with write topology_lock acquired */
-static void kfd_topology_update_device_list(struct list_head *temp_list,
+static int kfd_topology_update_device_list(struct list_head *temp_list,
 					struct list_head *master_list)
 {
-	while (!list_empty(temp_list))
+	int num = 0;
+
+	while (!list_empty(temp_list)) {
 		list_move_tail(temp_list->next, master_list);
+		num++;
+	}
+	return num;
 }
 
 static void kfd_debug_print_topology(void)
@@ -780,6 +824,8 @@ int kfd_topology_init(void)
 	struct list_head temp_topology_device_list;
 	int cpu_only_node = 0;
 	struct kfd_topology_device *kdev;
+	int proximity_domain;
+	int num_nodes;
 
 	/* topology_device_list - Master list of all topology devices
 	 * temp_topology_device_list - temporary list created while parsing CRAT
@@ -795,6 +841,12 @@ int kfd_topology_init(void)
 
 	memset(&sys_props, 0, sizeof(sys_props));
 
+	/* Proximity domains in ACPI CRAT tables start counting at
+	 * 0. The same should be true for virtual CRAT tables created
+	 * at this stage. GPUs added later in kfd_topology_add_device
+	 * use a counter. */
+	proximity_domain = 0;
+
 	/*
 	 * Get the CRAT image from the ACPI. If ACPI doesn't have one
 	 * create a virtual CRAT.
@@ -804,20 +856,24 @@ int kfd_topology_init(void)
 	ret = kfd_create_crat_image_acpi(&crat_image, &image_size);
 	if (ret != 0) {
 		ret = kfd_create_crat_image_virtual(&crat_image, &image_size,
-				COMPUTE_UNIT_CPU, NULL);
+				COMPUTE_UNIT_CPU, NULL,
+				proximity_domain);
 		cpu_only_node = 1;
 	}
 
 	if (ret == 0)
-		ret = kfd_parse_crat_table(crat_image, &temp_topology_device_list);
+		ret = kfd_parse_crat_table(crat_image,
+				&temp_topology_device_list,
+				proximity_domain);
 	else {
 		pr_err("Error getting/creating CRAT table\n");
 		goto err;
 	}
 
 	down_write(&topology_lock);
-	kfd_topology_update_device_list(&temp_topology_device_list,
-					&topology_device_list);
+	num_nodes = kfd_topology_update_device_list(&temp_topology_device_list,
+						    &topology_device_list);
+	atomic_set(&topology_crat_proximity_domain, num_nodes-1);
 	ret = kfd_topology_update_sysfs();
 	up_write(&topology_lock);
 
@@ -858,6 +914,7 @@ static uint32_t kfd_generate_gpu_id(struct kfd_dev *gpu)
 {
 	uint32_t hashout;
 	uint32_t buf[7];
+	uint64_t local_mem_size;
 	int i;
 	struct kfd_local_mem_info local_mem_info;
 
@@ -866,13 +923,16 @@ static uint32_t kfd_generate_gpu_id(struct kfd_dev *gpu)
 
 	gpu->kfd2kgd->get_local_mem_info(gpu->kgd, &local_mem_info);
 
+	local_mem_size = local_mem_info.local_mem_size_private +
+			local_mem_info.local_mem_size_public;
+
 	buf[0] = gpu->pdev->devfn;
 	buf[1] = gpu->pdev->subsystem_vendor;
 	buf[2] = gpu->pdev->subsystem_device;
 	buf[3] = gpu->pdev->device;
 	buf[4] = gpu->pdev->bus->number;
-	buf[5] = lower_32_bits(local_mem_info.local_mem_size);
-	buf[6] = upper_32_bits(local_mem_info.local_mem_size);
+	buf[5] = lower_32_bits(local_mem_size);
+	buf[6] = upper_32_bits(local_mem_size);
 
 	for (i = 0, hashout = 0; i < 7; i++)
 		hashout ^= hash_32(buf[i], KFD_GPU_ID_HASH_WIDTH);
@@ -945,6 +1005,7 @@ int kfd_topology_add_device(struct kfd_dev *gpu)
 	struct list_head temp_topology_device_list;
 	void *crat_image = NULL;
 	size_t image_size = 0;
+	int proximity_domain;
 
 	BUG_ON(!gpu);
 
@@ -953,6 +1014,9 @@ int kfd_topology_add_device(struct kfd_dev *gpu)
 	gpu_id = kfd_generate_gpu_id(gpu);
 
 	pr_debug("kfd: Adding new GPU (ID: 0x%x) to topology\n", gpu_id);
+
+	proximity_domain = atomic_inc_return(&
+				topology_crat_proximity_domain);
 
 	/* Check to see if this gpu device exists in the topology_device_list.
 	 * If so, assign the gpu to that device,
@@ -963,9 +1027,11 @@ int kfd_topology_add_device(struct kfd_dev *gpu)
 	dev = kfd_assign_gpu(gpu);
 	if (!dev) {
 		res = kfd_create_crat_image_virtual(&crat_image, &image_size,
-								COMPUTE_UNIT_GPU, gpu);
+				COMPUTE_UNIT_GPU,
+				gpu, proximity_domain);
 		if (res == 0)
-			res = kfd_parse_crat_table(crat_image, &temp_topology_device_list);
+			res = kfd_parse_crat_table(crat_image,
+				&temp_topology_device_list, proximity_domain);
 		else {
 			pr_err("Error in VCRAT for GPU (ID: 0x%x)\n", gpu_id);
 			goto err;
@@ -1107,4 +1173,55 @@ int kfd_topology_enum_kfd_devices(uint8_t idx, struct kfd_dev **kdev)
 
 	return -1;
 
+}
+
+static int kfd_cpumask_to_apic_id(const struct cpumask *cpumask)
+{
+	const struct cpuinfo_x86 *cpuinfo;
+	int first_cpu_of_nuna_node;
+
+	if (cpumask == NULL || cpumask == cpu_none_mask)
+		return -1;
+	first_cpu_of_nuna_node = cpumask_first(cpumask);
+	cpuinfo = &cpu_data(first_cpu_of_nuna_node);
+
+	return cpuinfo->apicid;
+}
+
+/* kfd_numa_node_to_apic_id - Returns the APIC ID of the first logical processor
+ *	of the given NUMA node (numa_node_id)
+ * Return -1 on failure
+ */
+int kfd_numa_node_to_apic_id(int numa_node_id)
+{
+	if (numa_node_id == -1) {
+		pr_warn("Invalid NUMA Node. Use online CPU mask\n");
+		return kfd_cpumask_to_apic_id(cpu_online_mask);
+	}
+	return kfd_cpumask_to_apic_id(cpumask_of_node(numa_node_id));
+}
+
+/* kfd_get_proximity_domain - Find proximity_domain (node id) to which
+ *  given PCI bus belongs to. CRAT table contains only the APIC ID
+ *  of the parent NUMA node. So use that as the search parameter.
+ * Return -1 on failure
+ */
+int kfd_get_proximity_domain(const struct pci_bus *bus)
+{
+	struct kfd_topology_device *dev;
+	int proximity_domain = -1;
+
+	down_read(&topology_lock);
+
+	list_for_each_entry(dev, &topology_device_list, list)
+		if (dev->node_props.cpu_cores_count &&
+			dev->node_props.cpu_core_id_base ==
+			kfd_cpumask_to_apic_id(cpumask_of_pcibus(bus))) {
+				proximity_domain = dev->proximity_domain;
+			break;
+		}
+
+	up_read(&topology_lock);
+
+	return proximity_domain;
 }

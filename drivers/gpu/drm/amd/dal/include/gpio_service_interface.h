@@ -28,15 +28,15 @@
 
 #include "gpio_types.h"
 #include "gpio_interface.h"
-#include "dvo_interface.h"
 #include "ddc_interface.h"
 #include "irq_interface.h"
 
 struct gpio_service;
 
 struct gpio_service *dal_gpio_service_create(
-	enum dce_version dce_version,
-	struct dal_context *dal_context);
+	enum dce_version dce_version_major,
+	enum dce_version dce_version_minor,
+	struct dc_context *ctx);
 
 struct gpio *dal_gpio_service_create_gpio(
 	struct gpio_service *service,
@@ -61,19 +61,6 @@ struct ddc *dal_gpio_service_create_ddc(
 
 void dal_gpio_service_destroy_ddc(
 	struct ddc **ddc);
-
-struct dvo *dal_gpio_service_create_dvo(
-	struct gpio_service *service,
-	uint32_t offset,
-	uint32_t mask);
-
-struct dvo *dal_gpio_service_create_dvo_ex(
-	struct gpio_service *service,
-	enum gpio_id id,
-	uint32_t en);
-
-void dal_gpio_service_destroy_dvo(
-	struct dvo **ptr);
 
 struct irq *dal_gpio_service_create_irq(
 	struct gpio_service *service,

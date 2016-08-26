@@ -26,7 +26,10 @@
 #define AMDGPU_AMDKFD_H_INCLUDED
 
 #include <linux/types.h>
+#include <linux/workqueue.h>
 #include <kgd_kfd_interface.h>
+
+extern const struct kgd2kfd_calls *kgd2kfd;
 
 struct amdgpu_device;
 
@@ -45,12 +48,21 @@ struct kgd_mem {
 			void *cpu_ptr;
 		} data1;
 		struct {
+			struct mutex lock;
 			struct amdgpu_bo *bo;
 			struct list_head bo_va_list;
 			uint32_t domain;
 			unsigned int mapped_to_gpu_memory;
 			void *kptr;
 			uint64_t va;
+			unsigned evicted; /* eviction counter */
+			struct delayed_work work; /* for restore evicted mem */
+			struct mm_struct *mm; /* for restore */
+			/* flags bitfield */
+			bool readonly      : 1;
+			bool execute       : 1;
+			bool no_substitute : 1;
+			bool aql_queue     : 1;
 		} data2;
 	};
 };
@@ -67,6 +79,15 @@ void amdgpu_amdkfd_interrupt(struct amdgpu_device *rdev,
 void amdgpu_amdkfd_device_probe(struct amdgpu_device *rdev);
 void amdgpu_amdkfd_device_init(struct amdgpu_device *rdev);
 void amdgpu_amdkfd_device_fini(struct amdgpu_device *rdev);
+
+int amdgpu_amdkfd_evict_mem(struct amdgpu_device *adev, struct kgd_mem *mem,
+			    struct mm_struct *mm);
+int amdgpu_amdkfd_schedule_restore_mem(struct amdgpu_device *adev,
+				       struct kgd_mem *mem,
+				       struct mm_struct *mm,
+				       unsigned long delay);
+void amdgpu_amdkfd_cancel_restore_mem(struct amdgpu_device *adev,
+				      struct kgd_mem *mem);
 
 struct kfd2kgd_calls *amdgpu_amdkfd_gfx_7_get_functions(void);
 struct kfd2kgd_calls *amdgpu_amdkfd_gfx_8_0_get_functions(void);
@@ -86,9 +107,54 @@ uint32_t get_max_engine_clock_in_mhz(struct kgd_dev *kgd);
 void get_cu_info(struct kgd_dev *kgd, struct kfd_cu_info *cu_info);
 int map_gtt_bo_to_kernel(struct kgd_dev *kgd,
 		struct kgd_mem *mem, void **kptr);
+int amdgpu_amdkfd_get_dmabuf_info(struct kgd_dev *kgd, int dma_buf_fd,
+				  struct kgd_dev **dmabuf_kgd,
+				  uint64_t *bo_size, void *metadata_buffer,
+				  size_t buffer_size, uint32_t *metadata_size,
+				  uint32_t *flags);
 
-/* Tonga API */
-struct kfd2kgd_calls *amdgpu_amdkfd_gfx_8_0_tonga_get_functions(void);
+/* GPUVM API */
+int amdgpu_amdkfd_gpuvm_alloc_memory_of_gpu(
+		struct kgd_dev *kgd, uint64_t va, size_t size,
+		void *vm, struct kgd_mem **mem,
+		uint64_t *offset, void **kptr,
+		struct kfd_process_device *pdd, uint32_t flags);
+int amdgpu_amdkfd_gpuvm_free_memory_of_gpu(
+		struct kgd_dev *kgd, struct kgd_mem *mem);
+int amdgpu_amdkfd_gpuvm_map_memory_to_gpu(
+		struct kgd_dev *kgd, struct kgd_mem *mem, void *vm);
+int amdgpu_amdkfd_gpuvm_unmap_memory_from_gpu(
+		struct kgd_dev *kgd, struct kgd_mem *mem, void *vm);
+
+int amdgpu_amdkfd_gpuvm_create_process_vm(struct kgd_dev *kgd, void **vm);
+void amdgpu_amdkfd_gpuvm_destroy_process_vm(struct kgd_dev *kgd, void *vm);
+
+uint32_t amdgpu_amdkfd_gpuvm_get_process_page_dir(void *vm);
+
+int amdgpu_amdkfd_gpuvm_get_vm_fault_info(struct kgd_dev *kgd,
+					      struct kfd_vm_fault_info *info);
+
+int amdgpu_amdkfd_gpuvm_mmap_bo(
+		struct kgd_dev *kgd, struct vm_area_struct *vma);
+
+int amdgpu_amdkfd_gpuvm_map_gtt_bo_to_kernel(struct kgd_dev *kgd,
+		struct kgd_mem *mem, void **kptr);
+
+struct kfd_process_device *amdgpu_amdkfd_gpuvm_get_pdd_from_buffer_object(
+		struct kgd_dev *kgd, struct kgd_mem *mem);
+int amdgpu_amdkfd_gpuvm_return_bo_size(
+		struct kgd_dev *kgd, struct kgd_mem *mem);
+
+int amdgpu_amdkfd_gpuvm_pin_get_sg_table(struct kgd_dev *kgd,
+		struct kgd_mem *mem, uint64_t offset,
+		uint64_t size, struct sg_table **ret_sg);
+void amdgpu_amdkfd_gpuvm_unpin_put_sg_table(
+		struct kgd_mem *mem, struct sg_table *sg);
+int amdgpu_amdkfd_gpuvm_import_dmabuf(struct kgd_dev *kgd, int dma_buf_fd,
+				      uint64_t va, void *vm,
+				      struct kgd_mem **mem, uint64_t *size);
+int amdgpu_amdkfd_gpuvm_evict_mem(struct kgd_mem *mem, struct mm_struct *mm);
+int amdgpu_amdkfd_gpuvm_restore_mem(struct kgd_mem *mem, struct mm_struct *mm);
 
 #endif /* AMDGPU_AMDKFD_H_INCLUDED */
 

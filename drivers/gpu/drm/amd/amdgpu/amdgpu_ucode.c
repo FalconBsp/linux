@@ -286,7 +286,7 @@ int amdgpu_ucode_init_bo(struct amdgpu_device *adev)
 		if (ucode->fw) {
 			header = (const struct common_firmware_header *)ucode->fw->data;
 			amdgpu_ucode_init_single_fw(ucode, fw_mc_addr + fw_offset,
-				(void *)((uint64_t)fw_buf_ptr + fw_offset));
+						    fw_buf_ptr + fw_offset);
 			fw_offset += ALIGN(le32_to_cpu(header->ucode_size_bytes), PAGE_SIZE);
 		}
 	}

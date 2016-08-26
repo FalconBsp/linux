@@ -29,7 +29,7 @@
 #include "include/adapter_service_types.h"
 
 struct irq_service_init_data {
-	struct dal_context *ctx;
+	struct dc_context *ctx;
 };
 
 struct irq_service *dal_irq_service_create(
@@ -40,14 +40,14 @@ void dal_irq_service_destroy(struct irq_service **irq_service);
 
 bool dal_irq_service_set(
 	struct irq_service *irq_service,
-	enum dal_irq_source source,
+	enum dc_irq_source source,
 	bool enable);
 
 bool dal_irq_service_ack(
 	struct irq_service *irq_service,
-	enum dal_irq_source source);
+	enum dc_irq_source source);
 
-enum dal_irq_source dal_irq_service_to_irq_source(
+enum dc_irq_source dal_irq_service_to_irq_source(
 		struct irq_service *irq_service,
 		uint32_t src_id,
 		uint32_t ext_id);

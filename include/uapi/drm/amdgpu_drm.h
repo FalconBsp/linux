@@ -46,10 +46,7 @@
 #define DRM_AMDGPU_WAIT_CS		0x09
 #define DRM_AMDGPU_GEM_OP		0x10
 #define DRM_AMDGPU_GEM_USERPTR		0x11
-#define DRM_AMDGPU_WAIT_FENCES		0x12
-
-/* Internal use */
-#define DRM_AMDGPU_DSAT_COMMAND		0x90
+#define DRM_AMDGPU_FREESYNC             0x14
 
 #define DRM_IOCTL_AMDGPU_GEM_CREATE	DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_GEM_CREATE, union drm_amdgpu_gem_create)
 #define DRM_IOCTL_AMDGPU_GEM_MMAP	DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_GEM_MMAP, union drm_amdgpu_gem_mmap)
@@ -63,10 +60,7 @@
 #define DRM_IOCTL_AMDGPU_WAIT_CS	DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_WAIT_CS, union drm_amdgpu_wait_cs)
 #define DRM_IOCTL_AMDGPU_GEM_OP		DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_GEM_OP, struct drm_amdgpu_gem_op)
 #define DRM_IOCTL_AMDGPU_GEM_USERPTR	DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_GEM_USERPTR, struct drm_amdgpu_gem_userptr)
-#define DRM_IOCTL_AMDGPU_WAIT_FENCES	DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_WAIT_FENCES, union drm_amdgpu_wait_fences)
-
-/* DSAT COMMAND IOCTL */
-#define DRM_IOCTL_AMDGPU_DSAT_COMMAND DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_DSAT_COMMAND, struct drm_amdgpu_dsat_cmd_context)
+#define DRM_IOCTL_AMDGPU_FREESYNC       DRM_IOWR(DRM_COMMAND_BASE + DRM_AMDGPU_FREESYNC, struct drm_amdgpu_freesync)
 
 #define AMDGPU_GEM_DOMAIN_CPU		0x1
 #define AMDGPU_GEM_DOMAIN_GTT		0x2
@@ -303,31 +297,6 @@ struct drm_amdgpu_wait_cs_out {
 union drm_amdgpu_wait_cs {
 	struct drm_amdgpu_wait_cs_in in;
 	struct drm_amdgpu_wait_cs_out out;
-};
-
-struct drm_amdgpu_fence {
-	uint32_t ctx_id;
-	uint32_t ip_type;
-	uint32_t ip_instance;
-	uint32_t ring;
-	uint64_t seq_no;
-};
-
-struct drm_amdgpu_wait_fences_in {
-	/** This points to uint64_t * which points to fences */
-	uint64_t fences;
-	uint32_t fence_count;
-	uint32_t wait_all;
-	uint64_t timeout_ns;
-};
-
-struct drm_amdgpu_wait_fences_out {
-	uint64_t status;
-};
-
-union drm_amdgpu_wait_fences {
-	struct drm_amdgpu_wait_fences_in in;
-	struct drm_amdgpu_wait_fences_out out;
 };
 
 #define AMDGPU_GEM_OP_GET_GEM_CREATE_INFO	0
@@ -607,6 +576,8 @@ struct drm_amdgpu_info_firmware {
 #define AMDGPU_VRAM_TYPE_HBM   6
 #define AMDGPU_VRAM_TYPE_DDR3  7
 
+#define AMDGPU_VRAM_TYPE_HBM_WIDTH 4096
+
 struct drm_amdgpu_info_device {
 	/** PCI Device ID */
 	uint32_t device_id;
@@ -673,20 +644,12 @@ struct drm_amdgpu_info_hw_ip {
 #define AMDGPU_FAMILY_CI			120 /* Bonaire, Hawaii */
 #define AMDGPU_FAMILY_KV			125 /* Kaveri, Kabini, Mullins */
 #define AMDGPU_FAMILY_VI			130 /* Iceland, Tonga */
-#define AMDGPU_FAMILY_CZ			135 /* Carrizo */
+#define AMDGPU_FAMILY_CZ			135 /* Carrizo, Stoney */
 
-/*
- * Input structure for the DSAT ioctl
- */
-struct drm_amdgpu_dsat_cmd_context {
-	uint64_t in_ptr; /* Pointer to dsat_input_context */
-	uint64_t out_ptr; /* Pointer to dsat_output_context */
-
-	int32_t ret;
-	uint32_t in_size; /* Including data buffer packed correctly */
-	uint32_t out_size;
+struct drm_amdgpu_freesync {
+         __u32 op;                       /* AMDGPU_FREESYNC_FULLSCREEN_ENTER or */
+                                         /* AMDGPU_FREESYNC_FULLSCREEN_ENTER */
+         __u32 spare[7];
 };
-
-
 
 #endif

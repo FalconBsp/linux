@@ -27,19 +27,6 @@
 #include "cgs_common.h"
 
 /**
- * cgs_import_gpu_mem() - Import dmabuf handle
- * @cgs_device:  opaque device handle
- * @dmabuf_fd:   DMABuf file descriptor
- * @handle:      memory handle (output)
- *
- * Must be called in the process context that dmabuf_fd belongs to.
- *
- * Return:  0 on success, -errno otherwise
- */
-typedef int (*cgs_import_gpu_mem_t)(void *cgs_device, int dmabuf_fd,
-				    cgs_handle_t *handle);
-
-/**
  * cgs_irq_source_set_func() - Callback for enabling/disabling interrupt sources
  * @private_data:  private data provided to cgs_add_irq_source
  * @src_id:        interrupt source ID
@@ -79,7 +66,7 @@ typedef int (*cgs_irq_handler_func_t)(void *private_data,
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_add_irq_source_t)(void *cgs_device, unsigned src_id,
+typedef int (*cgs_add_irq_source_t)(struct cgs_device *cgs_device, unsigned src_id,
 				    unsigned num_types,
 				    cgs_irq_source_set_func_t set,
 				    cgs_irq_handler_func_t handler,
@@ -96,7 +83,7 @@ typedef int (*cgs_add_irq_source_t)(void *cgs_device, unsigned src_id,
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_irq_get_t)(void *cgs_device, unsigned src_id, unsigned type);
+typedef int (*cgs_irq_get_t)(struct cgs_device *cgs_device, unsigned src_id, unsigned type);
 
 /**
  * cgs_irq_put() - Indicate IRQ source is no longer needed
@@ -111,19 +98,15 @@ typedef int (*cgs_irq_get_t)(void *cgs_device, unsigned src_id, unsigned type);
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_irq_put_t)(void *cgs_device, unsigned src_id, unsigned type);
+typedef int (*cgs_irq_put_t)(struct cgs_device *cgs_device, unsigned src_id, unsigned type);
 
 struct cgs_os_ops {
-	cgs_import_gpu_mem_t import_gpu_mem;
-
 	/* IRQ handling */
 	cgs_add_irq_source_t add_irq_source;
 	cgs_irq_get_t irq_get;
 	cgs_irq_put_t irq_put;
 };
 
-#define cgs_import_gpu_mem(dev,dmabuf_fd,handle)		\
-	CGS_OS_CALL(import_gpu_mem,dev,dmabuf_fd,handle)
 #define cgs_add_irq_source(dev,src_id,num_types,set,handler,private_data) \
 	CGS_OS_CALL(add_irq_source,dev,src_id,num_types,set,handler,	\
 		    private_data)

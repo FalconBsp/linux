@@ -34,14 +34,17 @@ enum encoder_result {
 	ENCODER_RESULT_OK,
 	ENCODER_RESULT_ERROR,
 	ENCODER_RESULT_NOBANDWIDTH,
-	ENCODER_RESULT_SINKCONNECTIVITYCHANGED
+	ENCODER_RESULT_SINKCONNECTIVITYCHANGED,
 };
 
 struct encoder_init_data {
 	struct adapter_service *adapter_service;
+	enum channel_id channel;
+	struct graphics_object_id connector;
+	enum hpd_source_id hpd_source;
 	/* TODO: in DAL2, here was pointer to EventManagerInterface */
 	struct graphics_object_id encoder;
-	struct dal_context *ctx;
+	struct dc_context *ctx;
 };
 
 /* forward declaration */
@@ -59,20 +62,6 @@ const struct graphics_object_id dal_encoder_get_graphics_object_id(
  */
 uint32_t dal_encoder_enumerate_input_signals(
 	const struct encoder *enc);
-uint32_t dal_encoder_enumerate_output_signals(
-	const struct encoder *enc);
-bool dal_encoder_is_input_signal_supported(
-	const struct encoder *enc,
-	enum signal_type signal);
-bool dal_encoder_is_output_signal_supported(
-	const struct encoder *enc,
-	enum signal_type signal);
-void dal_encoder_set_input_signals(
-	struct encoder *enc,
-	uint32_t signals);
-void dal_encoder_set_output_signals(
-	struct encoder *enc,
-	uint32_t signals);
 
 /*
  * Programming interface
@@ -140,7 +129,6 @@ enum encoder_result dal_encoder_set_dp_phy_pattern(
 	struct encoder *enc,
 	const struct encoder_set_dp_phy_pattern_param *param);
 
-void dal_encoder_release_hw(struct encoder *enc);
 /*
  * Information interface
  */
@@ -235,7 +223,6 @@ enum encoder_result dal_encoder_enable_stream(
 enum encoder_result dal_encoder_disable_stream(
 	struct encoder *enc,
 	enum engine_id engine);
-void dal_encoder_set_multi_path(struct encoder *enc, bool is_multi_path);
 /*
  * Test harness
  */

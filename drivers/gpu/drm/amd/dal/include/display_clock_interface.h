@@ -51,30 +51,6 @@ struct dc_scaling_params {
 	uint32_t v_taps;
 };
 
-/* Enumeration of Display Clock Deep Color Depths*/
-enum dc_deep_color_depth {
-	DC_DEEP_COLOR_DEPTH_24 = 0, /*8  bpcc*/
-	DC_DEEP_COLOR_DEPTH_30, /*10 bpcc*/
-	DC_DEEP_COLOR_DEPTH_36, /*12 bpcc*/
-	DC_DEEP_COLOR_DEPTH_48 /*16 bpcc*/
-};
-
-/*Display Request Mode (1 and 2 valid when scaler is OFF)*/
-enum display_request_mode {
-	REQUEST_ONLY_AT_EVERY_READ_POINTER_INCREMENT = 0,
-	REQUEST_WAITING_FOR_THE_FIRST_READ_POINTER_ONLY,
-	REQUEST_WITHOUT_WAITING_FOR_READ_POINTER
-};
-
-/* FBC minimum CompressionRatio*/
-enum fbc_compression_ratio {
-	FBC_COMPRESSION_NOT_USED = 0,
-	FBC_MINIMUM_COMPRESSION_RATIO_1 = 1,
-	FBC_MINIMUM_COMPRESSION_RATIO_2 = 2,
-	FBC_MINIMUM_COMPRESSION_RATIO_4 = 4,
-	FBC_MINIMUM_COMPRESSION_RATIO_8 = 8
-};
-
 /* VScalerEfficiency */
 enum v_scaler_efficiency {
 	V_SCALER_EFFICIENCY_LB36BPP = 0,
@@ -95,16 +71,9 @@ struct min_clock_params {
 	struct dc_scaling_params scaling_info;
 	struct color_quality color_info;
 	enum signal_type signal_type;
-	enum dc_deep_color_depth deep_color_depth;
+	enum dc_color_depth deep_color_depth;
 	enum v_scaler_efficiency scaler_efficiency;
 	bool line_buffer_prefetch_enabled;
-};
-
-/* Enumerations for Source selection of the Display clock */
-enum display_clock_source_select {
-	USE_PIXEL_CLOCK_PLL = 0,
-	USE_EXTERNAL_CLOCK,
-	USE_ENGINE_CLOCK
 };
 
 /* Result of Minimum System and Display clock calculations.
@@ -131,7 +100,6 @@ enum clocks_state {
 struct state_dependent_clocks {
 	uint32_t display_clk_khz;
 	uint32_t pixel_clk_khz;
-	uint32_t dvo_clk_khz;
 };
 
 struct display_clock_state {
@@ -140,7 +108,30 @@ struct display_clock_state {
 
 struct display_clock;
 
-struct display_clock *dal_display_clock_create(void);
+#if defined(CONFIG_DRM_AMD_DAL_DCE11_2)
+struct display_clock *dal_display_clock_dce112_create(
+	struct dc_context *ctx,
+	struct adapter_service *as);
+#endif
+
+#if defined(CONFIG_DRM_AMD_DAL_DCE11_0)
+struct display_clock *dal_display_clock_dce110_create(
+	struct dc_context *ctx,
+	struct adapter_service *as);
+#endif
+
+#if defined(CONFIG_DRM_AMD_DAL_DCE8_0)
+struct display_clock *dal_display_clock_dce80_create(
+	struct dc_context *ctx,
+	struct adapter_service *as);
+#endif
+
+#if defined(CONFIG_DRM_AMD_DAL_DCE8_0)
+struct display_clock *dal_display_clock_dce80_create(
+	struct dc_context *ctx,
+	struct adapter_service *as);
+#endif
+
 void dal_display_clock_destroy(struct display_clock **to_destroy);
 bool dal_display_clock_validate(
 	struct display_clock *disp_clk,
@@ -185,6 +176,5 @@ uint32_t dal_display_clock_get_dfs_bypass_threshold(
 	struct display_clock *disp_clk);
 void dal_display_clock_invalid_clock_state(
 	struct display_clock *disp_clk);
-
 
 #endif /* __DISPLAY_CLOCK_INTERFACE_H__ */

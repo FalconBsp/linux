@@ -40,6 +40,19 @@ config DRM_KMS_FB_HELPER
 	help
 	  FBDEV helpers for KMS drivers.
 
+config DRM_FBDEV_EMULATION
+	bool "Enable legacy fbdev support for your modesetting driver"
+	depends on DRM
+	select DRM_KMS_HELPER
+	select DRM_KMS_FB_HELPER
+	default y
+	help
+	  Choose this option if you have a need for the legacy fbdev
+	  support. Note that this support also provides the linux console
+	  support on top of your modesetting driver.
+
+	  If in doubt, say "Y".
+
 config DRM_LOAD_EDID_FIRMWARE
 	bool "Allow to specify an EDID data set instead of probing for it"
 	depends on DRM_KMS_HELPER
@@ -78,8 +91,6 @@ config DRM_KMS_CMA_HELPER
 	  Choose this if you need the KMS CMA helper functions
 
 source "drivers/gpu/drm/i2c/Kconfig"
-
-source "drivers/gpu/drm/bridge/Kconfig"
 
 config DRM_TDFX
 	tristate "3dfx Banshee/Voodoo3+"
@@ -120,8 +131,6 @@ config DRM_RADEON
 
 source "drivers/gpu/drm/radeon/Kconfig"
 
-source "drivers/gpu/drm/amd/bus/Kconfig"
-
 config DRM_AMDGPU
 	tristate "AMD GPU"
 	depends on DRM && PCI
@@ -136,16 +145,12 @@ config DRM_AMDGPU
 	select HWMON
 	select BACKLIGHT_CLASS_DEVICE
 	select INTERVAL_TREE
-	select DRM_AMD_GNB_BUS
 	help
 	  Choose this option if you have a recent AMD Radeon graphics card.
 
 	  If M is selected, the module will be called amdgpu.
 
 source "drivers/gpu/drm/amd/amdgpu/Kconfig"
-source "drivers/gpu/drm/amd/powerplay/Kconfig"
-
-source "drivers/gpu/drm/amd/acp/Kconfig"
 
 source "drivers/gpu/drm/amd/hdcp_service/Kconfig"
 

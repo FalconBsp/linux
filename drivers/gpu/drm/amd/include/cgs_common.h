@@ -26,6 +26,8 @@
 
 #include "amd_shared.h"
 
+struct cgs_device;
+
 /**
  * enum cgs_gpu_mem_type - GPU memory types
  */
@@ -92,6 +94,7 @@ enum cgs_voltage_planes {
  */
 enum cgs_ucode_id {
 	CGS_UCODE_ID_SMU = 0,
+	CGS_UCODE_ID_SMU_SK,
 	CGS_UCODE_ID_SDMA0,
 	CGS_UCODE_ID_SDMA1,
 	CGS_UCODE_ID_CP_CE,
@@ -109,6 +112,9 @@ enum cgs_system_info_id {
 	CGS_SYSTEM_INFO_ADAPTER_BDF_ID = 1,
 	CGS_SYSTEM_INFO_PCIE_GEN_INFO,
 	CGS_SYSTEM_INFO_PCIE_MLW,
+	CGS_SYSTEM_INFO_CG_FLAGS,
+	CGS_SYSTEM_INFO_PG_FLAGS,
+	CGS_SYSTEM_INFO_GFX_CU_INFO,
 	CGS_SYSTEM_INFO_ID_MAXIMUM,
 };
 
@@ -120,6 +126,17 @@ struct cgs_system_info {
 		uint64_t        value;
 	};
 	uint64_t               padding[13];
+};
+
+/*
+ * enum cgs_resource_type - GPU resource type
+ */
+enum cgs_resource_type {
+	CGS_RESOURCE_TYPE_MMIO = 0,
+	CGS_RESOURCE_TYPE_FB,
+	CGS_RESOURCE_TYPE_IO,
+	CGS_RESOURCE_TYPE_DOORBELL,
+	CGS_RESOURCE_TYPE_ROM,
 };
 
 /**
@@ -210,7 +227,7 @@ struct cgs_acpi_method_info {
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_gpu_mem_info_t)(void *cgs_device, enum cgs_gpu_mem_type type,
+typedef int (*cgs_gpu_mem_info_t)(struct cgs_device *cgs_device, enum cgs_gpu_mem_type type,
 				  uint64_t *mc_start, uint64_t *mc_size,
 				  uint64_t *mem_size);
 
@@ -226,7 +243,7 @@ typedef int (*cgs_gpu_mem_info_t)(void *cgs_device, enum cgs_gpu_mem_type type,
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_gmap_kmem_t)(void *cgs_device, void *kmem, uint64_t size,
+typedef int (*cgs_gmap_kmem_t)(struct cgs_device *cgs_device, void *kmem, uint64_t size,
 			       uint64_t min_offset, uint64_t max_offset,
 			       cgs_handle_t *kmem_handle, uint64_t *mcaddr);
 
@@ -237,7 +254,7 @@ typedef int (*cgs_gmap_kmem_t)(void *cgs_device, void *kmem, uint64_t size,
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_gunmap_kmem_t)(void *cgs_device, cgs_handle_t kmem_handle);
+typedef int (*cgs_gunmap_kmem_t)(struct cgs_device *cgs_device, cgs_handle_t kmem_handle);
 
 /**
  * cgs_alloc_gpu_mem() - Allocate GPU memory
@@ -266,7 +283,7 @@ typedef int (*cgs_gunmap_kmem_t)(void *cgs_device, cgs_handle_t kmem_handle);
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_alloc_gpu_mem_t)(void *cgs_device, enum cgs_gpu_mem_type type,
+typedef int (*cgs_alloc_gpu_mem_t)(struct cgs_device *cgs_device, enum cgs_gpu_mem_type type,
 				   uint64_t size, uint64_t align,
 				   uint64_t min_offset, uint64_t max_offset,
 				   cgs_handle_t *handle);
@@ -278,7 +295,7 @@ typedef int (*cgs_alloc_gpu_mem_t)(void *cgs_device, enum cgs_gpu_mem_type type,
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_free_gpu_mem_t)(void *cgs_device, cgs_handle_t handle);
+typedef int (*cgs_free_gpu_mem_t)(struct cgs_device *cgs_device, cgs_handle_t handle);
 
 /**
  * cgs_gmap_gpu_mem() - GPU-map GPU memory
@@ -290,7 +307,7 @@ typedef int (*cgs_free_gpu_mem_t)(void *cgs_device, cgs_handle_t handle);
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_gmap_gpu_mem_t)(void *cgs_device, cgs_handle_t handle,
+typedef int (*cgs_gmap_gpu_mem_t)(struct cgs_device *cgs_device, cgs_handle_t handle,
 				  uint64_t *mcaddr);
 
 /**
@@ -302,7 +319,7 @@ typedef int (*cgs_gmap_gpu_mem_t)(void *cgs_device, cgs_handle_t handle,
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_gunmap_gpu_mem_t)(void *cgs_device, cgs_handle_t handle);
+typedef int (*cgs_gunmap_gpu_mem_t)(struct cgs_device *cgs_device, cgs_handle_t handle);
 
 /**
  * cgs_kmap_gpu_mem() - Kernel-map GPU memory
@@ -313,7 +330,7 @@ typedef int (*cgs_gunmap_gpu_mem_t)(void *cgs_device, cgs_handle_t handle);
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_kmap_gpu_mem_t)(void *cgs_device, cgs_handle_t handle,
+typedef int (*cgs_kmap_gpu_mem_t)(struct cgs_device *cgs_device, cgs_handle_t handle,
 				  void **map);
 
 /**
@@ -323,7 +340,7 @@ typedef int (*cgs_kmap_gpu_mem_t)(void *cgs_device, cgs_handle_t handle,
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_kunmap_gpu_mem_t)(void *cgs_device, cgs_handle_t handle);
+typedef int (*cgs_kunmap_gpu_mem_t)(struct cgs_device *cgs_device, cgs_handle_t handle);
 
 /**
  * cgs_read_register() - Read an MMIO register
@@ -332,7 +349,7 @@ typedef int (*cgs_kunmap_gpu_mem_t)(void *cgs_device, cgs_handle_t handle);
  *
  * Return:  register value
  */
-typedef uint32_t (*cgs_read_register_t)(void *cgs_device, unsigned offset);
+typedef uint32_t (*cgs_read_register_t)(struct cgs_device *cgs_device, unsigned offset);
 
 /**
  * cgs_write_register() - Write an MMIO register
@@ -340,7 +357,7 @@ typedef uint32_t (*cgs_read_register_t)(void *cgs_device, unsigned offset);
  * @offset:	register offset
  * @value:	register value
  */
-typedef void (*cgs_write_register_t)(void *cgs_device, unsigned offset,
+typedef void (*cgs_write_register_t)(struct cgs_device *cgs_device, unsigned offset,
 				     uint32_t value);
 
 /**
@@ -350,7 +367,7 @@ typedef void (*cgs_write_register_t)(void *cgs_device, unsigned offset,
  *
  * Return:  register value
  */
-typedef uint32_t (*cgs_read_ind_register_t)(void *cgs_device, enum cgs_ind_reg space,
+typedef uint32_t (*cgs_read_ind_register_t)(struct cgs_device *cgs_device, enum cgs_ind_reg space,
 					    unsigned index);
 
 /**
@@ -359,7 +376,7 @@ typedef uint32_t (*cgs_read_ind_register_t)(void *cgs_device, enum cgs_ind_reg s
  * @offset:	register offset
  * @value:	register value
  */
-typedef void (*cgs_write_ind_register_t)(void *cgs_device, enum cgs_ind_reg space,
+typedef void (*cgs_write_ind_register_t)(struct cgs_device *cgs_device, enum cgs_ind_reg space,
 					 unsigned index, uint32_t value);
 
 /**
@@ -369,7 +386,7 @@ typedef void (*cgs_write_ind_register_t)(void *cgs_device, enum cgs_ind_reg spac
  *
  * Return:  Value read
  */
-typedef uint8_t (*cgs_read_pci_config_byte_t)(void *cgs_device, unsigned addr);
+typedef uint8_t (*cgs_read_pci_config_byte_t)(struct cgs_device *cgs_device, unsigned addr);
 
 /**
  * cgs_read_pci_config_word() - Read word from PCI configuration space
@@ -378,7 +395,7 @@ typedef uint8_t (*cgs_read_pci_config_byte_t)(void *cgs_device, unsigned addr);
  *
  * Return:  Value read
  */
-typedef uint16_t (*cgs_read_pci_config_word_t)(void *cgs_device, unsigned addr);
+typedef uint16_t (*cgs_read_pci_config_word_t)(struct cgs_device *cgs_device, unsigned addr);
 
 /**
  * cgs_read_pci_config_dword() - Read dword from PCI configuration space
@@ -387,7 +404,7 @@ typedef uint16_t (*cgs_read_pci_config_word_t)(void *cgs_device, unsigned addr);
  *
  * Return:  Value read
  */
-typedef uint32_t (*cgs_read_pci_config_dword_t)(void *cgs_device,
+typedef uint32_t (*cgs_read_pci_config_dword_t)(struct cgs_device *cgs_device,
 						unsigned addr);
 
 /**
@@ -396,7 +413,7 @@ typedef uint32_t (*cgs_read_pci_config_dword_t)(void *cgs_device,
  * @addr:	address
  * @value:	value to write
  */
-typedef void (*cgs_write_pci_config_byte_t)(void *cgs_device, unsigned addr,
+typedef void (*cgs_write_pci_config_byte_t)(struct cgs_device *cgs_device, unsigned addr,
 					    uint8_t value);
 
 /**
@@ -405,7 +422,7 @@ typedef void (*cgs_write_pci_config_byte_t)(void *cgs_device, unsigned addr,
  * @addr:	address, must be word-aligned
  * @value:	value to write
  */
-typedef void (*cgs_write_pci_config_word_t)(void *cgs_device, unsigned addr,
+typedef void (*cgs_write_pci_config_word_t)(struct cgs_device *cgs_device, unsigned addr,
 					    uint16_t value);
 
 /**
@@ -414,8 +431,25 @@ typedef void (*cgs_write_pci_config_word_t)(void *cgs_device, unsigned addr,
  * @addr:	address, must be dword-aligned
  * @value:	value to write
  */
-typedef void (*cgs_write_pci_config_dword_t)(void *cgs_device, unsigned addr,
+typedef void (*cgs_write_pci_config_dword_t)(struct cgs_device *cgs_device, unsigned addr,
 					     uint32_t value);
+
+
+/**
+ * cgs_get_pci_resource() - provide access to a device resource (PCI BAR)
+ * @cgs_device:	opaque device handle
+ * @resource_type:	Type of Resource (MMIO, IO, ROM, FB, DOORBELL)
+ * @size:	size of the region
+ * @offset:	offset from the start of the region
+ * @resource_base:	base address (not including offset) returned
+ *
+ * Return: 0 on success, -errno otherwise
+ */
+typedef int (*cgs_get_pci_resource_t)(struct cgs_device *cgs_device,
+				      enum cgs_resource_type resource_type,
+				      uint64_t size,
+				      uint64_t offset,
+				      uint64_t *resource_base);
 
 /**
  * cgs_atom_get_data_table() - Get a pointer to an ATOM BIOS data table
@@ -428,7 +462,7 @@ typedef void (*cgs_write_pci_config_dword_t)(void *cgs_device, unsigned addr,
  * Return: Pointer to start of the table, or NULL on failure
  */
 typedef const void *(*cgs_atom_get_data_table_t)(
-	void *cgs_device, unsigned table,
+	struct cgs_device *cgs_device, unsigned table,
 	uint16_t *size, uint8_t *frev, uint8_t *crev);
 
 /**
@@ -440,7 +474,7 @@ typedef const void *(*cgs_atom_get_data_table_t)(
  *
  * Return: 0 on success, -errno otherwise
  */
-typedef int (*cgs_atom_get_cmd_table_revs_t)(void *cgs_device, unsigned table,
+typedef int (*cgs_atom_get_cmd_table_revs_t)(struct cgs_device *cgs_device, unsigned table,
 					     uint8_t *frev, uint8_t *crev);
 
 /**
@@ -451,7 +485,7 @@ typedef int (*cgs_atom_get_cmd_table_revs_t)(void *cgs_device, unsigned table,
  *
  * Return: 0 on success, -errno otherwise
  */
-typedef int (*cgs_atom_exec_cmd_table_t)(void *cgs_device,
+typedef int (*cgs_atom_exec_cmd_table_t)(struct cgs_device *cgs_device,
 					 unsigned table, void *args);
 
 /**
@@ -461,7 +495,7 @@ typedef int (*cgs_atom_exec_cmd_table_t)(void *cgs_device,
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_create_pm_request_t)(void *cgs_device, cgs_handle_t *request);
+typedef int (*cgs_create_pm_request_t)(struct cgs_device *cgs_device, cgs_handle_t *request);
 
 /**
  * cgs_destroy_pm_request() - Destroy a power management request
@@ -470,7 +504,7 @@ typedef int (*cgs_create_pm_request_t)(void *cgs_device, cgs_handle_t *request);
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_destroy_pm_request_t)(void *cgs_device, cgs_handle_t request);
+typedef int (*cgs_destroy_pm_request_t)(struct cgs_device *cgs_device, cgs_handle_t request);
 
 /**
  * cgs_set_pm_request() - Activate or deactiveate a PM request
@@ -486,7 +520,7 @@ typedef int (*cgs_destroy_pm_request_t)(void *cgs_device, cgs_handle_t request);
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_set_pm_request_t)(void *cgs_device, cgs_handle_t request,
+typedef int (*cgs_set_pm_request_t)(struct cgs_device *cgs_device, cgs_handle_t request,
 				    int active);
 
 /**
@@ -498,7 +532,7 @@ typedef int (*cgs_set_pm_request_t)(void *cgs_device, cgs_handle_t request,
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_pm_request_clock_t)(void *cgs_device, cgs_handle_t request,
+typedef int (*cgs_pm_request_clock_t)(struct cgs_device *cgs_device, cgs_handle_t request,
 				      enum cgs_clock clock, unsigned freq);
 
 /**
@@ -510,7 +544,7 @@ typedef int (*cgs_pm_request_clock_t)(void *cgs_device, cgs_handle_t request,
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_pm_request_engine_t)(void *cgs_device, cgs_handle_t request,
+typedef int (*cgs_pm_request_engine_t)(struct cgs_device *cgs_device, cgs_handle_t request,
 				       enum cgs_engine engine, int powered);
 
 /**
@@ -521,7 +555,7 @@ typedef int (*cgs_pm_request_engine_t)(void *cgs_device, cgs_handle_t request,
  *
  * Return:  0 on success, -errno otherwise
  */
-typedef int (*cgs_pm_query_clock_limits_t)(void *cgs_device,
+typedef int (*cgs_pm_query_clock_limits_t)(struct cgs_device *cgs_device,
 					   enum cgs_clock clock,
 					   struct cgs_clock_limits *limits);
 
@@ -533,7 +567,7 @@ typedef int (*cgs_pm_query_clock_limits_t)(void *cgs_device,
  *
  * Return: 0 on success, -errno otherwise
  */
-typedef int (*cgs_set_camera_voltages_t)(void *cgs_device, uint32_t mask,
+typedef int (*cgs_set_camera_voltages_t)(struct cgs_device *cgs_device, uint32_t mask,
 					 const uint32_t *voltages);
 /**
  * cgs_get_firmware_info - Get the firmware information from core driver
@@ -543,23 +577,25 @@ typedef int (*cgs_set_camera_voltages_t)(void *cgs_device, uint32_t mask,
  *
  * Return: 0 on success, -errno otherwise
  */
-typedef int (*cgs_get_firmware_info)(void *cgs_device,
+typedef int (*cgs_get_firmware_info)(struct cgs_device *cgs_device,
 				     enum cgs_ucode_id type,
 				     struct cgs_firmware_info *info);
 
-typedef int(*cgs_set_powergating_state)(void *cgs_device,
+typedef int(*cgs_set_powergating_state)(struct cgs_device *cgs_device,
 				  enum amd_ip_block_type block_type,
 				  enum amd_powergating_state state);
 
-typedef int(*cgs_set_clockgating_state)(void *cgs_device,
+typedef int(*cgs_set_clockgating_state)(struct cgs_device *cgs_device,
 				  enum amd_ip_block_type block_type,
 				  enum amd_clockgating_state state);
 
 typedef int(*cgs_get_active_displays_info)(
-					void *cgs_device,
+					struct cgs_device *cgs_device,
 					struct cgs_display_info *info);
 
-typedef int (*cgs_call_acpi_method)(void *cgs_device,
+typedef int (*cgs_notify_dpm_enabled)(struct cgs_device *cgs_device, bool enabled);
+
+typedef int (*cgs_call_acpi_method)(struct cgs_device *cgs_device,
 					uint32_t acpi_method,
 					uint32_t acpi_function,
 					void *pinput, void *poutput,
@@ -567,7 +603,7 @@ typedef int (*cgs_call_acpi_method)(void *cgs_device,
 					uint32_t input_size,
 					uint32_t output_size);
 
-typedef int (*cgs_query_system_info)(void *cgs_device,
+typedef int (*cgs_query_system_info)(struct cgs_device *cgs_device,
 				struct cgs_system_info *sys_info);
 
 struct cgs_ops {
@@ -593,6 +629,8 @@ struct cgs_ops {
 	cgs_write_pci_config_byte_t write_pci_config_byte;
 	cgs_write_pci_config_word_t write_pci_config_word;
 	cgs_write_pci_config_dword_t write_pci_config_dword;
+	/* PCI resources */
+	cgs_get_pci_resource_t get_pci_resource;
 	/* ATOM BIOS */
 	cgs_atom_get_data_table_t atom_get_data_table;
 	cgs_atom_get_cmd_table_revs_t atom_get_cmd_table_revs;
@@ -612,6 +650,8 @@ struct cgs_ops {
 	cgs_set_clockgating_state set_clockgating_state;
 	/* display manager */
 	cgs_get_active_displays_info get_active_displays_info;
+	/* notify dpm enabled */
+	cgs_notify_dpm_enabled notify_dpm_enabled;
 	/* ACPI */
 	cgs_call_acpi_method call_acpi_method;
 	/* get system info */
@@ -702,11 +742,19 @@ struct cgs_device
 	CGS_CALL(set_powergating_state, dev, block_type, state)
 #define cgs_set_clockgating_state(dev, block_type, state)	\
 	CGS_CALL(set_clockgating_state, dev, block_type, state)
+#define cgs_notify_dpm_enabled(dev, enabled)	\
+	CGS_CALL(notify_dpm_enabled, dev, enabled)
+
 #define cgs_get_active_displays_info(dev, info)	\
 	CGS_CALL(get_active_displays_info, dev, info)
+
 #define cgs_call_acpi_method(dev, acpi_method, acpi_function, pintput, poutput, output_count, input_size, output_size)	\
 	CGS_CALL(call_acpi_method, dev, acpi_method, acpi_function, pintput, poutput, output_count, input_size, output_size)
 #define cgs_query_system_info(dev, sys_info)	\
 	CGS_CALL(query_system_info, dev, sys_info)
+#define cgs_get_pci_resource(cgs_device, resource_type, size, offset, \
+	resource_base) \
+	CGS_CALL(get_pci_resource, cgs_device, resource_type, size, offset, \
+	resource_base)
 
 #endif /* _CGS_COMMON_H */

@@ -29,13 +29,12 @@
 #include "logger_types.h"
 
 struct dal_logger;
-struct dal_context;
+struct dc_context;
 union logger_flags;
 
 /*
  * TODO: This logger functionality needs to be implemented and reworked.
  */
-
 
 /*
  *
@@ -43,7 +42,7 @@ union logger_flags;
  *
  */
 
-struct dal_logger *dal_logger_create(void);
+struct dal_logger *dal_logger_create(struct dc_context *ctx);
 
 uint32_t dal_logger_destroy(struct dal_logger **logger);
 
@@ -131,9 +130,23 @@ const struct log_minor_info *dal_logger_enum_log_minor_info(
 \
 	if (print_not_impl == true) { \
 		print_not_impl = false; \
-		dal_logger_write(dal_context->logger, LOG_MAJOR_WARNING, \
+		dal_logger_write(ctx->logger, LOG_MAJOR_WARNING, \
 		log_minor, "DAL_NOT_IMPL: " fmt, ##__VA_ARGS__); \
 	} \
 }
+
+/******************************************************************************
+ * Convenience macros to save on typing.
+ *****************************************************************************/
+
+#define DC_ERROR(...) \
+	dal_logger_write(dc_ctx->logger, \
+		LOG_MAJOR_ERROR, LOG_MINOR_COMPONENT_DC, \
+		__VA_ARGS__);
+
+#define DC_SYNC_INFO(...) \
+	dal_logger_write(dc_ctx->logger, \
+		LOG_MAJOR_SYNC, LOG_MINOR_SYNC_TIMING, \
+		__VA_ARGS__);
 
 #endif /* __DAL_LOGGER_INTERFACE_H__ */

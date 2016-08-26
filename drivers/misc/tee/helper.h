@@ -56,6 +56,7 @@
 
 u32 sizetoorder(u32 size);
 u32 addrtopfn(void *addr);
+u32 get_pagealigned_size(u32 size);
 
 void flush_buffer(void *addr, u32 size);
 void invalidate_buffer(void *addr, u32 size);

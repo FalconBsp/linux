@@ -672,8 +672,12 @@ int amdgpu_atombios_get_clock_info(struct amdgpu_device *adev)
 		/* disp clock */
 		adev->clock.default_dispclk =
 			le32_to_cpu(firmware_info->info_21.ulDefaultDispEngineClkFreq);
-		if (adev->clock.default_dispclk == 0)
-			adev->clock.default_dispclk = 54000; /* 540 Mhz */
+		/* set a reasonable default for DP */
+		if (adev->clock.default_dispclk < 53900) {
+			DRM_INFO("Changing default dispclk from %dMhz to 600Mhz\n",
+				 adev->clock.default_dispclk / 100);
+			adev->clock.default_dispclk = 60000;
+		}
 		adev->clock.dp_extclk =
 			le16_to_cpu(firmware_info->info_21.usUniphyDPModeExtClkFreq);
 		adev->clock.current_dispclk = adev->clock.default_dispclk;
@@ -692,6 +696,36 @@ int amdgpu_atombios_get_clock_info(struct amdgpu_device *adev)
 	adev->pm.current_sclk = adev->clock.default_sclk;
 	adev->pm.current_mclk = adev->clock.default_mclk;
 
+	return ret;
+}
+
+union gfx_info {
+	ATOM_GFX_INFO_V2_1 info;
+};
+
+int amdgpu_atombios_get_gfx_info(struct amdgpu_device *adev)
+{
+	struct amdgpu_mode_info *mode_info = &adev->mode_info;
+	int index = GetIndexIntoMasterTable(DATA, GFX_Info);
+	uint8_t frev, crev;
+	uint16_t data_offset;
+	int ret = -EINVAL;
+
+	if (amdgpu_atom_parse_data_header(mode_info->atom_context, index, NULL,
+				   &frev, &crev, &data_offset)) {
+		union gfx_info *gfx_info = (union gfx_info *)
+			(mode_info->atom_context->bios + data_offset);
+
+		adev->gfx.config.max_shader_engines = gfx_info->info.max_shader_engines;
+		adev->gfx.config.max_tile_pipes = gfx_info->info.max_tile_pipes;
+		adev->gfx.config.max_cu_per_sh = gfx_info->info.max_cu_per_sh;
+		adev->gfx.config.max_sh_per_se = gfx_info->info.max_sh_per_se;
+		adev->gfx.config.max_backends_per_se = gfx_info->info.max_backends_per_se;
+		adev->gfx.config.max_texture_channel_caches =
+			gfx_info->info.max_texture_channel_caches;
+
+		ret = 0;
+	}
 	return ret;
 }
 
@@ -1508,6 +1542,19 @@ int amdgpu_atombios_init_mc_reg_table(struct amdgpu_device *adev,
 		return 0;
 	}
 	return -EINVAL;
+}
+
+bool amdgpu_atombios_has_gpu_virtualization_table(struct amdgpu_device *adev)
+{
+	int index = GetIndexIntoMasterTable(DATA, GPUVirtualizationInfo);
+	u8 frev, crev;
+	u16 data_offset, size;
+
+	if (amdgpu_atom_parse_data_header(adev->mode_info.atom_context, index, &size,
+					  &frev, &crev, &data_offset))
+		return true;
+
+	return false;
 }
 
 void amdgpu_atombios_scratch_regs_lock(struct amdgpu_device *adev, bool lock)

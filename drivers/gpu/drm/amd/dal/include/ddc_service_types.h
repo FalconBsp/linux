@@ -25,8 +25,6 @@
 #ifndef __DAL_DDC_SERVICE_TYPES_H__
 #define __DAL_DDC_SERVICE_TYPES_H__
 
-#include "include/hw_sequencer_types.h"
-
 #define DP_BRANCH_DEVICE_ID_1 0x0010FA
 #define DP_BRANCH_DEVICE_ID_2 0x0022B9
 #define DP_SINK_DEVICE_ID_1 0x4CE000
@@ -52,27 +50,6 @@ enum ddc_result {
 enum ddc_service_type {
 	DDC_SERVICE_TYPE_CONNECTOR,
 	DDC_SERVICE_TYPE_DISPLAY_PORT_MST,
-};
-
-enum ddc_transaction_type {
-	DDC_TRANSACTION_TYPE_NONE = 0,
-	DDC_TRANSACTION_TYPE_I2C,
-	DDC_TRANSACTION_TYPE_I2C_OVER_AUX,
-	DDC_TRANSACTION_TYPE_I2C_OVER_AUX_WITH_DEFER,
-	DDC_TRANSACTION_TYPE_I2C_OVER_AUX_RETRY_DEFER
-};
-
-enum display_dongle_type {
-	DISPLAY_DONGLE_NONE = 0,
-	/* Active converter types*/
-	DISPLAY_DONGLE_DP_VGA_CONVERTER,
-	DISPLAY_DONGLE_DP_DVI_CONVERTER,
-	DISPLAY_DONGLE_DP_HDMI_CONVERTER,
-	/* DP-HDMI/DVI passive dongles (Type 1 and Type 2)*/
-	DISPLAY_DONGLE_DP_DVI_DONGLE,
-	DISPLAY_DONGLE_DP_HDMI_DONGLE,
-	/* Other types of dongle*/
-	DISPLAY_DONGLE_DP_HDMI_MISMATCHED_DONGLE,
 };
 
 enum dcs_dpcd_revision {
@@ -108,7 +85,7 @@ struct display_sink_capability {
 	/* Dongle caps: Maximum pixel clock supported over dongle for HDMI */
 	uint32_t max_hdmi_pixel_clock;
 	/* Dongle caps: Maximum deep color supported over dongle for HDMI */
-	enum hw_color_depth max_hdmi_deep_color;
+	enum dc_color_depth max_hdmi_deep_color;
 
 	/************************************************************
 	 capabilities going OUT OF SOURCE DEVICE (link capabilities)
@@ -127,17 +104,9 @@ struct display_sink_capability {
 	/* to check if we have queried the display capability
 	 * for eDP panel already. */
 	bool is_edp_sink_cap_valid;
-};
 
-struct dp_receiver_id_info {
-	uint32_t dpcd_rev;
-	uint32_t sink_id;
-	int8_t sink_id_str[6];
-	int8_t sink_hw_revision;
-	int8_t sink_fw_revision[2];
-	uint32_t branch_id;
-	int8_t branch_name[6];
-	enum display_dongle_type dongle_type;
+	enum ddc_transaction_type transaction_type;
+	enum signal_type signal;
 };
 
 struct av_sync_data {

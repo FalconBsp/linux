@@ -39,7 +39,8 @@
 #include "tonga_dyn_defaults.h"
 #include "smumgr.h"
 #include "tonga_smumgr.h"
-#include "amd_pcie_helpers.h"
+#include "tonga_clockpowergating.h"
+#include "tonga_thermal.h"
 
 #include "smu/smu_7_1_2_d.h"
 #include "smu/smu_7_1_2_sh_mask.h"
@@ -49,6 +50,13 @@
 
 #include "bif/bif_5_0_d.h"
 #include "bif/bif_5_0_sh_mask.h"
+
+#include "dce/dce_10_0_d.h"
+#include "dce/dce_10_0_sh_mask.h"
+
+#include "cgs_linux.h"
+#include "eventmgr.h"
+#include "amd_pcie_helpers.h"
 
 #define MC_CG_ARB_FREQ_F0           0x0a
 #define MC_CG_ARB_FREQ_F1           0x0b
@@ -81,17 +89,17 @@
 typedef uint32_t PECI_RegistryValue;
 
 /* [2.5%,~2.5%] Clock stretched is multiple of 2.5% vs not and [Fmin, Fmax, LDO_REFSEL, USE_FOR_LOW_FREQ] */
-uint16_t PP_ClockStretcherLookupTable[2][4] = {
+static const uint16_t PP_ClockStretcherLookupTable[2][4] = {
 	{600, 1050, 3, 0},
 	{600, 1050, 6, 1} };
 
 /* [FF, SS] type, [] 4 voltage ranges, and [Floor Freq, Boundary Freq, VID min , VID max] */
-uint32_t PP_ClockStretcherDDTTable[2][4][4] = {
+static const uint32_t PP_ClockStretcherDDTTable[2][4][4] = {
 	{ {265, 529, 120, 128}, {325, 650, 96, 119}, {430, 860, 32, 95}, {0, 0, 0, 31} },
 	{ {275, 550, 104, 112}, {319, 638, 96, 103}, {360, 720, 64, 95}, {384, 768, 32, 63} } };
 
 /* [Use_For_Low_freq] value, [0%, 5%, 10%, 7.14%, 14.28%, 20%] (coming from PWR_CKS_CNTL.stretch_amount reg spec) */
-uint8_t PP_ClockStretchAmountConversion[2][6] = {
+static const uint8_t PP_ClockStretchAmountConversion[2][6] = {
 	{0, 1, 3, 2, 4, 5},
 	{0, 2, 4, 5, 6, 5} };
 
@@ -105,22 +113,17 @@ enum DPM_EVENT_SRC {
 };
 typedef enum DPM_EVENT_SRC DPM_EVENT_SRC;
 
-enum DISPLAY_GAP {
-	DISPLAY_GAP_VBLANK_OR_WM = 0,   /* Wait for vblank or MCHG watermark. */
-	DISPLAY_GAP_VBLANK       = 1,   /* Wait for vblank. */
-	DISPLAY_GAP_WATERMARK    = 2,   /* Wait for MCHG watermark. (Note that HW may deassert WM in VBI depending on DC_STUTTER_CNTL.) */
-	DISPLAY_GAP_IGNORE       = 3    /* Do not wait. */
-};
-typedef enum DISPLAY_GAP DISPLAY_GAP;
-
-const unsigned long PhwTonga_Magic = (unsigned long)(PHM_VIslands_Magic);
+static const unsigned long PhwTonga_Magic = (unsigned long)(PHM_VIslands_Magic);
 
 struct tonga_power_state *cast_phw_tonga_power_state(
 				  struct pp_hw_power_state *hw_ps)
 {
+	if (hw_ps == NULL)
+		return NULL;
+
 	PP_ASSERT_WITH_CODE((PhwTonga_Magic == hw_ps->magic),
 				"Invalid Powerstate Type!",
-				 return NULL;);
+				 return NULL);
 
 	return (struct tonga_power_state *)hw_ps;
 }
@@ -128,9 +131,12 @@ struct tonga_power_state *cast_phw_tonga_power_state(
 const struct tonga_power_state *cast_const_phw_tonga_power_state(
 				 const struct pp_hw_power_state *hw_ps)
 {
+	if (hw_ps == NULL)
+		return NULL;
+
 	PP_ASSERT_WITH_CODE((PhwTonga_Magic == hw_ps->magic),
 				"Invalid Powerstate Type!",
-				 return NULL;);
+				 return NULL);
 
 	return (const struct tonga_power_state *)hw_ps;
 }
@@ -167,6 +173,13 @@ int tonga_add_voltage(struct pp_hwmgr *hwmgr,
 		look_up_table->count++;
 
 	return 0;
+}
+
+int tonga_notify_smc_display_change(struct pp_hwmgr *hwmgr, bool has_display)
+{
+	PPSMC_Msg msg = has_display? (PPSMC_Msg)PPSMC_HasDisplay : (PPSMC_Msg)PPSMC_NoDisplay;
+
+	return (smum_send_msg_to_smc(hwmgr->smumgr, msg) == 0) ?  0 : -1;
 }
 
 uint8_t tonga_get_voltage_id(pp_atomctrl_voltage_table *voltage_table,
@@ -419,19 +432,20 @@ int tonga_get_evv_voltage(struct pp_hwmgr *hwmgr)
 						}
 					}
 				}
-				PP_ASSERT_WITH_CODE(0 == atomctrl_get_voltage_evv_on_sclk
-						(hwmgr, VOLTAGE_TYPE_VDDGFX, sclk,
-						 virtual_voltage_id, &vddgfx),
-						"Error retrieving EVV voltage value!", continue);
+				if (0 == atomctrl_get_voltage_evv_on_sclk
+				    (hwmgr, VOLTAGE_TYPE_VDDGFX, sclk,
+				     virtual_voltage_id, &vddgfx)) {
+					/* need to make sure vddgfx is less than 2v or else, it could burn the ASIC. */
+					PP_ASSERT_WITH_CODE((vddgfx < 2000 && vddgfx != 0), "Invalid VDDGFX value!", return -1);
 
-				/* need to make sure vddgfx is less than 2v or else, it could burn the ASIC. */
-				PP_ASSERT_WITH_CODE((vddgfx < 2000 && vddgfx != 0), "Invalid VDDGFX value!", return -1);
-
-				/* the voltage should not be zero nor equal to leakage ID */
-				if (vddgfx != 0 && vddgfx != virtual_voltage_id) {
-					data->vddcgfx_leakage.actual_voltage[data->vddcgfx_leakage.count] = vddgfx;
-					data->vddcgfx_leakage.leakage_id[data->vddcgfx_leakage.count] = virtual_voltage_id;
-					data->vddcgfx_leakage.count++;
+					/* the voltage should not be zero nor equal to leakage ID */
+					if (vddgfx != 0 && vddgfx != virtual_voltage_id) {
+						data->vddcgfx_leakage.actual_voltage[data->vddcgfx_leakage.count] = vddgfx;
+						data->vddcgfx_leakage.leakage_id[data->vddcgfx_leakage.count] = virtual_voltage_id;
+						data->vddcgfx_leakage.count++;
+					}
+				} else {
+					printk("Error retrieving EVV voltage value!\n");
 				}
 			}
 		} else {
@@ -439,20 +453,20 @@ int tonga_get_evv_voltage(struct pp_hwmgr *hwmgr)
 			if (0 == tonga_get_sclk_for_voltage_evv(hwmgr,
 						pptable_info->vddc_lookup_table,
 						virtual_voltage_id, &sclk)) {
-				PP_ASSERT_WITH_CODE(0 == atomctrl_get_voltage_evv_on_sclk
-						(hwmgr, VOLTAGE_TYPE_VDDC, sclk,
-						 virtual_voltage_id, &vddc),
-						"Error retrieving EVV voltage value!", continue);
+				if (0 == atomctrl_get_voltage_evv_on_sclk
+				    (hwmgr, VOLTAGE_TYPE_VDDC, sclk,
+				     virtual_voltage_id, &vddc)) {
+					/* need to make sure vddc is less than 2v or else, it could burn the ASIC. */
+					PP_ASSERT_WITH_CODE(vddc < 2000, "Invalid VDDC value!", return -1);
 
-				/* need to make sure vddc is less than 2v or else, it could burn the ASIC. */
-				if (vddc > 2000)
-					printk(KERN_ERR "[ powerplay ] Invalid VDDC value! \n");
-
-				/* the voltage should not be zero nor equal to leakage ID */
-				if (vddc != 0 && vddc != virtual_voltage_id) {
-					data->vddc_leakage.actual_voltage[data->vddc_leakage.count] = vddc;
-					data->vddc_leakage.leakage_id[data->vddc_leakage.count] = virtual_voltage_id;
-					data->vddc_leakage.count++;
+					/* the voltage should not be zero nor equal to leakage ID */
+					if (vddc != 0 && vddc != virtual_voltage_id) {
+						data->vddc_leakage.actual_voltage[data->vddc_leakage.count] = vddc;
+						data->vddc_leakage.leakage_id[data->vddc_leakage.count] = virtual_voltage_id;
+						data->vddc_leakage.count++;
+					}
+				} else {
+					printk("Error retrieving EVV voltage value!\n");
 				}
 			}
 		}
@@ -727,7 +741,7 @@ int tonga_dpm_force_state_pcie(struct pp_hwmgr *hwmgr, uint32_t n)
 		return (0 == smum_send_msg_to_smc_with_parameter(
 							     hwmgr->smumgr,
 			   (PPSMC_Msg)(PPSMC_MSG_PCIeDPM_ForceLevel),
-								n ? 0 : 1));
+								n) ? 0 : 1);
 
 	return 0;
 }
@@ -1627,6 +1641,58 @@ static int tonga_populate_smc_link_level(struct pp_hwmgr *hwmgr, SMU72_Discrete_
 	return 0;
 }
 
+static int tonga_populate_smc_uvd_level(struct pp_hwmgr *hwmgr,
+					SMU72_Discrete_DpmTable *table)
+{
+	int result = 0;
+
+	uint8_t count;
+	pp_atomctrl_clock_dividers_vi dividers;
+	tonga_hwmgr *data = (tonga_hwmgr *)(hwmgr->backend);
+	struct phm_ppt_v1_information *pptable_info = (struct phm_ppt_v1_information *)(hwmgr->pptable);
+	phm_ppt_v1_mm_clock_voltage_dependency_table *mm_table = pptable_info->mm_dep_table;
+
+	table->UvdLevelCount = (uint8_t) (mm_table->count);
+	table->UvdBootLevel = 0;
+
+	for (count = 0; count < table->UvdLevelCount; count++) {
+		table->UvdLevel[count].VclkFrequency = mm_table->entries[count].vclk;
+		table->UvdLevel[count].DclkFrequency = mm_table->entries[count].dclk;
+		table->UvdLevel[count].MinVoltage.Vddc =
+			tonga_get_voltage_index(pptable_info->vddc_lookup_table,
+						mm_table->entries[count].vddc);
+		table->UvdLevel[count].MinVoltage.VddGfx =
+			(data->vdd_gfx_control == TONGA_VOLTAGE_CONTROL_BY_SVID2) ?
+			tonga_get_voltage_index(pptable_info->vddgfx_lookup_table,
+						mm_table->entries[count].vddgfx) : 0;
+		table->UvdLevel[count].MinVoltage.Vddci =
+			tonga_get_voltage_id(&data->vddci_voltage_table,
+					     mm_table->entries[count].vddc - data->vddc_vddci_delta);
+		table->UvdLevel[count].MinVoltage.Phases = 1;
+
+		/* retrieve divider value for VBIOS */
+		result = atomctrl_get_dfs_pll_dividers_vi(hwmgr,
+							  table->UvdLevel[count].VclkFrequency, &dividers);
+		PP_ASSERT_WITH_CODE((0 == result),
+				    "can not find divide id for Vclk clock", return result);
+
+		table->UvdLevel[count].VclkDivider = (uint8_t)dividers.pll_post_divider;
+
+		result = atomctrl_get_dfs_pll_dividers_vi(hwmgr,
+							  table->UvdLevel[count].DclkFrequency, &dividers);
+		PP_ASSERT_WITH_CODE((0 == result),
+				    "can not find divide id for Dclk clock", return result);
+
+		table->UvdLevel[count].DclkDivider = (uint8_t)dividers.pll_post_divider;
+
+		CONVERT_FROM_HOST_TO_SMC_UL(table->UvdLevel[count].VclkFrequency);
+		CONVERT_FROM_HOST_TO_SMC_UL(table->UvdLevel[count].DclkFrequency);
+		//CONVERT_FROM_HOST_TO_SMC_UL((uint32_t)table->UvdLevel[count].MinVoltage);
+	}
+
+	return result;
+
+}
 
 static int tonga_populate_smc_vce_level(struct pp_hwmgr *hwmgr,
 		SMU72_Discrete_DpmTable *table)
@@ -1663,7 +1729,7 @@ static int tonga_populate_smc_vce_level(struct pp_hwmgr *hwmgr,
 		PP_ASSERT_WITH_CODE((0 == result),
 				"can not find divide id for VCE engine clock", return result);
 
-		table->VceLevel[count].Divider    = (uint8_t)dividers.pll_post_divider;
+		table->VceLevel[count].Divider = (uint8_t)dividers.pll_post_divider;
 
 		CONVERT_FROM_HOST_TO_SMC_UL(table->VceLevel[count].Frequency);
 	}
@@ -1748,7 +1814,7 @@ static int tonga_populate_smc_samu_level(struct pp_hwmgr *hwmgr,
 		PP_ASSERT_WITH_CODE((0 == result),
 			"can not find divide id for samu clock", return result);
 
-		table->SamuLevel[count].Divider     = (uint8_t)dividers.pll_post_divider;
+		table->SamuLevel[count].Divider = (uint8_t)dividers.pll_post_divider;
 
 		CONVERT_FROM_HOST_TO_SMC_UL(table->SamuLevel[count].Frequency);
 	}
@@ -1791,7 +1857,7 @@ static int tonga_calculate_mclk_params(
 		"Error retrieving Memory Clock Parameters from VBIOS.", return result);
 
 	/* MPLL_FUNC_CNTL setup*/
-	mpll_func_cntl    = PHM_SET_FIELD(mpll_func_cntl, MPLL_FUNC_CNTL, BWCTRL, mpll_param.bw_ctrl);
+	mpll_func_cntl = PHM_SET_FIELD(mpll_func_cntl, MPLL_FUNC_CNTL, BWCTRL, mpll_param.bw_ctrl);
 
 	/* MPLL_FUNC_CNTL_1 setup*/
 	mpll_func_cntl_1  = PHM_SET_FIELD(mpll_func_cntl_1,
@@ -1939,6 +2005,7 @@ static int tonga_populate_single_memory_level(
 	struct phm_ppt_v1_information *pptable_info = (struct phm_ppt_v1_information *)(hwmgr->pptable);
 	int result = 0;
 	bool dllStateOn;
+	struct cgs_display_info info = {0};
 
 
 	if (NULL != pptable_info->vdd_dep_on_mclk) {
@@ -1970,24 +2037,16 @@ static int tonga_populate_single_memory_level(
 	/* default set to low watermark. Highest level will be set to high later.*/
 	memory_level->DisplayWatermark = PPSMC_DISPLAY_WATERMARK_LOW;
 
-	/*
-	* enable stutter mode if all the follow condition applied
-	* PECI_GetNumberOfActiveDisplays(hwmgr->peci, &(data->display_timing.num_existing_displays));
-	*/
-
-	data->display_timing.num_existing_displays = 1;
+	cgs_get_active_displays_info(hwmgr->device, &info);
+	data->display_timing.num_existing_displays = info.display_count;
 
 	if ((data->mclk_stutter_mode_threshold != 0) &&
-			(memory_clock <= data->mclk_stutter_mode_threshold) &&
-			(data->is_uvd_enabled == 0)
-#if defined(LINUX)
-			&& (PHM_READ_FIELD(hwmgr->device, DPG_PIPE_STUTTER_CONTROL, STUTTER_ENABLE) & 0x1)
-			&& (data->display_timing.num_existing_displays <= 2)
-			&& (data->display_timing.num_existing_displays != 0)
-#endif
-	   ) {
+	    (memory_clock <= data->mclk_stutter_mode_threshold) &&
+	    (data->is_uvd_enabled == 0)
+	    && (PHM_READ_FIELD(hwmgr->device, DPG_PIPE_STUTTER_CONTROL, STUTTER_ENABLE) & 0x1)
+	    && (data->display_timing.num_existing_displays <= 2)
+	    && (data->display_timing.num_existing_displays != 0))
 		memory_level->StutterEnable = 1;
-	}
 
 	/* decide strobe mode*/
 	memory_level->StrobeEnable = (data->mclk_strobe_mode_threshold != 0) &&
@@ -2357,6 +2416,25 @@ int tonga_calculate_sclk_params(struct pp_hwmgr *hwmgr,
 	return 0;
 }
 
+static uint8_t tonga_get_sleep_divider_id_from_clock(struct pp_hwmgr *hwmgr,
+		uint32_t engine_clock, uint32_t min_engine_clock_in_sr)
+{
+	uint32_t i, temp;
+	uint32_t min = (min_engine_clock_in_sr > TONGA_MINIMUM_ENGINE_CLOCK) ?
+			min_engine_clock_in_sr : TONGA_MINIMUM_ENGINE_CLOCK;
+
+	PP_ASSERT_WITH_CODE((engine_clock >= min),
+			"Engine clock can't satisfy stutter requirement!", return 0);
+
+	for (i = TONGA_MAX_DEEPSLEEP_DIVIDER_ID;; i--) {
+		temp = engine_clock / (1 << i);
+
+		if(temp >= min || i == 0)
+			break;
+	}
+	return (uint8_t)i;
+}
+
 /**
  * Populates single SMC SCLK structure using the provided engine clock
  *
@@ -2405,12 +2483,12 @@ static int tonga_populate_single_graphic_level(struct pp_hwmgr *hwmgr, uint32_t 
 	*get the DAL clock. do it in funture.
 	PECI_GetMinClockSettings(hwmgr->peci, &minClocks);
 	data->display_timing.min_clock_insr = minClocks.engineClockInSR;
-
-	if (phm_cap_enabled(hwmgr->platform_descriptor.platformCaps, PHM_PlatformCaps_SclkDeepSleep))
-	{
-		graphic_level->DeepSleepDivId = PhwTonga_GetSleepDividerIdFromClock(hwmgr, engine_clock, minClocks.engineClockInSR);
-	}
 */
+	if (phm_cap_enabled(hwmgr->platform_descriptor.platformCaps,
+			PHM_PlatformCaps_SclkDeepSleep))
+		graphic_level->DeepSleepDivId =
+				tonga_get_sleep_divider_id_from_clock(hwmgr, engine_clock,
+						data->display_timing.min_clock_insr);
 
 	/* Default to slow, highest DPM level will be set to PPSMC_DISPLAY_WATERMARK_LOW later.*/
 	graphic_level->DisplayWatermark = PPSMC_DISPLAY_WATERMARK_LOW;
@@ -2605,7 +2683,7 @@ static int tonga_populate_all_memory_levels(struct pp_hwmgr *hwmgr)
 struct TONGA_DLL_SPEED_SETTING {
 	uint16_t            Min;                          /* Minimum Data Rate*/
 	uint16_t            Max;                          /* Maximum Data Rate*/
-	uint32_t 			dll_speed;                     /* The desired DLL_SPEED setting*/
+	uint32_t			dll_speed;                     /* The desired DLL_SPEED setting*/
 };
 
 static int tonga_populate_clock_stretcher_data_table(struct pp_hwmgr *hwmgr)
@@ -2916,6 +2994,10 @@ int tonga_init_smc_table(struct pp_hwmgr *hwmgr)
 	PP_ASSERT_WITH_CODE(0 == result,
 		"Failed to Write ARB settings for the initial state.", return result;);
 
+	result = tonga_populate_smc_uvd_level(hwmgr, table);
+	PP_ASSERT_WITH_CODE(0 == result,
+		"Failed to initialize UVD Level!", return result;);
+
 	result = tonga_populate_smc_boot_level(hwmgr, table);
 	PP_ASSERT_WITH_CODE(0 == result,
 		"Failed to initialize Boot Level!", return result;);
@@ -3161,7 +3243,7 @@ int tonga_force_dpm_highest(struct pp_hwmgr *hwmgr)
 				if (PHM_READ_VFPF_INDIRECT_FIELD(hwmgr->device, CGS_IND_REG__SMC,
 					TARGET_AND_CURRENT_PROFILE_INDEX, CURR_MCLK_INDEX) != level)
 					printk(KERN_ERR "[ powerplay ] Target_and_current_Profile_Index. \
-						Curr_Sclk_Index does not match the level \n");
+						Curr_Mclk_Index does not match the level \n");
 			}
 		}
 	}
@@ -3234,14 +3316,14 @@ static int tonga_set_private_var_based_on_pptale(struct pp_hwmgr *hwmgr)
 		pptable_info->vdd_dep_on_mclk;
 
 	PP_ASSERT_WITH_CODE(allowed_sclk_vdd_table != NULL,
-		"VDD dependency on SCLK table is missing. 	\
+		"VDD dependency on SCLK table is missing.	\
 		This table is mandatory", return -1);
 	PP_ASSERT_WITH_CODE(allowed_sclk_vdd_table->count >= 1,
-		"VDD dependency on SCLK table has to have is missing. 	\
+		"VDD dependency on SCLK table has to have is missing.	\
 		This table is mandatory", return -1);
 
 	PP_ASSERT_WITH_CODE(allowed_mclk_vdd_table != NULL,
-		"VDD dependency on MCLK table is missing. 	\
+		"VDD dependency on MCLK table is missing.	\
 		This table is mandatory", return -1);
 	PP_ASSERT_WITH_CODE(allowed_mclk_vdd_table->count >= 1,
 		"VDD dependency on MCLK table has to have is missing.	 \
@@ -3271,7 +3353,7 @@ static int tonga_set_private_var_based_on_pptale(struct pp_hwmgr *hwmgr)
 	return 0;
 }
 
-int tonga_unforce_dpm_leveles(struct pp_hwmgr *hwmgr)
+int tonga_unforce_dpm_levels(struct pp_hwmgr *hwmgr)
 {
 	tonga_hwmgr *data = (tonga_hwmgr *)(hwmgr->backend);
 	int result = 1;
@@ -3304,23 +3386,49 @@ static uint32_t tonga_get_lowest_enable_level(
 	return level;
 }
 
-int tonga_force_dpm_lowest(struct pp_hwmgr *hwmgr)
+static int tonga_force_dpm_lowest(struct pp_hwmgr *hwmgr)
 {
-	uint32_t level = 0;
+	uint32_t level;
 	tonga_hwmgr *data = (tonga_hwmgr *)(hwmgr->backend);
 
-	/* for now force only sclk */
-	if (0 != data->dpm_level_enable_mask.sclk_dpm_enable_mask) {
-		level = tonga_get_lowest_enable_level(hwmgr,
-					data->dpm_level_enable_mask.sclk_dpm_enable_mask);
+	if (0 == data->pcie_dpm_key_disabled) {
+		/* PCIE */
+		if (data->dpm_level_enable_mask.pcie_dpm_enable_mask != 0) {
+			level = tonga_get_lowest_enable_level(hwmgr,
+							      data->dpm_level_enable_mask.pcie_dpm_enable_mask);
+			PP_ASSERT_WITH_CODE((0 == tonga_dpm_force_state_pcie(hwmgr, level)),
+					    "force lowest pcie dpm state failed!", return -1);
+		}
+	}
 
-		PP_ASSERT_WITH_CODE((0 == tonga_dpm_force_state(hwmgr, level)),
-			"force sclk dpm state failed!", return -1);
+	if (0 == data->sclk_dpm_key_disabled) {
+		/* SCLK */
+		if (0 != data->dpm_level_enable_mask.sclk_dpm_enable_mask) {
+			level = tonga_get_lowest_enable_level(hwmgr,
+							      data->dpm_level_enable_mask.sclk_dpm_enable_mask);
 
-		if (PHM_READ_VFPF_INDIRECT_FIELD(hwmgr->device,
-			CGS_IND_REG__SMC, TARGET_AND_CURRENT_PROFILE_INDEX, CURR_SCLK_INDEX) != level)
-			printk(KERN_ERR "[ powerplay ] Target_and_current_Profile_Index.	\
+			PP_ASSERT_WITH_CODE((0 == tonga_dpm_force_state(hwmgr, level)),
+					    "force sclk dpm state failed!", return -1);
+
+			if (PHM_READ_VFPF_INDIRECT_FIELD(hwmgr->device,
+							 CGS_IND_REG__SMC, TARGET_AND_CURRENT_PROFILE_INDEX, CURR_SCLK_INDEX) != level)
+				printk(KERN_ERR "[ powerplay ] Target_and_current_Profile_Index.	\
 				Curr_Sclk_Index does not match the level \n");
+		}
+	}
+
+	if (0 == data->mclk_dpm_key_disabled) {
+		/* MCLK */
+		if (data->dpm_level_enable_mask.mclk_dpm_enable_mask != 0) {
+			level = tonga_get_lowest_enable_level(hwmgr,
+							      data->dpm_level_enable_mask.mclk_dpm_enable_mask);
+			PP_ASSERT_WITH_CODE((0 == tonga_dpm_force_state_mclk(hwmgr, level)),
+					    "force lowest mclk dpm state failed!", return -1);
+			if (PHM_READ_VFPF_INDIRECT_FIELD(hwmgr->device, CGS_IND_REG__SMC,
+							 TARGET_AND_CURRENT_PROFILE_INDEX, CURR_MCLK_INDEX) != level)
+				printk(KERN_ERR "[ powerplay ] Target_and_current_Profile_Index. \
+						Curr_Mclk_Index does not match the level \n");
+		}
 	}
 
 	return 0;
@@ -3782,6 +3890,7 @@ int tonga_copy_vbios_smc_reg_table(const pp_atomctrl_mc_reg_table *table, phw_to
 				table->mc_reg_table_entry[i].mc_data[j];
 		}
 	}
+
 	ni_table->num_entries = table->num_entries;
 
 	return 0;
@@ -3907,7 +4016,7 @@ int tonga_initialize_mc_reg_table(struct pp_hwmgr *hwmgr)
 	table = kzalloc(sizeof(pp_atomctrl_mc_reg_table), GFP_KERNEL);
 
 	if (NULL == table)
-		return -1;
+		return -ENOMEM;
 
 	/* Program additional LP registers that are no longer programmed by VBIOS */
 	cgs_write_register(hwmgr->device, mmMC_SEQ_RAS_TIMING_LP, cgs_read_register(hwmgr->device, mmMC_SEQ_RAS_TIMING));
@@ -4286,6 +4395,10 @@ int tonga_enable_dpm_tasks(struct pp_hwmgr *hwmgr)
 	PP_ASSERT_WITH_CODE((0 == tmp_result),
 		"Failed to populate initialize MC Reg table!", result = tmp_result);
 
+	tmp_result = tonga_notify_smc_display_change(hwmgr, false);
+	PP_ASSERT_WITH_CODE((0 == tmp_result),
+		"Failed to notify no display!", result = tmp_result);
+
 	/* enable SCLK control */
 	tmp_result = tonga_enable_sclk_control(hwmgr);
 	PP_ASSERT_WITH_CODE((0 == tmp_result),
@@ -4331,17 +4444,14 @@ int tonga_reset_asic_tasks(struct pp_hwmgr *hwmgr)
 
 int tonga_hwmgr_backend_fini(struct pp_hwmgr *hwmgr)
 {
-	if (NULL != hwmgr->dyn_state.vddc_dep_on_dal_pwrl) {
-		kfree(hwmgr->dyn_state.vddc_dep_on_dal_pwrl);
-		hwmgr->dyn_state.vddc_dep_on_dal_pwrl = NULL;
+	struct tonga_hwmgr *data = (struct tonga_hwmgr *)(hwmgr->backend);
+
+	if (data->soft_pp_table) {
+		kfree(data->soft_pp_table);
+		data->soft_pp_table = NULL;
 	}
 
-	if (NULL != hwmgr->backend) {
-		kfree(hwmgr->backend);
-		hwmgr->backend = NULL;
-	}
-
-	return 0;
+	return phm_hwmgr_backend_fini(hwmgr);
 }
 
 /**
@@ -4358,6 +4468,7 @@ int tonga_hwmgr_backend_init(struct pp_hwmgr *hwmgr)
 	pp_atomctrl_gpio_pin_assignment gpio_pin_assignment;
 	struct phm_ppt_v1_information *pptable_info = (struct phm_ppt_v1_information *)(hwmgr->pptable);
 	phw_tonga_ulv_parm *ulv;
+	struct cgs_system_info sys_info = {0};
 
 	PP_ASSERT_WITH_CODE((NULL != hwmgr),
 		"Invalid Parameter!", return -1;);
@@ -4471,6 +4582,8 @@ int tonga_hwmgr_backend_init(struct pp_hwmgr *hwmgr)
 
 	/* Initalize Dynamic State Adjustment Rule Settings*/
 	result = tonga_initializa_dynamic_state_adjustment_rule_settings(hwmgr);
+	if (result)
+		printk(KERN_ERR "[ powerplay ] tonga_initializa_dynamic_state_adjustment_rule_settings failed!\n");
 	data->uvd_enabled = 0;
 
 	table = &(data->smc_state_table);
@@ -4520,9 +4633,23 @@ int tonga_hwmgr_backend_init(struct pp_hwmgr *hwmgr)
 
 	data->vddc_phase_shed_control = 0;
 
-	if (0 == result) {
-		struct cgs_system_info sys_info = {0};
+	phm_cap_unset(hwmgr->platform_descriptor.platformCaps,
+		      PHM_PlatformCaps_UVDPowerGating);
+	phm_cap_unset(hwmgr->platform_descriptor.platformCaps,
+		      PHM_PlatformCaps_VCEPowerGating);
+	sys_info.size = sizeof(struct cgs_system_info);
+	sys_info.info_id = CGS_SYSTEM_INFO_PG_FLAGS;
+	result = cgs_query_system_info(hwmgr->device, &sys_info);
+	if (!result) {
+		if (sys_info.value & AMD_PG_SUPPORT_UVD)
+			phm_cap_set(hwmgr->platform_descriptor.platformCaps,
+				      PHM_PlatformCaps_UVDPowerGating);
+		if (sys_info.value & AMD_PG_SUPPORT_VCE)
+			phm_cap_set(hwmgr->platform_descriptor.platformCaps,
+				      PHM_PlatformCaps_VCEPowerGating);
+	}
 
+	if (0 == result) {
 		data->is_tlu_enabled = 0;
 		hwmgr->platform_descriptor.hardwareActivityPerformanceLevels =
 			TONGA_MAX_HARDWARE_POWERLEVELS;
@@ -4570,7 +4697,7 @@ static int tonga_force_dpm_level(struct pp_hwmgr *hwmgr,
 			return ret;
 		break;
 	case AMD_DPM_FORCED_LEVEL_AUTO:
-		ret = tonga_unforce_dpm_leveles(hwmgr);
+		ret = tonga_unforce_dpm_levels(hwmgr);
 		if (ret)
 			return ret;
 		break;
@@ -4578,6 +4705,7 @@ static int tonga_force_dpm_level(struct pp_hwmgr *hwmgr,
 		break;
 	}
 
+	hwmgr->dpm_level = level;
 	return ret;
 }
 
@@ -4861,12 +4989,12 @@ static int tonga_get_pp_table_entry_callback_func(struct pp_hwmgr *hwmgr,
 
 	ATOM_Tonga_SCLK_Dependency_Table *sclk_dep_table =
 			(ATOM_Tonga_SCLK_Dependency_Table *)
-			(((uint64_t)powerplay_table) +
+			(((unsigned long)powerplay_table) +
 			le16_to_cpu(powerplay_table->usSclkDependencyTableOffset));
 
 	ATOM_Tonga_MCLK_Dependency_Table *mclk_dep_table =
 			(ATOM_Tonga_MCLK_Dependency_Table *)
-			(((uint64_t)powerplay_table) +
+			(((unsigned long)powerplay_table) +
 			le16_to_cpu(powerplay_table->usMclkDependencyTableOffset));
 
 	/* The following fields are not initialized here: id orderedList allStatesList */
@@ -5061,7 +5189,9 @@ static int tonga_get_pp_table_entry(struct pp_hwmgr *hwmgr,
 static void
 tonga_print_current_perforce_level(struct pp_hwmgr *hwmgr, struct seq_file *m)
 {
-	uint32_t sclk, mclk;
+	uint32_t sclk, mclk, activity_percent;
+	uint32_t offset;
+	struct tonga_hwmgr *data = (struct tonga_hwmgr *)(hwmgr->backend);
 
 	smum_send_msg_to_smc(hwmgr->smumgr, (PPSMC_Msg)(PPSMC_MSG_API_GetSclkFrequency));
 
@@ -5071,6 +5201,17 @@ tonga_print_current_perforce_level(struct pp_hwmgr *hwmgr, struct seq_file *m)
 
 	mclk = cgs_read_register(hwmgr->device, mmSMC_MSG_ARG_0);
 	seq_printf(m, "\n [  mclk  ]: %u MHz\n\n [  sclk  ]: %u MHz\n", mclk/100, sclk/100);
+
+	offset = data->soft_regs_start + offsetof(SMU72_SoftRegisters, AverageGraphicsActivity);
+	activity_percent = cgs_read_ind_register(hwmgr->device, CGS_IND_REG__SMC, offset);
+	activity_percent += 0x80;
+	activity_percent >>= 8;
+
+	seq_printf(m, "\n [GPU load]: %u%%\n\n", activity_percent > 100 ? 100 : activity_percent);
+
+	seq_printf(m, "uvd    %sabled\n", data->uvd_power_gated ? "dis" : "en");
+
+	seq_printf(m, "vce    %sabled\n", data->vce_power_gated ? "dis" : "en");
 }
 
 static int tonga_find_dpm_states_clocks_in_dpm_table(struct pp_hwmgr *hwmgr, const void *input)
@@ -5370,7 +5511,6 @@ static int tonga_generate_dpm_level_enable_mask(struct pp_hwmgr *hwmgr, const vo
 	struct tonga_hwmgr *data = (struct tonga_hwmgr *)(hwmgr->backend);
 	const struct tonga_power_state *tonga_ps = cast_const_phw_tonga_power_state(states->pnew_state);
 
-
 	result = tonga_trim_dpm_states(hwmgr, tonga_ps);
 	if (0 != result)
 		return result;
@@ -5386,14 +5526,47 @@ static int tonga_generate_dpm_level_enable_mask(struct pp_hwmgr *hwmgr, const vo
 	return 0;
 }
 
-static int tonga_enable_disable_vce_dpm(struct pp_hwmgr *hwmgr, bool enable)
+int tonga_enable_disable_vce_dpm(struct pp_hwmgr *hwmgr, bool enable)
 {
-	return smum_send_msg_to_smc(hwmgr->smumgr, enable?
+	return smum_send_msg_to_smc(hwmgr->smumgr, enable ?
 				  (PPSMC_Msg)PPSMC_MSG_VCEDPM_Enable :
 				  (PPSMC_Msg)PPSMC_MSG_VCEDPM_Disable);
 }
 
-static int tonga_update_vce_dpm(struct pp_hwmgr *hwmgr, const void *input)
+int tonga_enable_disable_uvd_dpm(struct pp_hwmgr *hwmgr, bool enable)
+{
+	return smum_send_msg_to_smc(hwmgr->smumgr, enable ?
+				  (PPSMC_Msg)PPSMC_MSG_UVDDPM_Enable :
+				  (PPSMC_Msg)PPSMC_MSG_UVDDPM_Disable);
+}
+
+int tonga_update_uvd_dpm(struct pp_hwmgr *hwmgr, bool bgate)
+{
+	struct tonga_hwmgr *data = (struct tonga_hwmgr *)(hwmgr->backend);
+	uint32_t mm_boot_level_offset, mm_boot_level_value;
+	struct phm_ppt_v1_information *ptable_information = (struct phm_ppt_v1_information *)(hwmgr->pptable);
+
+	if (!bgate) {
+		data->smc_state_table.UvdBootLevel = (uint8_t) (ptable_information->mm_dep_table->count - 1);
+		mm_boot_level_offset = data->dpm_table_start + offsetof(SMU72_Discrete_DpmTable, UvdBootLevel);
+		mm_boot_level_offset /= 4;
+		mm_boot_level_offset *= 4;
+		mm_boot_level_value = cgs_read_ind_register(hwmgr->device, CGS_IND_REG__SMC, mm_boot_level_offset);
+		mm_boot_level_value &= 0x00FFFFFF;
+		mm_boot_level_value |= data->smc_state_table.UvdBootLevel << 24;
+		cgs_write_ind_register(hwmgr->device, CGS_IND_REG__SMC, mm_boot_level_offset, mm_boot_level_value);
+
+		if (!phm_cap_enabled(hwmgr->platform_descriptor.platformCaps, PHM_PlatformCaps_UVDDPM) ||
+		    phm_cap_enabled(hwmgr->platform_descriptor.platformCaps, PHM_PlatformCaps_StablePState))
+			smum_send_msg_to_smc_with_parameter(hwmgr->smumgr,
+						PPSMC_MSG_UVDDPM_SetEnabledMask,
+						(uint32_t)(1 << data->smc_state_table.UvdBootLevel));
+	}
+
+	return tonga_enable_disable_uvd_dpm(hwmgr, !bgate);
+}
+
+int tonga_update_vce_dpm(struct pp_hwmgr *hwmgr, const void *input)
 {
 	const struct phm_set_power_state_input *states = (const struct phm_set_power_state_input *)input;
 	struct tonga_hwmgr *data = (struct tonga_hwmgr *)(hwmgr->backend);
@@ -5403,8 +5576,7 @@ static int tonga_update_vce_dpm(struct pp_hwmgr *hwmgr, const void *input)
 	uint32_t mm_boot_level_offset, mm_boot_level_value;
 	struct phm_ppt_v1_information *pptable_info = (struct phm_ppt_v1_information *)(hwmgr->pptable);
 
-	if(tonga_nps->vce_clocks.EVCLK >0 &&
-	(tonga_cps == NULL || tonga_cps->vce_clocks.EVCLK == 0)) {
+	if (tonga_nps->vce_clocks.EVCLK > 0 && (tonga_cps == NULL || tonga_cps->vce_clocks.EVCLK == 0)) {
 		data->smc_state_table.VceBootLevel = (uint8_t) (pptable_info->mm_dep_table->count - 1);
 
 		mm_boot_level_offset = data->dpm_table_start + offsetof(SMU72_Discrete_DpmTable, VceBootLevel);
@@ -5415,16 +5587,14 @@ static int tonga_update_vce_dpm(struct pp_hwmgr *hwmgr, const void *input)
 		mm_boot_level_value |= data->smc_state_table.VceBootLevel << 16;
 		cgs_write_ind_register(hwmgr->device, CGS_IND_REG__SMC, mm_boot_level_offset, mm_boot_level_value);
 
-		if (phm_cap_enabled(hwmgr->platform_descriptor.platformCaps, PHM_PlatformCaps_StablePState)) {
-				smum_send_msg_to_smc_with_parameter(
-							   hwmgr->smumgr,
-			(PPSMC_Msg)(PPSMC_MSG_VCEDPM_SetEnabledMask),
-			(uint32_t)1 << data->smc_state_table.VceBootLevel);
+		if (phm_cap_enabled(hwmgr->platform_descriptor.platformCaps, PHM_PlatformCaps_StablePState))
+			smum_send_msg_to_smc_with_parameter(hwmgr->smumgr,
+					PPSMC_MSG_VCEDPM_SetEnabledMask,
+				(uint32_t)(1 << data->smc_state_table.VceBootLevel));
 
-			tonga_enable_disable_vce_dpm(hwmgr, true);
-		} else if (tonga_nps->vce_clocks.EVCLK == 0 && tonga_cps != NULL && tonga_cps->vce_clocks.EVCLK > 0)
-			tonga_enable_disable_vce_dpm(hwmgr, false);
-	}
+		tonga_enable_disable_vce_dpm(hwmgr, true);
+	} else if (tonga_nps->vce_clocks.EVCLK == 0 && tonga_cps != NULL && tonga_cps->vce_clocks.EVCLK > 0)
+		tonga_enable_disable_vce_dpm(hwmgr, false);
 
 	return 0;
 }
@@ -5588,6 +5758,443 @@ static int tonga_set_power_state_tasks(struct pp_hwmgr *hwmgr, const void *input
 	return result;
 }
 
+/**
+*  Set maximum target operating fan output PWM
+*
+* @param    pHwMgr:  the address of the powerplay hardware manager.
+* @param    usMaxFanPwm:  max operating fan PWM in percents
+* @return   The response that came from the SMC.
+*/
+static int tonga_set_max_fan_pwm_output(struct pp_hwmgr *hwmgr, uint16_t us_max_fan_pwm)
+{
+	hwmgr->thermal_controller.advanceFanControlParameters.usMaxFanPWM = us_max_fan_pwm;
+
+	if (phm_is_hw_access_blocked(hwmgr))
+		return 0;
+
+	return (0 == smum_send_msg_to_smc_with_parameter(hwmgr->smumgr, PPSMC_MSG_SetFanPwmMax, us_max_fan_pwm) ? 0 : -1);
+}
+
+int tonga_notify_smc_display_config_after_ps_adjustment(struct pp_hwmgr *hwmgr)
+{
+	uint32_t num_active_displays = 0;
+	struct cgs_display_info info = {0};
+	info.mode_info = NULL;
+
+	cgs_get_active_displays_info(hwmgr->device, &info);
+
+	num_active_displays = info.display_count;
+
+	if (num_active_displays > 1)  /* to do && (pHwMgr->pPECI->displayConfiguration.bMultiMonitorInSync != TRUE)) */
+		tonga_notify_smc_display_change(hwmgr, false);
+	else
+		tonga_notify_smc_display_change(hwmgr, true);
+
+	return 0;
+}
+
+/**
+* Programs the display gap
+*
+* @param    hwmgr  the address of the powerplay hardware manager.
+* @return   always OK
+*/
+int tonga_program_display_gap(struct pp_hwmgr *hwmgr)
+{
+	struct tonga_hwmgr *data = (struct tonga_hwmgr *)(hwmgr->backend);
+	uint32_t num_active_displays = 0;
+	uint32_t display_gap = cgs_read_ind_register(hwmgr->device, CGS_IND_REG__SMC, ixCG_DISPLAY_GAP_CNTL);
+	uint32_t display_gap2;
+	uint32_t pre_vbi_time_in_us;
+	uint32_t frame_time_in_us;
+	uint32_t ref_clock;
+	uint32_t refresh_rate = 0;
+	struct cgs_display_info info = {0};
+	struct cgs_mode_info mode_info;
+
+	info.mode_info = &mode_info;
+
+	cgs_get_active_displays_info(hwmgr->device, &info);
+	num_active_displays = info.display_count;
+
+	display_gap = PHM_SET_FIELD(display_gap, CG_DISPLAY_GAP_CNTL, DISP_GAP, (num_active_displays > 0)? DISPLAY_GAP_VBLANK_OR_WM : DISPLAY_GAP_IGNORE);
+	cgs_write_ind_register(hwmgr->device, CGS_IND_REG__SMC, ixCG_DISPLAY_GAP_CNTL, display_gap);
+
+	ref_clock = mode_info.ref_clock;
+	refresh_rate = mode_info.refresh_rate;
+
+	if(0 == refresh_rate)
+		refresh_rate = 60;
+
+	frame_time_in_us = 1000000 / refresh_rate;
+
+	pre_vbi_time_in_us = frame_time_in_us - 200 - mode_info.vblank_time_us;
+	display_gap2 = pre_vbi_time_in_us * (ref_clock / 100);
+
+	cgs_write_ind_register(hwmgr->device, CGS_IND_REG__SMC, ixCG_DISPLAY_GAP_CNTL2, display_gap2);
+
+	cgs_write_ind_register(hwmgr->device, CGS_IND_REG__SMC, data->soft_regs_start + offsetof(SMU72_SoftRegisters, PreVBlankGap), 0x64);
+
+	cgs_write_ind_register(hwmgr->device, CGS_IND_REG__SMC, data->soft_regs_start + offsetof(SMU72_SoftRegisters, VBlankTimeout), (frame_time_in_us - pre_vbi_time_in_us));
+
+	if (num_active_displays == 1)
+		tonga_notify_smc_display_change(hwmgr, true);
+
+	return 0;
+}
+
+int tonga_display_configuration_changed_task(struct pp_hwmgr *hwmgr)
+{
+
+	tonga_program_display_gap(hwmgr);
+
+	/* to do PhwTonga_CacUpdateDisplayConfiguration(pHwMgr); */
+	return 0;
+}
+
+/**
+*  Set maximum target operating fan output RPM
+*
+* @param    pHwMgr:  the address of the powerplay hardware manager.
+* @param    usMaxFanRpm:  max operating fan RPM value.
+* @return   The response that came from the SMC.
+*/
+static int tonga_set_max_fan_rpm_output(struct pp_hwmgr *hwmgr, uint16_t us_max_fan_pwm)
+{
+	hwmgr->thermal_controller.advanceFanControlParameters.usMaxFanRPM = us_max_fan_pwm;
+
+	if (phm_is_hw_access_blocked(hwmgr))
+		return 0;
+
+	return (0 == smum_send_msg_to_smc_with_parameter(hwmgr->smumgr, PPSMC_MSG_SetFanRpmMax, us_max_fan_pwm) ? 0 : -1);
+}
+
+uint32_t tonga_get_xclk(struct pp_hwmgr *hwmgr)
+{
+	uint32_t reference_clock;
+	uint32_t tc;
+	uint32_t divide;
+
+	ATOM_FIRMWARE_INFO *fw_info;
+	uint16_t size;
+	uint8_t frev, crev;
+	int index = GetIndexIntoMasterTable(DATA, FirmwareInfo);
+
+	tc = PHM_READ_VFPF_INDIRECT_FIELD(hwmgr->device, CGS_IND_REG__SMC, CG_CLKPIN_CNTL_2, MUX_TCLK_TO_XCLK);
+
+	if (tc)
+		return TCLK;
+
+	fw_info = (ATOM_FIRMWARE_INFO *)cgs_atom_get_data_table(hwmgr->device, index,
+						  &size, &frev, &crev);
+
+	if (!fw_info)
+		return 0;
+
+	reference_clock = le16_to_cpu(fw_info->usReferenceClock);
+
+	divide = PHM_READ_VFPF_INDIRECT_FIELD(hwmgr->device, CGS_IND_REG__SMC, CG_CLKPIN_CNTL, XTALIN_DIVIDE);
+
+	if (0 != divide)
+		return reference_clock / 4;
+
+	return reference_clock;
+}
+
+int tonga_dpm_set_interrupt_state(void *private_data,
+					 unsigned src_id, unsigned type,
+					 int enabled)
+{
+	uint32_t cg_thermal_int;
+	struct pp_hwmgr *hwmgr = ((struct pp_eventmgr *)private_data)->hwmgr;
+
+	if (hwmgr == NULL)
+		return -EINVAL;
+
+	switch (type) {
+	case AMD_THERMAL_IRQ_LOW_TO_HIGH:
+		if (enabled) {
+			cg_thermal_int = cgs_read_ind_register(hwmgr->device, CGS_IND_REG__SMC, ixCG_THERMAL_INT);
+			cg_thermal_int |= CG_THERMAL_INT_CTRL__THERM_INTH_MASK_MASK;
+			cgs_write_ind_register(hwmgr->device, CGS_IND_REG__SMC, ixCG_THERMAL_INT, cg_thermal_int);
+		} else {
+			cg_thermal_int = cgs_read_ind_register(hwmgr->device, CGS_IND_REG__SMC, ixCG_THERMAL_INT);
+			cg_thermal_int &= ~CG_THERMAL_INT_CTRL__THERM_INTH_MASK_MASK;
+			cgs_write_ind_register(hwmgr->device, CGS_IND_REG__SMC, ixCG_THERMAL_INT, cg_thermal_int);
+		}
+		break;
+
+	case AMD_THERMAL_IRQ_HIGH_TO_LOW:
+		if (enabled) {
+			cg_thermal_int = cgs_read_ind_register(hwmgr->device, CGS_IND_REG__SMC, ixCG_THERMAL_INT);
+			cg_thermal_int |= CG_THERMAL_INT_CTRL__THERM_INTL_MASK_MASK;
+			cgs_write_ind_register(hwmgr->device, CGS_IND_REG__SMC, ixCG_THERMAL_INT, cg_thermal_int);
+		} else {
+			cg_thermal_int = cgs_read_ind_register(hwmgr->device, CGS_IND_REG__SMC, ixCG_THERMAL_INT);
+			cg_thermal_int &= ~CG_THERMAL_INT_CTRL__THERM_INTL_MASK_MASK;
+			cgs_write_ind_register(hwmgr->device, CGS_IND_REG__SMC, ixCG_THERMAL_INT, cg_thermal_int);
+		}
+		break;
+	default:
+		break;
+	}
+	return 0;
+}
+
+int tonga_register_internal_thermal_interrupt(struct pp_hwmgr *hwmgr,
+					const void *thermal_interrupt_info)
+{
+	int result;
+	const struct pp_interrupt_registration_info *info =
+			(const struct pp_interrupt_registration_info *)thermal_interrupt_info;
+
+	if (info == NULL)
+		return -EINVAL;
+
+	result = cgs_add_irq_source(hwmgr->device, 230, AMD_THERMAL_IRQ_LAST,
+				tonga_dpm_set_interrupt_state,
+				info->call_back, info->context);
+
+	if (result)
+		return -EINVAL;
+
+	result = cgs_add_irq_source(hwmgr->device, 231, AMD_THERMAL_IRQ_LAST,
+				tonga_dpm_set_interrupt_state,
+				info->call_back, info->context);
+
+	if (result)
+		return -EINVAL;
+
+	return 0;
+}
+
+bool tonga_check_smc_update_required_for_display_configuration(struct pp_hwmgr *hwmgr)
+{
+	struct tonga_hwmgr *data = (struct tonga_hwmgr *)(hwmgr->backend);
+	bool is_update_required = false;
+	struct cgs_display_info info = {0,0,NULL};
+
+	cgs_get_active_displays_info(hwmgr->device, &info);
+
+	if (data->display_timing.num_existing_displays != info.display_count)
+		is_update_required = true;
+/* TO DO NEED TO GET DEEP SLEEP CLOCK FROM DAL
+	if (phm_cap_enabled(hwmgr->hwmgr->platform_descriptor.platformCaps, PHM_PlatformCaps_SclkDeepSleep)) {
+		cgs_get_min_clock_settings(hwmgr->device, &min_clocks);
+		if(min_clocks.engineClockInSR != data->display_timing.minClockInSR)
+			is_update_required = true;
+*/
+	return is_update_required;
+}
+
+static inline bool tonga_are_power_levels_equal(const struct tonga_performance_level *pl1,
+							   const struct tonga_performance_level *pl2)
+{
+	return ((pl1->memory_clock == pl2->memory_clock) &&
+		  (pl1->engine_clock == pl2->engine_clock) &&
+		  (pl1->pcie_gen == pl2->pcie_gen) &&
+		  (pl1->pcie_lane == pl2->pcie_lane));
+}
+
+int tonga_check_states_equal(struct pp_hwmgr *hwmgr, const struct pp_hw_power_state *pstate1, const struct pp_hw_power_state *pstate2, bool *equal)
+{
+	const struct tonga_power_state *psa = cast_const_phw_tonga_power_state(pstate1);
+	const struct tonga_power_state *psb = cast_const_phw_tonga_power_state(pstate2);
+	int i;
+
+	if (equal == NULL || psa == NULL || psb == NULL)
+		return -EINVAL;
+
+	/* If the two states don't even have the same number of performance levels they cannot be the same state. */
+	if (psa->performance_level_count != psb->performance_level_count) {
+		*equal = false;
+		return 0;
+	}
+
+	for (i = 0; i < psa->performance_level_count; i++) {
+		if (!tonga_are_power_levels_equal(&(psa->performance_levels[i]), &(psb->performance_levels[i]))) {
+			/* If we have found even one performance level pair that is different the states are different. */
+			*equal = false;
+			return 0;
+		}
+	}
+
+	/* If all performance levels are the same try to use the UVD clocks to break the tie.*/
+	*equal = ((psa->uvd_clocks.VCLK == psb->uvd_clocks.VCLK) && (psa->uvd_clocks.DCLK == psb->uvd_clocks.DCLK));
+	*equal &= ((psa->vce_clocks.EVCLK == psb->vce_clocks.EVCLK) && (psa->vce_clocks.ECCLK == psb->vce_clocks.ECCLK));
+	*equal &= (psa->sclk_threshold == psb->sclk_threshold);
+	*equal &= (psa->acp_clk == psb->acp_clk);
+
+	return 0;
+}
+
+static int tonga_set_fan_control_mode(struct pp_hwmgr *hwmgr, uint32_t mode)
+{
+	if (mode) {
+		/* stop auto-manage */
+		if (phm_cap_enabled(hwmgr->platform_descriptor.platformCaps,
+				PHM_PlatformCaps_MicrocodeFanControl))
+			tonga_fan_ctrl_stop_smc_fan_control(hwmgr);
+		tonga_fan_ctrl_set_static_mode(hwmgr, mode);
+	} else
+		/* restart auto-manage */
+		tonga_fan_ctrl_reset_fan_speed_to_default(hwmgr);
+
+	return 0;
+}
+
+static int tonga_get_fan_control_mode(struct pp_hwmgr *hwmgr)
+{
+	if (hwmgr->fan_ctrl_is_in_default_mode)
+		return hwmgr->fan_ctrl_default_mode;
+	else
+		return PHM_READ_VFPF_INDIRECT_FIELD(hwmgr->device, CGS_IND_REG__SMC,
+				CG_FDO_CTRL2, FDO_PWM_MODE);
+}
+
+static int tonga_get_pp_table(struct pp_hwmgr *hwmgr, char **table)
+{
+	struct tonga_hwmgr *data = (struct tonga_hwmgr *)(hwmgr->backend);
+
+	if (!data->soft_pp_table) {
+		data->soft_pp_table = kzalloc(hwmgr->soft_pp_table_size, GFP_KERNEL);
+		if (!data->soft_pp_table)
+			return -ENOMEM;
+		memcpy(data->soft_pp_table, hwmgr->soft_pp_table,
+				hwmgr->soft_pp_table_size);
+	}
+
+	*table = (char *)&data->soft_pp_table;
+
+	return hwmgr->soft_pp_table_size;
+}
+
+static int tonga_set_pp_table(struct pp_hwmgr *hwmgr, const char *buf, size_t size)
+{
+	struct tonga_hwmgr *data = (struct tonga_hwmgr *)(hwmgr->backend);
+
+	if (!data->soft_pp_table) {
+		data->soft_pp_table = kzalloc(hwmgr->soft_pp_table_size, GFP_KERNEL);
+		if (!data->soft_pp_table)
+			return -ENOMEM;
+	}
+
+	memcpy(data->soft_pp_table, buf, size);
+
+	hwmgr->soft_pp_table = data->soft_pp_table;
+
+	/* TODO: re-init powerplay to implement modified pptable */
+
+	return 0;
+}
+
+static int tonga_force_clock_level(struct pp_hwmgr *hwmgr,
+		enum pp_clock_type type, uint32_t mask)
+{
+	struct tonga_hwmgr *data = (struct tonga_hwmgr *)(hwmgr->backend);
+
+	if (hwmgr->dpm_level != AMD_DPM_FORCED_LEVEL_MANUAL)
+		return -EINVAL;
+
+	switch (type) {
+	case PP_SCLK:
+		if (!data->sclk_dpm_key_disabled)
+			smum_send_msg_to_smc_with_parameter(hwmgr->smumgr,
+					PPSMC_MSG_SCLKDPM_SetEnabledMask,
+					data->dpm_level_enable_mask.sclk_dpm_enable_mask & mask);
+		break;
+	case PP_MCLK:
+		if (!data->mclk_dpm_key_disabled)
+			smum_send_msg_to_smc_with_parameter(hwmgr->smumgr,
+					PPSMC_MSG_MCLKDPM_SetEnabledMask,
+					data->dpm_level_enable_mask.mclk_dpm_enable_mask & mask);
+		break;
+	case PP_PCIE:
+	{
+		uint32_t tmp = mask & data->dpm_level_enable_mask.pcie_dpm_enable_mask;
+		uint32_t level = 0;
+
+		while (tmp >>= 1)
+			level++;
+
+		if (!data->pcie_dpm_key_disabled)
+			smum_send_msg_to_smc_with_parameter(hwmgr->smumgr,
+					PPSMC_MSG_PCIeDPM_ForceLevel,
+					level);
+		break;
+	}
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static int tonga_print_clock_levels(struct pp_hwmgr *hwmgr,
+		enum pp_clock_type type, char *buf)
+{
+	struct tonga_hwmgr *data = (struct tonga_hwmgr *)(hwmgr->backend);
+	struct tonga_single_dpm_table *sclk_table = &(data->dpm_table.sclk_table);
+	struct tonga_single_dpm_table *mclk_table = &(data->dpm_table.mclk_table);
+	struct tonga_single_dpm_table *pcie_table = &(data->dpm_table.pcie_speed_table);
+	int i, now, size = 0;
+	uint32_t clock, pcie_speed;
+
+	switch (type) {
+	case PP_SCLK:
+		smum_send_msg_to_smc(hwmgr->smumgr, PPSMC_MSG_API_GetSclkFrequency);
+		clock = cgs_read_register(hwmgr->device, mmSMC_MSG_ARG_0);
+
+		for (i = 0; i < sclk_table->count; i++) {
+			if (clock > sclk_table->dpm_levels[i].value)
+				continue;
+			break;
+		}
+		now = i;
+
+		for (i = 0; i < sclk_table->count; i++)
+			size += sprintf(buf + size, "%d: %uMhz %s\n",
+					i, sclk_table->dpm_levels[i].value / 100,
+					(i == now) ? "*" : "");
+		break;
+	case PP_MCLK:
+		smum_send_msg_to_smc(hwmgr->smumgr, PPSMC_MSG_API_GetMclkFrequency);
+		clock = cgs_read_register(hwmgr->device, mmSMC_MSG_ARG_0);
+
+		for (i = 0; i < mclk_table->count; i++) {
+			if (clock > mclk_table->dpm_levels[i].value)
+				continue;
+			break;
+		}
+		now = i;
+
+		for (i = 0; i < mclk_table->count; i++)
+			size += sprintf(buf + size, "%d: %uMhz %s\n",
+					i, mclk_table->dpm_levels[i].value / 100,
+					(i == now) ? "*" : "");
+		break;
+	case PP_PCIE:
+		pcie_speed = tonga_get_current_pcie_speed(hwmgr);
+		for (i = 0; i < pcie_table->count; i++) {
+			if (pcie_speed != pcie_table->dpm_levels[i].value)
+				continue;
+			break;
+		}
+		now = i;
+
+		for (i = 0; i < pcie_table->count; i++)
+			size += sprintf(buf + size, "%d: %s %s\n", i,
+					(pcie_table->dpm_levels[i].value == 0) ? "2.5GB, x8" :
+					(pcie_table->dpm_levels[i].value == 1) ? "5.0GB, x16" :
+					(pcie_table->dpm_levels[i].value == 2) ? "8.0GB, x16" : "",
+					(i == now) ? "*" : "");
+		break;
+	default:
+		break;
+	}
+	return size;
+}
+
 static const struct pp_hwmgr_func tonga_hwmgr_funcs = {
 	.backend_init = &tonga_hwmgr_backend_init,
 	.backend_fini = &tonga_hwmgr_backend_fini,
@@ -5603,6 +6210,33 @@ static const struct pp_hwmgr_func tonga_hwmgr_funcs = {
 	.get_pp_table_entry = tonga_get_pp_table_entry,
 	.get_num_of_pp_table_entries = tonga_get_number_of_powerplay_table_entries,
 	.print_current_perforce_level = tonga_print_current_perforce_level,
+	.powerdown_uvd = tonga_phm_powerdown_uvd,
+	.powergate_uvd = tonga_phm_powergate_uvd,
+	.powergate_vce = tonga_phm_powergate_vce,
+	.disable_clock_power_gating = tonga_phm_disable_clock_power_gating,
+	.update_clock_gatings = tonga_phm_update_clock_gatings,
+	.notify_smc_display_config_after_ps_adjustment = tonga_notify_smc_display_config_after_ps_adjustment,
+	.display_config_changed = tonga_display_configuration_changed_task,
+	.set_max_fan_pwm_output = tonga_set_max_fan_pwm_output,
+	.set_max_fan_rpm_output = tonga_set_max_fan_rpm_output,
+	.get_temperature = tonga_thermal_get_temperature,
+	.stop_thermal_controller = tonga_thermal_stop_thermal_controller,
+	.get_fan_speed_info = tonga_fan_ctrl_get_fan_speed_info,
+	.get_fan_speed_percent = tonga_fan_ctrl_get_fan_speed_percent,
+	.set_fan_speed_percent = tonga_fan_ctrl_set_fan_speed_percent,
+	.reset_fan_speed_to_default = tonga_fan_ctrl_reset_fan_speed_to_default,
+	.get_fan_speed_rpm = tonga_fan_ctrl_get_fan_speed_rpm,
+	.set_fan_speed_rpm = tonga_fan_ctrl_set_fan_speed_rpm,
+	.uninitialize_thermal_controller = tonga_thermal_ctrl_uninitialize_thermal_controller,
+	.register_internal_thermal_interrupt = tonga_register_internal_thermal_interrupt,
+	.check_smc_update_required_for_display_configuration = tonga_check_smc_update_required_for_display_configuration,
+	.check_states_equal = tonga_check_states_equal,
+	.set_fan_control_mode = tonga_set_fan_control_mode,
+	.get_fan_control_mode = tonga_get_fan_control_mode,
+	.get_pp_table = tonga_get_pp_table,
+	.set_pp_table = tonga_set_pp_table,
+	.force_clock_level = tonga_force_clock_level,
+	.print_clock_levels = tonga_print_clock_levels,
 };
 
 int tonga_hwmgr_init(struct pp_hwmgr *hwmgr)
@@ -5617,7 +6251,7 @@ int tonga_hwmgr_init(struct pp_hwmgr *hwmgr)
 	hwmgr->backend = data;
 	hwmgr->hwmgr_func = &tonga_hwmgr_funcs;
 	hwmgr->pptable_func = &tonga_pptable_funcs;
-
+	pp_tonga_thermal_initialize(hwmgr);
 	return 0;
 }
 

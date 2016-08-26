@@ -27,23 +27,8 @@
 #include <linux/types.h>
 #include "cgs_linux.h"
 #include "cgs_common.h"
-#include "amd_acp.h"
 
-struct amd_acp_private {
-	/* The public struture is first, so that pointers can be cast
-	 * between the public and private structure */
-	struct amd_acp_device public;
-
-	/* private elements not expose through the bus interface */
-	void *cgs_device;
-	unsigned acp_version_major, acp_version_minor;
-};
-
-int amd_acp_hw_init(void *cgs_device,
-		    unsigned acp_version_major, unsigned acp_version_minor,
-		    struct amd_acp_private **apriv);
-int amd_acp_hw_fini(struct amd_acp_private *apriv);
-void amd_acp_suspend(struct amd_acp_private *acp_private);
-void amd_acp_resume(struct amd_acp_private *acp_private);
+int amd_acp_hw_init(struct cgs_device *cgs_device,
+		    unsigned acp_version_major, unsigned acp_version_minor);
 
 #endif /* _ACP_GFX_IF_H */

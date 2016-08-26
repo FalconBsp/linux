@@ -267,10 +267,9 @@ static int kfd_cwsr_init(struct kfd_dev *kfd)
 {
 	/*
 	 * Initialize the CWSR required memory for TBA and TMA
-	 * only support CWSR on CARRIZO with FW version >=625 for now.
+	 * only support CWSR on VI and up with FW version >=625.
 	 */
 	if (cwsr_enable &&
-		(kfd->device_info->asic_family == CHIP_CARRIZO) &&
 		(kfd->mec_fw_version >= KFD_CWSR_CZ_FW_VER)) {
 		void *cwsr_addr = NULL;
 		unsigned int size = sizeof(cwsr_trap_carrizo_hex);
@@ -475,6 +474,16 @@ void kgd2kfd_suspend(struct kfd_dev *kfd)
 	}
 }
 
+int kgd2kfd_evict_bo(struct kfd_dev *dev, void *mem)
+{
+	return evict_bo(dev, mem);
+}
+
+int kgd2kfd_restore(struct kfd_dev *kfd)
+{
+	return restore(kfd);
+}
+
 int kgd2kfd_resume(struct kfd_dev *kfd)
 {
 	BUG_ON(kfd == NULL);
@@ -535,6 +544,58 @@ void kgd2kfd_interrupt(struct kfd_dev *kfd, const void *ih_ring_entry)
 		schedule_work(&kfd->interrupt_work);
 
 	spin_unlock(&kfd->interrupt_lock);
+}
+
+int kgd2kfd_quiesce_mm(struct kfd_dev *kfd, struct mm_struct *mm)
+{
+	struct kfd_process *p;
+	struct kfd_process_device *pdd;
+	int r;
+
+	BUG_ON(kfd == NULL);
+	if (!kfd->init_complete)
+		return 0;
+
+	/* Because we are called from arbitrary context (workqueue) as opposed
+	 * to process context, kfd_process could attempt to exit while we are
+	 * running so the lookup function returns a read-locked process. */
+	p = kfd_lookup_process_by_mm(mm);
+	if (!p)
+		return -ENODEV;
+
+	r = -ENODEV;
+	pdd = kfd_get_process_device_data(kfd, p);
+	if (pdd)
+		r = process_evict_queues(kfd->dqm, &pdd->qpd);
+
+	up_read(&p->lock);
+	return r;
+}
+
+int kgd2kfd_resume_mm(struct kfd_dev *kfd, struct mm_struct *mm)
+{
+	struct kfd_process *p;
+	struct kfd_process_device *pdd;
+	int r;
+
+	BUG_ON(kfd == NULL);
+	if (!kfd->init_complete)
+		return 0;
+
+	/* Because we are called from arbitrary context (workqueue) as opposed
+	 * to process context, kfd_process could attempt to exit while we are
+	 * running so the lookup function returns a read-locked process. */
+	p = kfd_lookup_process_by_mm(mm);
+	if (!p)
+		return -ENODEV;
+
+	r = -ENODEV;
+	pdd = kfd_get_process_device_data(kfd, p);
+	if (pdd)
+		r = process_restore_queues(kfd->dqm, &pdd->qpd);
+
+	up_read(&p->lock);
+	return r;
 }
 
 static int kfd_gtt_sa_init(struct kfd_dev *kfd, unsigned int buf_size,

@@ -99,11 +99,17 @@ enum clock_source_id {
 	CLOCK_SOURCE_ID_DCPLL,
 	CLOCK_SOURCE_ID_DFS,	/* DENTIST */
 	CLOCK_SOURCE_ID_VCE,	/* VCE does not need a real PLL */
-	CLOCK_SOURCE_ID_DP_DTO,	/* Used to distinguish between */
-	/* programming pixel clock */
-	/* and ID (Phy) clock */
-};
+	/* Used to distinguish between programming pixel clock and ID (Phy) clock */
+	CLOCK_SOURCE_ID_DP_DTO,
 
+	CLOCK_SOURCE_COMBO_PHY_PLL0, /*combo PHY PLL defines (DC 11.2 and up)*/
+	CLOCK_SOURCE_COMBO_PHY_PLL1,
+	CLOCK_SOURCE_COMBO_PHY_PLL2,
+	CLOCK_SOURCE_COMBO_PHY_PLL3,
+	CLOCK_SOURCE_COMBO_PHY_PLL4,
+	CLOCK_SOURCE_COMBO_PHY_PLL5,
+	CLOCK_SOURCE_COMBO_DISPLAY_PLL0
+};
 
 /* Encoder object ids */
 enum encoder_id {
@@ -115,35 +121,18 @@ enum encoder_id {
 	ENCODER_ID_INTERNAL_TMDS2,
 	ENCODER_ID_INTERNAL_DAC1,
 	ENCODER_ID_INTERNAL_DAC2,	/* TV/CV DAC */
-	ENCODER_ID_INTERNAL_SDVOA,
-	ENCODER_ID_INTERNAL_SDVOB,
 
 	/* External Third Party Encoders */
-	ENCODER_ID_EXTERNAL_SI170B,
-	ENCODER_ID_EXTERNAL_CH7303,
-	ENCODER_ID_EXTERNAL_CH7301,	/* 10 in decimal */
-	ENCODER_ID_INTERNAL_DVO1,	/* Belongs to Radeon Display Hardware */
-	ENCODER_ID_EXTERNAL_SDVOA,
-	ENCODER_ID_EXTERNAL_SDVOB,
-	ENCODER_ID_EXTERNAL_TITFP513,
 	ENCODER_ID_INTERNAL_LVTM1,	/* not used for Radeon */
-	ENCODER_ID_EXTERNAL_VT1623,
-	ENCODER_ID_EXTERNAL_SI1930,	/* HDMI */
 	ENCODER_ID_INTERNAL_HDMI,
 
 	/* Kaledisope (KLDSCP) Class Display Hardware */
 	ENCODER_ID_INTERNAL_KLDSCP_TMDS1,
-	ENCODER_ID_INTERNAL_KLDSCP_DVO1,
 	ENCODER_ID_INTERNAL_KLDSCP_DAC1,
 	ENCODER_ID_INTERNAL_KLDSCP_DAC2,	/* Shared with CV/TV and CRT */
 	/* External TMDS (dual link) */
-	ENCODER_ID_EXTERNAL_SI178,
 	ENCODER_ID_EXTERNAL_MVPU_FPGA,	/* MVPU FPGA chip */
 	ENCODER_ID_INTERNAL_DDI,
-	ENCODER_ID_EXTERNAL_VT1625,
-	ENCODER_ID_EXTERNAL_SI1932,
-	ENCODER_ID_EXTERNAL_AN9801,	/* External Display Port */
-	ENCODER_ID_EXTERNAL_DP501,	/* External Display Port */
 	ENCODER_ID_INTERNAL_UNIPHY,
 	ENCODER_ID_INTERNAL_KLDSCP_LVTMA,
 	ENCODER_ID_INTERNAL_UNIPHY1,
@@ -153,40 +142,28 @@ enum encoder_id {
 
 	ENCODER_ID_INTERNAL_WIRELESS,	/* Internal wireless display encoder */
 	ENCODER_ID_INTERNAL_UNIPHY3,
-
-	ENCODER_ID_EXTERNAL_GENERIC_DVO = 0xFF
+	ENCODER_ID_INTERNAL_VIRTUAL,
 };
-
 
 /* Connector object ids */
 enum connector_id {
 	CONNECTOR_ID_UNKNOWN = 0,
-	CONNECTOR_ID_SINGLE_LINK_DVII,
-	CONNECTOR_ID_DUAL_LINK_DVII,
-	CONNECTOR_ID_SINGLE_LINK_DVID,
-	CONNECTOR_ID_DUAL_LINK_DVID,
-	CONNECTOR_ID_VGA,
-	CONNECTOR_ID_COMPOSITE,
-	CONNECTOR_ID_SVIDEO,
-	CONNECTOR_ID_YPBPR,
-	CONNECTOR_ID_DCONNECTOR,
-	CONNECTOR_ID_9PIN_DIN,
-	CONNECTOR_ID_SCART,
-	CONNECTOR_ID_HDMI_TYPE_A,
-	CONNECTOR_ID_NOT_USED,
-	CONNECTOR_ID_LVDS,
-	CONNECTOR_ID_7PIN_DIN,
-	CONNECTOR_ID_PCIE,
-	CONNECTOR_ID_CROSSFIRE,
-	CONNECTOR_ID_HARDCODE_DVI,
-	CONNECTOR_ID_DISPLAY_PORT,
-	CONNECTOR_ID_EDP,
-	CONNECTOR_ID_MXM,
-	CONNECTOR_ID_WIRELESS,		/* wireless display pseudo-connector */
-	CONNECTOR_ID_MIRACAST,		/* used for VCE encode display path
-					 * for Miracast */
+	CONNECTOR_ID_SINGLE_LINK_DVII = 1,
+	CONNECTOR_ID_DUAL_LINK_DVII = 2,
+	CONNECTOR_ID_SINGLE_LINK_DVID = 3,
+	CONNECTOR_ID_DUAL_LINK_DVID = 4,
+	CONNECTOR_ID_VGA = 5,
+	CONNECTOR_ID_HDMI_TYPE_A = 12,
+	CONNECTOR_ID_LVDS = 14,
+	CONNECTOR_ID_PCIE = 16,
+	CONNECTOR_ID_HARDCODE_DVI = 18,
+	CONNECTOR_ID_DISPLAY_PORT = 19,
+	CONNECTOR_ID_EDP = 20,
+	CONNECTOR_ID_MXM = 21,
+	CONNECTOR_ID_WIRELESS = 22,
+	CONNECTOR_ID_MIRACAST = 23,
 
-	CONNECTOR_ID_COUNT
+	CONNECTOR_ID_VIRTUAL = 100
 };
 
 
@@ -206,10 +183,10 @@ enum engine_id {
 	ENGINE_ID_DIGE,
 	ENGINE_ID_DIGF,
 	ENGINE_ID_DIGG,
-	ENGINE_ID_DVO,
 	ENGINE_ID_DACA,
 	ENGINE_ID_DACB,
 	ENGINE_ID_VCE,	/* wireless display pseudo-encoder */
+	ENGINE_ID_VIRTUAL,
 
 	ENGINE_ID_COUNT,
 	ENGINE_ID_UNKNOWN = (-1L)
@@ -224,7 +201,6 @@ union supported_stream_engines {
 		uint32_t ENGINE_ID_DIGE:1;
 		uint32_t ENGINE_ID_DIGF:1;
 		uint32_t ENGINE_ID_DIGG:1;
-		uint32_t ENGINE_ID_DVO:1;
 		uint32_t ENGINE_ID_DACA:1;
 		uint32_t ENGINE_ID_DACB:1;
 		uint32_t ENGINE_ID_VCE:1;
@@ -232,6 +208,12 @@ union supported_stream_engines {
 	uint32_t u_all;
 };
 
+enum transmitter_color_depth {
+	TRANSMITTER_COLOR_DEPTH_24 = 0,  /* 8  bits */
+	TRANSMITTER_COLOR_DEPTH_30,      /* 10 bits */
+	TRANSMITTER_COLOR_DEPTH_36,      /* 12 bits */
+	TRANSMITTER_COLOR_DEPTH_48       /* 16 bits */
+};
 
 /*
  *****************************************************************************
@@ -276,7 +258,6 @@ bool dal_graphics_object_id_is_equal(
 	struct graphics_object_id id2);
 uint32_t dal_graphics_object_id_to_uint(
 	struct graphics_object_id id);
-
 
 enum controller_id dal_graphics_object_id_get_controller_id(
 	struct graphics_object_id id);

@@ -222,7 +222,7 @@ struct kfd_memory_exception_failure {
 	bool NotPresent;  /* Page not present or supervisor privilege */
 	bool ReadOnly;  /* Write access to a read-only page */
 	bool NoExecute;  /* Execute access to a page marked NX */
-	bool pad;
+	bool imprecise;  /* Can't determine the  exact fault address */
 };
 
 /* memory exception data*/
@@ -296,9 +296,19 @@ struct kfd_ioctl_open_graphic_handle_args {
 };
 
 struct kfd_ioctl_set_process_dgpu_aperture_args {
-	uint32_t node_id;
+	uint32_t gpu_id;
 	uint64_t dgpu_base;
 	uint64_t dgpu_limit;
+};
+
+struct kfd_ioctl_eviction_args {
+	uint64_t size;
+	uint64_t type;
+};
+
+enum evict_type {
+	EVICT_FIRST_PDD = 0,
+	EVICT_BIGGEST_PDD
 };
 
 /*
@@ -312,12 +322,14 @@ struct kfd_ioctl_set_process_dgpu_aperture_args {
 
 #define KFD_IOC_ALLOC_MEM_FLAGS_DGPU_AQL_QUEUE_MEM		(1 << 5)
 
+#define KFD_IOC_ALLOC_MEM_FLAGS_USERPTR			(1 << 6)
+
 struct kfd_ioctl_alloc_memory_of_gpu_new_args {
 	uint64_t va_addr;	/* to KFD */
 	uint64_t size;		/* to KFD */
 	uint64_t handle;	/* from KFD */
 	uint32_t gpu_id;	/* to KFD */
-	uint64_t mmap_offset;   /* from KFD */
+	uint64_t mmap_offset;   /* to KFD (userptr), from KFD (mmap offset) */
 	uint32_t flags;
 };
 
@@ -333,6 +345,23 @@ struct kfd_ioctl_get_process_apertures_new_args {
 	uint32_t num_of_nodes;
 
 	uint32_t pad;
+};
+
+struct kfd_ioctl_get_dmabuf_info_args {
+	uint64_t size;		/* from KFD */
+	uint64_t metadata_ptr;	/* to KFD */
+	uint32_t metadata_size;	/* to KFD (space allocated by user)
+				 * from KFD (actual metadata size) */
+	uint32_t gpu_id;	/* from KFD */
+	uint32_t flags;		/* from KFD (KFD_IOC_ALLOC_MEM_FLAGS) */
+	uint32_t dmabuf_fd;	/* to KFD */
+};
+
+struct kfd_ioctl_import_dmabuf_args {
+	uint64_t va_addr;	/* to KFD */
+	uint64_t handle;	/* from KFD */
+	uint32_t gpu_id;	/* to KFD */
+	uint32_t dmabuf_fd;	/* to KFD */
 };
 
 #define AMDKFD_IOCTL_BASE 'K'
@@ -428,7 +457,16 @@ struct kfd_ioctl_get_process_apertures_new_args {
 #define AMDKFD_IOC_GET_PROCESS_APERTURES_NEW	\
 	AMDKFD_IOWR(0x1d, struct kfd_ioctl_get_process_apertures_new_args)
 
+#define AMDKFD_IOC_EVICT_MEMORY		\
+	AMDKFD_IOWR(0x1e, struct kfd_ioctl_eviction_args)
+
+#define AMDKFD_IOC_GET_DMABUF_INFO		\
+	AMDKFD_IOWR(0x1f, struct kfd_ioctl_get_dmabuf_info_args)
+
+#define AMDKFD_IOC_IMPORT_DMABUF		\
+	AMDKFD_IOWR(0x20, struct kfd_ioctl_import_dmabuf_args)
+
 #define AMDKFD_COMMAND_START		0x01
-#define AMDKFD_COMMAND_END		0x1e
+#define AMDKFD_COMMAND_END		0x21
 
 #endif

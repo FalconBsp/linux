@@ -145,7 +145,7 @@ out:
 
 int tonga_program_jump_on_start(struct pp_smumgr *smumgr)
 {
-	static unsigned char pData[] = { 0xE0, 0x00, 0x80, 0x40 };
+	static const unsigned char pData[] = { 0xE0, 0x00, 0x80, 0x40 };
 
 	tonga_copy_bytes_to_smc(smumgr, 0x0, pData, 4, sizeof(pData)+1);
 
@@ -199,7 +199,7 @@ static int tonga_send_msg_to_smc(struct pp_smumgr *smumgr, uint16_t msg)
 	PP_ASSERT_WITH_CODE(
 		1 == SMUM_READ_FIELD(smumgr->device, SMC_RESP_0, SMC_RESP),
 		"Failed to send Previous Message.",
-		return 1);
+		);
 
 	cgs_write_register(smumgr->device, mmSMC_MESSAGE_0, msg);
 
@@ -207,7 +207,7 @@ static int tonga_send_msg_to_smc(struct pp_smumgr *smumgr, uint16_t msg)
 	PP_ASSERT_WITH_CODE(
 		1 == SMUM_READ_FIELD(smumgr->device, SMC_RESP_0, SMC_RESP),
 		"Failed to send Message.",
-		return 1);
+		);
 
 	return 0;
 }
@@ -229,7 +229,7 @@ static int tonga_send_msg_to_smc_without_waiting
 	PP_ASSERT_WITH_CODE(
 		1 == SMUM_READ_FIELD(smumgr->device, SMC_RESP_0, SMC_RESP),
 		"Failed to send Previous Message.",
-		return 0);
+		);
 	cgs_write_register(smumgr->device, mmSMC_MESSAGE_0, msg);
 
 	return 0;
@@ -810,7 +810,7 @@ int tonga_smum_init(struct pp_smumgr *smumgr)
 	tonga_smu = kzalloc(sizeof(struct tonga_smumgr), GFP_KERNEL);
 
 	if (tonga_smu == NULL)
-		return -1;
+		return -ENOMEM;
 
 	smumgr->backend = tonga_smu;
 	smumgr->smumgr_funcs = &tonga_smu_funcs;

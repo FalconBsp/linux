@@ -138,12 +138,15 @@ const void *get_powerplay_table(struct pp_hwmgr *hwmgr)
 
 	u16 size;
 	u8 frev, crev;
-	void *table_address;
+	void *table_address = (void *)hwmgr->soft_pp_table;
 
-	table_address = (ATOM_Tonga_POWERPLAYTABLE *)
-		cgs_atom_get_data_table(hwmgr->device, index, &size, &frev, &crev);
-
-	hwmgr->soft_pp_table = table_address;	/*Cache the result in RAM.*/
+	if (!table_address) {
+		table_address = (ATOM_Tonga_POWERPLAYTABLE *)
+				cgs_atom_get_data_table(hwmgr->device,
+						index, &size, &frev, &crev);
+		hwmgr->soft_pp_table = table_address;	/*Cache the result in RAM.*/
+		hwmgr->soft_pp_table_size = size;
+	}
 
 	return table_address;
 }
@@ -168,7 +171,7 @@ static int get_vddc_lookup_table(
 		kzalloc(table_size, GFP_KERNEL);
 
 	if (NULL == table)
-		return -1;
+		return -ENOMEM;
 
 	memset(table, 0x00, table_size);
 
@@ -206,7 +209,7 @@ static int get_platform_power_management_table(
 		(struct phm_ppt_v1_information *)(hwmgr->pptable);
 
 	if (NULL == ptr)
-		return -1;
+		return -ENOMEM;
 
 	ptr->ppm_design
 		= atom_ppm_table->ucPpmDesign;
@@ -327,7 +330,7 @@ static int get_valid_clk(
 	table = (struct phm_clock_array *)kzalloc(table_size, GFP_KERNEL);
 
 	if (NULL == table)
-		return -1;
+		return -ENOMEM;
 
 	memset(table, 0x00, table_size);
 
@@ -378,7 +381,7 @@ static int get_mclk_voltage_dependency_table(
 		kzalloc(table_size, GFP_KERNEL);
 
 	if (NULL == mclk_table)
-		return -1;
+		return -ENOMEM;
 
 	memset(mclk_table, 0x00, table_size);
 
@@ -421,7 +424,7 @@ static int get_sclk_voltage_dependency_table(
 		kzalloc(table_size, GFP_KERNEL);
 
 	if (NULL == sclk_table)
-		return -1;
+		return -ENOMEM;
 
 	memset(sclk_table, 0x00, table_size);
 
@@ -448,47 +451,90 @@ static int get_sclk_voltage_dependency_table(
 static int get_pcie_table(
 		struct pp_hwmgr *hwmgr,
 		phm_ppt_v1_pcie_table **pp_tonga_pcie_table,
-		const ATOM_Tonga_PCIE_Table * atom_pcie_table
+		const PPTable_Generic_SubTable_Header * pTable
 		)
 {
 	uint32_t table_size, i, pcie_count;
 	phm_ppt_v1_pcie_table *pcie_table;
 	struct phm_ppt_v1_information *pp_table_information =
 		(struct phm_ppt_v1_information *)(hwmgr->pptable);
-	PP_ASSERT_WITH_CODE((0 != atom_pcie_table->ucNumEntries),
-		"Invalid PowerPlay Table!", return -1);
 
-	table_size = sizeof(uint32_t) +
-		sizeof(phm_ppt_v1_pcie_record) * atom_pcie_table->ucNumEntries;
+	if (pTable->ucRevId < 1) {
+		const ATOM_Tonga_PCIE_Table *atom_pcie_table = (ATOM_Tonga_PCIE_Table *)pTable;
+		PP_ASSERT_WITH_CODE((atom_pcie_table->ucNumEntries != 0),
+			"Invalid PowerPlay Table!", return -1);
 
-	pcie_table = (phm_ppt_v1_pcie_table *)kzalloc(table_size, GFP_KERNEL);
+		table_size = sizeof(uint32_t) +
+			sizeof(phm_ppt_v1_pcie_record) * atom_pcie_table->ucNumEntries;
 
-	if (NULL == pcie_table)
-		return -1;
+		pcie_table = (phm_ppt_v1_pcie_table *)kzalloc(table_size, GFP_KERNEL);
 
-	memset(pcie_table, 0x00, table_size);
+		if (pcie_table == NULL)
+			return -ENOMEM;
 
-	/*
-	* Make sure the number of pcie entries are less than or equal to sclk dpm levels.
-	* Since first PCIE entry is for ULV, #pcie has to be <= SclkLevel + 1.
-	*/
-	pcie_count = (pp_table_information->vdd_dep_on_sclk->count) + 1;
-	if ((uint32_t)atom_pcie_table->ucNumEntries <= pcie_count)
-		pcie_count = (uint32_t)atom_pcie_table->ucNumEntries;
-	else
-		printk(KERN_ERR "[ powerplay ] Number of Pcie Entries exceed the number of SCLK Dpm Levels! \
-		Disregarding the excess entries... \n");
+		memset(pcie_table, 0x00, table_size);
 
-	pcie_table->count = pcie_count;
+		/*
+		* Make sure the number of pcie entries are less than or equal to sclk dpm levels.
+		* Since first PCIE entry is for ULV, #pcie has to be <= SclkLevel + 1.
+		*/
+		pcie_count = (pp_table_information->vdd_dep_on_sclk->count) + 1;
+		if ((uint32_t)atom_pcie_table->ucNumEntries <= pcie_count)
+			pcie_count = (uint32_t)atom_pcie_table->ucNumEntries;
+		else
+			printk(KERN_ERR "[ powerplay ] Number of Pcie Entries exceed the number of SCLK Dpm Levels! \
+			Disregarding the excess entries... \n");
 
-	for (i = 0; i < pcie_count; i++) {
-		pcie_table->entries[i].gen_speed =
-			atom_pcie_table->entries[i].ucPCIEGenSpeed;
-		pcie_table->entries[i].lane_width =
-			atom_pcie_table->entries[i].usPCIELaneWidth;
+		pcie_table->count = pcie_count;
+
+		for (i = 0; i < pcie_count; i++) {
+			pcie_table->entries[i].gen_speed =
+				atom_pcie_table->entries[i].ucPCIEGenSpeed;
+			pcie_table->entries[i].lane_width =
+				atom_pcie_table->entries[i].usPCIELaneWidth;
+		}
+
+		*pp_tonga_pcie_table = pcie_table;
+	} else {
+		/* Polaris10/Polaris11 and newer. */
+		const ATOM_Polaris10_PCIE_Table *atom_pcie_table = (ATOM_Polaris10_PCIE_Table *)pTable;
+		PP_ASSERT_WITH_CODE((atom_pcie_table->ucNumEntries != 0),
+			"Invalid PowerPlay Table!", return -1);
+
+		table_size = sizeof(uint32_t) +
+			sizeof(phm_ppt_v1_pcie_record) * atom_pcie_table->ucNumEntries;
+
+		pcie_table = (phm_ppt_v1_pcie_table *)kzalloc(table_size, GFP_KERNEL);
+
+		if (pcie_table == NULL)
+			return -ENOMEM;
+
+		memset(pcie_table, 0x00, table_size);
+
+		/*
+		* Make sure the number of pcie entries are less than or equal to sclk dpm levels.
+		* Since first PCIE entry is for ULV, #pcie has to be <= SclkLevel + 1.
+		*/
+		pcie_count = (pp_table_information->vdd_dep_on_sclk->count) + 1;
+		if ((uint32_t)atom_pcie_table->ucNumEntries <= pcie_count)
+			pcie_count = (uint32_t)atom_pcie_table->ucNumEntries;
+		else
+			printk(KERN_ERR "[ powerplay ] Number of Pcie Entries exceed the number of SCLK Dpm Levels! \
+			Disregarding the excess entries... \n");
+
+		pcie_table->count = pcie_count;
+
+		for (i = 0; i < pcie_count; i++) {
+			pcie_table->entries[i].gen_speed =
+				atom_pcie_table->entries[i].ucPCIEGenSpeed;
+			pcie_table->entries[i].lane_width =
+				atom_pcie_table->entries[i].usPCIELaneWidth;
+			pcie_table->entries[i].pcie_sclk =
+				atom_pcie_table->entries[i].ulPCIE_Sclk;
+		}
+
+		*pp_tonga_pcie_table = pcie_table;
 	}
-
-	*pp_tonga_pcie_table = pcie_table;
 
 	return 0;
 }
@@ -506,14 +552,16 @@ static int get_cac_tdp_table(
 	tdp_table = kzalloc(table_size, GFP_KERNEL);
 
 	if (NULL == tdp_table)
-		return -1;
+		return -ENOMEM;
 
 	memset(tdp_table, 0x00, table_size);
 
 	hwmgr->dyn_state.cac_dtp_table = kzalloc(table_size, GFP_KERNEL);
 
-	if (NULL == hwmgr->dyn_state.cac_dtp_table)
-		return -1;
+	if (NULL == hwmgr->dyn_state.cac_dtp_table) {
+		kfree(tdp_table);
+		return -ENOMEM;
+	}
 
 	memset(hwmgr->dyn_state.cac_dtp_table, 0x00, table_size);
 
@@ -614,7 +662,7 @@ static int get_mm_clock_voltage_table(
 		kzalloc(table_size, GFP_KERNEL);
 
 	if (NULL == mm_table)
-		return -1;
+		return -ENOMEM;
 
 	memset(mm_table, 0x00, table_size);
 
@@ -666,8 +714,8 @@ static int init_clock_voltage_dependency(
 	const ATOM_Tonga_Hard_Limit_Table *pHardLimits =
 		(const ATOM_Tonga_Hard_Limit_Table *)(((unsigned long) powerplay_table) +
 		le16_to_cpu(powerplay_table->usHardLimitTableOffset));
-	const ATOM_Tonga_PCIE_Table *pcie_table =
-		(const ATOM_Tonga_PCIE_Table *)(((unsigned long) powerplay_table) +
+	const PPTable_Generic_SubTable_Header *pcie_table =
+		(const PPTable_Generic_SubTable_Header *)(((unsigned long) powerplay_table) +
 		le16_to_cpu(powerplay_table->usPCIETableOffset));
 
 	pp_table_information->vdd_dep_on_sclk = NULL;
@@ -797,7 +845,7 @@ static int init_thermal_controller(
 		  );
 
 	if (0 == powerplay_table->usFanTableOffset)
-		return -1;
+		return 0;
 
 	fan_table = (const PPTable_Generic_SubTable_Header *)
 		(((unsigned long)powerplay_table) +
@@ -942,8 +990,8 @@ int tonga_pp_tables_initialize(struct pp_hwmgr *hwmgr)
 
 	hwmgr->pptable = kzalloc(sizeof(struct phm_ppt_v1_information), GFP_KERNEL);
 
-	if (NULL == hwmgr->pptable)
-		return -1;
+	PP_ASSERT_WITH_CODE((NULL != hwmgr->pptable),
+			    "Failed to allocate hwmgr->pptable!", return -ENOMEM);
 
 	memset(hwmgr->pptable, 0x00, sizeof(struct phm_ppt_v1_information));
 
@@ -954,21 +1002,34 @@ int tonga_pp_tables_initialize(struct pp_hwmgr *hwmgr)
 
 	result = check_powerplay_tables(hwmgr, powerplay_table);
 
-	if (0 == result)
-		result = set_platform_caps(hwmgr,
-			le32_to_cpu(powerplay_table->ulPlatformCaps));
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "check_powerplay_tables failed", return result);
 
-	if (0 == result)
-		result = init_thermal_controller(hwmgr, powerplay_table);
+	result = set_platform_caps(hwmgr,
+				   le32_to_cpu(powerplay_table->ulPlatformCaps));
 
-	if (0 == result)
-		result = init_over_drive_limits(hwmgr, powerplay_table);
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "set_platform_caps failed", return result);
 
-	if (0 == result)
-		result = init_clock_voltage_dependency(hwmgr, powerplay_table);
+	result = init_thermal_controller(hwmgr, powerplay_table);
 
-	if (0 == result)
-		result = init_dpm_2_parameters(hwmgr, powerplay_table);
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "init_thermal_controller failed", return result);
+
+	result = init_over_drive_limits(hwmgr, powerplay_table);
+
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "init_over_drive_limits failed", return result);
+
+	result = init_clock_voltage_dependency(hwmgr, powerplay_table);
+
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "init_clock_voltage_dependency failed", return result);
+
+	result = init_dpm_2_parameters(hwmgr, powerplay_table);
+
+	PP_ASSERT_WITH_CODE((result == 0),
+			    "init_dpm_2_parameters failed", return result);
 
 	return result;
 }

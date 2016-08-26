@@ -45,25 +45,6 @@ static inline u32 getnrofpagesforbuffer(void *addrStart,
 	return (getoffsetinpage(addrStart) + len + PAGE_SIZE-1) / PAGE_SIZE;
 }
 
-u32 sizetoorder(u32 size)
-{
-	u32 order = INVALID_ORDER;
-
-	if (0 != size) {
-		order = __builtin_clz(getnrofpagesforbuffer(NULL, size));
-		/* there is a size overflow in getnrofpagesforbuffer when
-		   the size is too large */
-		if (unlikely(order > 31))
-			return INVALID_ORDER;
-		order = 31 - order;
-		/* above algorithm rounds down: clz(5)=2 instead of 3
-		   quick correction to fix it: */
-		if (((1<<order)*PAGE_SIZE) < size)
-			order++;
-	}
-	return order;
-}
-
 u32 addrtopfn(void *addr)
 {
 	return (u32)((u64)(addr) >> PAGE_SHIFT);
@@ -72,9 +53,13 @@ u32 addrtopfn(void *addr)
 void flush_buffer(void *addr, u32 size)
 {
 	struct page *page;
-	void *page_start = getpagestart(addr);
+	void *page_start = NULL;
 	int i;
 
+	if (addr == NULL)
+		return;
+
+	page_start = getpagestart(addr);
 	for (i = 0; i < getnrofpagesforbuffer(addr, size); i++) {
 		page = virt_to_page(page_start);
 		flush_dcache_page(page);
@@ -85,4 +70,12 @@ void flush_buffer(void *addr, u32 size)
 void invalidate_buffer(void *addr, u32 size)
 {
 
+}
+u32 get_pagealigned_size(u32 size)
+{
+	u32 aligned_size = size/PAGE_SIZE;
+
+	if (size % PAGE_SIZE)
+		aligned_size++;
+	return (aligned_size*PAGE_SIZE);
 }

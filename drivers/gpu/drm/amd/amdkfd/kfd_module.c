@@ -29,9 +29,9 @@
 #define KFD_DRIVER_AUTHOR	"AMD Inc. and others"
 
 #define KFD_DRIVER_DESC		"Standalone HSA driver for AMD's GPUs"
-#define KFD_DRIVER_DATE		"20150924"
-#define KFD_DRIVER_MAJOR	1
-#define KFD_DRIVER_MINOR	6
+#define KFD_DRIVER_DATE		"20160408"
+#define KFD_DRIVER_MAJOR	2
+#define KFD_DRIVER_MINOR	0
 #define KFD_DRIVER_PATCHLEVEL	0
 #define KFD_DRIVER_RC_LEVEL	""
 
@@ -43,6 +43,10 @@ static const struct kgd2kfd_calls kgd2kfd = {
 	.interrupt	= kgd2kfd_interrupt,
 	.suspend	= kgd2kfd_suspend,
 	.resume		= kgd2kfd_resume,
+	.evict_bo	= kgd2kfd_evict_bo,
+	.restore	= kgd2kfd_restore,
+	.quiesce_mm	= kgd2kfd_quiesce_mm,
+	.resume_mm	= kgd2kfd_resume_mm,
 };
 
 int sched_policy = KFD_SCHED_POLICY_HWS;
@@ -68,6 +72,11 @@ int send_sigterm;
 module_param(send_sigterm, int, 0444);
 MODULE_PARM_DESC(send_sigterm,
 	"Send sigterm to HSA process on unhandled exception (0 = disable, 1 = enable)");
+
+int debug_largebar = 0;
+module_param(debug_largebar, int, 0444);
+MODULE_PARM_DESC(debug_largebar,
+	"Debug large-bar flag used to simulate large-bar capability on non-large bar machine (0 = disable, 1 = enable)");
 
 bool kgd2kfd_init(unsigned interface_version, const struct kgd2kfd_calls **g2f)
 {

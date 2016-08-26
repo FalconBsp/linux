@@ -31,9 +31,11 @@
  */
 
 /* DCE80 (based on ci_id.h in Perforce) */
+
 #define	CI_BONAIRE_M_A0 0x14
 #define	CI_BONAIRE_M_A1	0x15
 #define	CI_HAWAII_P_A0	0x28
+
 #define CI_UNKNOWN	0xFF
 
 #define ASIC_REV_IS_BONAIRE_M(rev) \
@@ -75,10 +77,39 @@
 #define ASIC_REV_IS_GODAVARI(rev) \
 	((rev >= ML_GODAVARI_A0) && (rev < KV_UNKNOWN))
 
+/* VI Family */
+/* DCE10 */
+#define VI_TONGA_P_A0 20
+#define VI_TONGA_P_A1 21
+#define VI_FIJI_P_A0 60
+
+#if defined(CONFIG_DRM_AMD_DAL_DCE11_2)
+/* DCE112 */
+#define VI_POLARIS10_P_A0 80
+#define VI_POLARIS11_M_A0 90
+#endif
+
+#define VI_UNKNOWN 0xFF
+
+#define ASIC_REV_IS_TONGA_P(eChipRev) ((eChipRev >= VI_TONGA_P_A0) && \
+		(eChipRev < 40))
+#define ASIC_REV_IS_FIJI_P(eChipRev) ((eChipRev >= VI_FIJI_P_A0) && \
+		(eChipRev < 80))
+
+#if defined(CONFIG_DRM_AMD_DAL_DCE11_2)
+#define ASIC_REV_IS_POLARIS10_P(eChipRev) ((eChipRev >= VI_POLARIS10_P_A0) && \
+		(eChipRev < VI_POLARIS11_M_A0))
+#define ASIC_REV_IS_POLARIS11_M(eChipRev) (eChipRev >= VI_POLARIS11_M_A0)
+#endif
+
 /* DCE11 */
 #define CZ_CARRIZO_A0 0x01
+
+#define STONEY_A0 0x61
 #define CZ_UNKNOWN 0xFF
 
+#define ASIC_REV_IS_STONEY(rev) \
+	((rev >= STONEY_A0) && (rev < CZ_UNKNOWN))
 
 /*
  * ASIC chip ID
@@ -88,12 +119,12 @@
 #define DEVICE_ID_TEMASH_9839 0x9839
 #define DEVICE_ID_TEMASH_983D 0x983D
 
-
 /* Asic Family IDs for different asic family. */
 #define FAMILY_CI 120 /* Sea Islands: Hawaii (P), Bonaire (M) */
 #define FAMILY_KV 125 /* Fusion => Kaveri: Spectre, Spooky; Kabini: Kalindi */
 #define FAMILY_VI 130 /* Volcanic Islands: Iceland (V), Tonga (M) */
 #define FAMILY_CZ 135 /* Carrizo */
+
 #define	FAMILY_UNKNOWN 0xFF
 
 #endif /* __DAL_ASIC_ID_H__ */

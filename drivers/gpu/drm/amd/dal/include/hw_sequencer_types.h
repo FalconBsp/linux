@@ -29,54 +29,16 @@
 #include "signal_types.h"
 #include "grph_object_defs.h"
 #include "link_service_types.h"
-#include "plane_types.h"
 
 struct color_quality {
 	uint32_t bpp_graphics;
 	uint32_t bpp_backend_video;
 };
 
-enum tiling_mode {
-	TILING_MODE_INVALID,
-	TILING_MODE_LINEAR,
-	TILING_MODE_TILED
-};
-
 enum {
 	HW_MAX_NUM_VIEWPORTS = 2,
 	HW_CURRENT_PIPE_INDEX = 0,
 	HW_OTHER_PIPE_INDEX = 1
-};
-
-struct hw_view_port_adjustment {
-	int32_t start_adjustment;
-	int32_t width;
-
-	enum controller_id controller_id;
-};
-
-struct hw_view_port_adjustments {
-	uint32_t view_ports_num;
-	struct hw_view_port_adjustment adjustments[HW_MAX_NUM_VIEWPORTS];
-};
-
-/* Color depth of a display */
-enum hw_color_depth {
-	HW_COLOR_DEPTH_UNKNOWN,
-	HW_COLOR_DEPTH_666,
-	HW_COLOR_DEPTH_888,
-	HW_COLOR_DEPTH_101010,
-	HW_COLOR_DEPTH_121212,
-	HW_COLOR_DEPTH_141414,
-	HW_COLOR_DEPTH_161616
-};
-
-/* Pixel encoding format of a display */
-enum hw_pixel_encoding {
-	HW_PIXEL_ENCODING_UNKNOWN,
-	HW_PIXEL_ENCODING_RGB,
-	HW_PIXEL_ENCODING_YCBCR422,
-	HW_PIXEL_ENCODING_YCBCR444
 };
 
 /* Timing standard */
@@ -99,8 +61,8 @@ enum hw_timing_standard {
 	HW_TIMING_STANDARD_EXPLICIT
 };
 
-/* identical to struct crtc_ranged_timing_control
- * defined in controller\timing_generator_types.h */
+/* TODO: identical to struct crtc_ranged_timing_control
+ * defined in inc\timing_generator_types.h */
 struct hw_ranged_timing_control {
 	/* set to 1 to force dynamic counter V_COUNT
 	 * to lock to constant rate counter V_COUNT_NOM
@@ -129,26 +91,13 @@ struct hw_ranged_timing_control {
 };
 
 /* define the structure of Dynamic Refresh Mode */
-struct hw_ranged_timing {
+struct drr_params {
 	/* defines the minimum possible vertical dimension of display timing
 	 * for CRTC as supported by the panel */
 	uint32_t vertical_total_min;
 	/* defines the maximum possible vertical dimension of display timing
 	 * for CRTC as supported by the panel */
 	uint32_t vertical_total_max;
-
-	struct hw_ranged_timing_control control;
-};
-
-/* Color depth */
-enum crtc_color_depth {
-	CRTC_COLOR_DEPTH_UNKNOWN = 0,
-	CRTC_COLOR_DEPTH_666,
-	CRTC_COLOR_DEPTH_888,
-	CRTC_COLOR_DEPTH_101010,
-	CRTC_COLOR_DEPTH_121212,
-	CRTC_COLOR_DEPTH_141414,
-	CRTC_COLOR_DEPTH_161616
 };
 
 /* CRTC timing structure */
@@ -167,12 +116,12 @@ struct hw_crtc_timing {
 	uint32_t v_sync_start;
 	uint32_t v_sync_width;
 
-	struct hw_ranged_timing ranged_timing;
-
 	/* in KHz */
 	uint32_t pixel_clock;
 
 	enum hw_timing_standard timing_standard;
+	enum dc_color_depth color_depth;
+	enum dc_pixel_encoding pixel_encoding;
 
 	struct {
 		uint32_t INTERLACED:1;
@@ -188,21 +137,11 @@ struct hw_crtc_timing {
 		uint32_t RIGHT_EYE_3D_POLARITY:1;
 		/* DVI-DL High-Color mode */
 		uint32_t HIGH_COLOR_DL_MODE:1;
-		enum hw_color_depth COLOR_DEPTH:4;
-		enum hw_pixel_encoding PIXEL_ENCODING:4;
 		uint32_t Y_ONLY:1;
 		/* HDMI 2.0 - Support scrambling for TMDS character
 		 * rates less than or equal to 340Mcsc */
 		uint32_t LTE_340MCSC_SCRAMBLE:1;
 	} flags;
-
-	enum crtc_color_depth crtc_color_depth;
-};
-
-struct hw_scaling_info {
-	struct view src;
-	struct view dst;
-	enum signal_type signal;
 };
 
 enum hw_color_space {
@@ -266,77 +205,6 @@ enum hw_dithering_options {
 	HW_DITHERING_OPTION_DISABLE
 };
 
-struct hw_stereo_mixer_params {
-	bool sub_sampling;
-	bool single_pipe;
-};
-
-struct hw_mode_info {
-	struct view view;
-	enum pixel_format pixel_format;
-	uint32_t refresh_rate;
-	struct hw_scaling_info scaling_info;
-	struct hw_crtc_timing timing;
-	enum hw_overlay_backend_bpp backend_bpp;
-	enum hw_overlay_color_space ovl_color_space;
-	enum hw_overlay_format ovl_surface;
-	enum hw_color_space color_space;
-	struct overscan_info overscan;
-	enum hw_scale_options underscan_rule;
-	bool fbc_enabled;
-	bool lpt_enabled;
-	enum tiling_mode tiling_mode;
-	struct hw_stereo_mixer_params stereo_mixer_params;
-	enum hw_dithering_options dithering;
-
-	/* output parameter */
-	struct hw_view_port_adjustments *view_port_adjustments;
-
-	struct /* HW Sequencer should not used this struct ds_info */
-	{
-		struct hw_crtc_timing original_timing;
-		uint32_t position_x;
-		uint32_t position_y;
-		uint32_t DISPLAY_PREFERED_MODE:1;
-		uint32_t TIMING_REDUCE_BLANK_PATCHED:1;
-		uint32_t TIMING_UNDERSCAN_PATCHED:1;
-		uint32_t TIMING_VH_SIZE_PATCHED:1;
-		uint32_t TIMING_SCALING_PATCHED:1;
-		uint32_t ALLOC_OVL_SIGNAL:1;
-		uint32_t FREE_OVL_SIGNAL:1;
-		uint32_t cea_vic;
-	} ds_info;
-
-	enum rotation_angle rotation;
-	bool is_tiling_rotated;
-	/* 'stereo_format' is used in:
-	 *	1. stereo mixer parameters
-	 *	2. bandwidth manager parameters */
-	enum hw_stereo_format stereo_format;
-
-	struct scaling_tap_info taps_requested;
-};
-
-enum hw_path_action {
-	HW_PATH_ACTION_UNDEFINED,
-	HW_PATH_ACTION_SET, /* set given mode on the path */
-	HW_PATH_ACTION_RESET, /* reset the path */
-	/* path already set, for resource consideration only. no programming */
-	HW_PATH_ACTION_EXISTING,
-	/* set given adjustment on the path */
-	HW_PATH_ACTION_SET_ADJUSTMENT,
-	/* perform static validation */
-	HW_PATH_ACTION_STATIC_VALIDATE
-};
-
-struct hw_action_flags {
-	uint32_t RESYNC_PATH:1;
-	uint32_t TIMING_CHANGED:1;
-	uint32_t PIXEL_ENCODING_CHANGED:1;
-	uint32_t GAMUT_CHANGED:1;
-	uint32_t TURN_OFF_VCC:1;
-};
-
 enum hw_sync_request {
 	HW_SYNC_REQUEST_NONE = 0,
 	HW_SYNC_REQUEST_SET_INTERPATH,
@@ -346,12 +214,6 @@ enum hw_sync_request {
 	HW_SYNC_REQUEST_RESET_GLSYNC,
 	HW_SYNC_REQUEST_RESYNC_GLSYNC,
 	HW_SYNC_REQUEST_SET_STEREO3D
-};
-
-struct hw_sync_info {
-	enum hw_sync_request sync_request;
-	uint32_t target_pixel_clock; /* in KHz */
-	enum sync_source sync_source;
 };
 
 /* TODO hw_info_frame and hw_info_packet structures are same as in encoder
@@ -376,37 +238,14 @@ struct hw_info_frame {
 	struct hw_info_packet vsc_packet;
 };
 
-struct hw_path_mode {
-	enum hw_path_action action;
-	struct hw_action_flags action_flags;
-	struct hw_mode_info mode;
-	struct hw_sync_info sync_info;
-	struct display_path *display_path;
-	struct hw_adjustment_set *adjustment_set;
-	struct hw_info_frame info_frame;
-	/* existing path only, for clock state dependancy */
-	struct link_settings link_settings;
-
-	struct vector *plane_configs;
-};
-
 enum channel_command_type {
 	CHANNEL_COMMAND_I2C,
 	CHANNEL_COMMAND_I2C_OVER_AUX,
 	CHANNEL_COMMAND_AUX
 };
 
-
 /* maximum TMDS transmitter pixel clock is 165 MHz. So it is KHz */
 #define	TMDS_MAX_PIXEL_CLOCK_IN_KHZ 165000
 #define	NATIVE_HDMI_MAX_PIXEL_CLOCK_IN_KHZ 297000
-
-struct hw_adjustment_range {
-	int32_t hw_default;
-	int32_t min;
-	int32_t max;
-	int32_t step;
-	uint32_t divider; /* (actually HW range is min/divider; divider !=0) */
-};
 
 #endif

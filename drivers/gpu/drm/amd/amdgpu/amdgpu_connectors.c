@@ -77,7 +77,7 @@ void amdgpu_connector_hotplug(struct drm_connector *connector)
 			} else if (amdgpu_atombios_dp_needs_link_train(amdgpu_connector)) {
 				/* Don't try to start link training before we
 				 * have the dpcd */
-				if (!amdgpu_atombios_dp_get_dpcd(amdgpu_connector))
+				if (amdgpu_atombios_dp_get_dpcd(amdgpu_connector))
 					return;
 
 				/* set it to OFF so that drm_helper_connector_dpms()
@@ -439,7 +439,7 @@ static void amdgpu_connector_add_common_modes(struct drm_encoder *encoder,
 	struct drm_display_mode *mode = NULL;
 	struct drm_display_mode *native_mode = &amdgpu_encoder->native_mode;
 	int i;
-	struct mode_size {
+	static const struct mode_size {
 		int w;
 		int h;
 	} common_modes[17] = {

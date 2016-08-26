@@ -23,47 +23,74 @@
  *
  */
 
-
 #ifndef __AMDGPU_DM_TYPES_H__
 #define __AMDGPU_DM_TYPES_H__
 
 #include <drm/drmP.h>
 
-struct plane_addr_flip_info;
 struct amdgpu_framebuffer;
 struct amdgpu_display_manager;
+struct dc_validation_set;
+struct dc_surface;
 
 /*TODO Jodan Hersen use the one in amdgpu_dm*/
 int amdgpu_dm_crtc_init(struct amdgpu_display_manager *dm,
 			struct amdgpu_crtc *amdgpu_crtc,
-			int display_idx);
+			uint32_t link_index);
 int amdgpu_dm_connector_init(struct amdgpu_display_manager *dm,
 			struct amdgpu_connector *amdgpu_connector,
-			int display_idx,
-			bool is_connected,
+			uint32_t link_index,
 			struct amdgpu_encoder *amdgpu_encoder);
-int amdgpu_dm_encoder_init(struct drm_device *dev,
-			struct amdgpu_encoder *amdgpu_encoder,
-			int display_idx,
-			struct amdgpu_crtc *amdgpu_crtc);
-
-
-void amdgpu_dm_fill_surface_address(struct drm_crtc *crtc,
-			struct plane_addr_flip_info *info,
-			struct amdgpu_framebuffer *afb,
-			struct drm_framebuffer *old_fb);
+int amdgpu_dm_encoder_init(
+	struct drm_device *dev,
+	struct amdgpu_encoder *aencoder,
+	uint32_t link_index);
 
 void amdgpu_dm_crtc_destroy(struct drm_crtc *crtc);
 void amdgpu_dm_connector_destroy(struct drm_connector *connector);
 void amdgpu_dm_encoder_destroy(struct drm_encoder *encoder);
 
-bool amdgpu_dm_mode_reset(struct drm_crtc *crtc);
+int amdgpu_dm_connector_get_modes(struct drm_connector *connector);
 
-bool amdgpu_dm_mode_set(
-	struct drm_crtc *crtc,
+int amdgpu_dm_atomic_commit(
+	struct drm_device *dev,
+	struct drm_atomic_state *state,
+	bool async);
+int amdgpu_dm_atomic_check(struct drm_device *dev,
+				struct drm_atomic_state *state);
+
+int dm_create_validation_set_for_target(
+	struct drm_connector *connector,
 	struct drm_display_mode *mode,
-	int x,
-	int y,
-	struct drm_framebuffer *old_fb);
+	struct dc_validation_set *val_set);
+
+void amdgpu_dm_connector_funcs_reset(struct drm_connector *connector);
+struct drm_connector_state *amdgpu_dm_connector_atomic_duplicate_state(
+	struct drm_connector *connector);
+void amdgpu_dm_connector_atomic_destroy_state(
+	struct drm_connector *connector,
+	struct drm_connector_state *state);
+int amdgpu_dm_connector_atomic_set_property(
+	struct drm_connector *connector,
+	struct drm_connector_state *state,
+	struct drm_property *property,
+	uint64_t val);
+
+int amdgpu_dm_get_encoder_crtc_mask(struct amdgpu_device *adev);
+
+void amdgpu_dm_connector_init_helper(
+	struct amdgpu_display_manager *dm,
+	struct amdgpu_connector *aconnector,
+	int connector_type,
+	const struct dc_link *link,
+	int link_index);
+
+int amdgpu_dm_connector_mode_valid(
+	struct drm_connector *connector,
+	struct drm_display_mode *mode);
+
+void dm_restore_drm_connector_state(struct drm_device *dev, struct drm_connector *connector);
+
+extern const struct drm_encoder_helper_funcs amdgpu_dm_encoder_helper_funcs;
 
 #endif		/* __AMDGPU_DM_TYPES_H__ */
