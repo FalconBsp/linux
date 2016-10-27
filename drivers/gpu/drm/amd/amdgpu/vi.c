@@ -1567,12 +1567,13 @@ static int vi_common_early_init(void *handle)
 			AMD_CG_SUPPORT_SDMA_MGCG |
 			AMD_CG_SUPPORT_SDMA_LS;
 	        /* rev0 hardware doesn't support PG */
-	        if (adev->rev_id != 0x00)
+	       /* if (adev->rev_id != 0x00)
 		        adev->pg_flags |= AMDGPU_PG_SUPPORT_GFX_PG |
 				 AMDGPU_PG_SUPPORT_GFX_SMG |
 				 AMDGPU_PG_SUPPORT_GFX_DMG |
 				 AMDGPU_PG_SUPPORT_CP |
 				 AMDGPU_PG_SUPPORT_GFX_PIPELINE;
+	       */
 
 		adev->external_rev_id = adev->rev_id + 0x1;
 		break;
