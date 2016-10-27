@@ -1294,7 +1294,7 @@ static int gfx_v8_0_rlc_init(struct amdgpu_device *adev)
 		amdgpu_bo_unreserve(adev->gfx.rlc.clear_state_obj);
 	}
 
-	if (/*(adev->asic_type == CHIP_CARRIZO) ||*/
+	if ((adev->asic_type == CHIP_CARRIZO) ||
 	    (adev->asic_type == CHIP_STONEY)) {
 		adev->gfx.rlc.cp_table_size = ALIGN(96 * 5 * 4, 2048) + (64 * 1024); /* JT + GDS */
 		if (adev->gfx.rlc.cp_table_obj == NULL) {
@@ -3917,7 +3917,7 @@ static void gfx_v8_0_init_pg(struct amdgpu_device *adev)
 		gfx_v8_0_init_save_restore_list(adev);
 		gfx_v8_0_enable_save_restore_machine(adev);
  
-		if (/*(adev->asic_type == CHIP_CARRIZO) ||*/
+		if ((adev->asic_type == CHIP_CARRIZO) ||
 		    (adev->asic_type == CHIP_STONEY)) {
 			struct amdgpu_cu_info cu_info;
  
@@ -5373,7 +5373,7 @@ static int gfx_v8_0_set_powergating_state(void *handle,
 		return 0;
  
 	switch (adev->asic_type) {
-//	case CHIP_CARRIZO:
+	case CHIP_CARRIZO:
 	case CHIP_STONEY:
 		if (adev->pg_flags & AMDGPU_PG_SUPPORT_GFX_PG)
 			cz_update_gfx_cg_power_gating(adev, enable);
@@ -5818,7 +5818,7 @@ static int gfx_v8_0_set_clockgating_state(void *handle,
 
 	switch (adev->asic_type) {
 	case CHIP_FIJI:
-//	case CHIP_CARRIZO:
+	case CHIP_CARRIZO:
 	case CHIP_STONEY:
 		gfx_v8_0_update_gfx_clock_gating(adev,
 						 state == AMD_CG_STATE_GATE ? true : false);
@@ -6427,9 +6427,9 @@ static void gfx_v8_0_set_rlc_funcs(struct amdgpu_device *adev)
 	case CHIP_STONEY:
 		adev->gfx.rlc.funcs = &iceland_rlc_funcs;
 		break;
-//	case CHIP_CARRIZO:
-//		adev->gfx.rlc.funcs = &cz_rlc_funcs;
-//		break;
+	case CHIP_CARRIZO:
+		adev->gfx.rlc.funcs = &cz_rlc_funcs;
+		break;
 	default:
 		adev->gfx.rlc.funcs = &gfx_v8_0_nop_rlc_funcs;
 		break;
