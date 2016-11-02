@@ -35,17 +35,17 @@
 
 #include "acp_gfx_if.h"
 
-#define ACP_TILE_ON_MASK                0x03
-#define ACP_TILE_OFF_MASK               0x02
-#define ACP_TILE_ON_RETAIN_REG_MASK     0x1f
-#define ACP_TILE_OFF_RETAIN_REG_MASK    0x20
+#define ACP_TILE_ON_MASK		0x03
+#define ACP_TILE_OFF_MASK		0x02
+#define ACP_TILE_ON_RETAIN_REG_MASK	0x1f
+#define ACP_TILE_OFF_RETAIN_REG_MASK	0x20
 
-#define ACP_TILE_P1_MASK                0x3e
-#define ACP_TILE_P2_MASK                0x3d
-#define ACP_TILE_DSP0_MASK              0x3b
-#define ACP_TILE_DSP1_MASK              0x37
+#define ACP_TILE_P1_MASK		0x3e
+#define ACP_TILE_P2_MASK		0x3d
+#define ACP_TILE_DSP0_MASK		0x3b
+#define ACP_TILE_DSP1_MASK		0x37
 
-#define ACP_TILE_DSP2_MASK              0x2f
+#define ACP_TILE_DSP2_MASK		0x2f
 
 #define ACP_DMA_REGS_END		0x146c0
 #define ACP_I2S_PLAY_REGS_START		0x14840
@@ -240,10 +240,12 @@ static int acp_poweron(struct generic_pm_domain *genpd)
 static struct device *get_mfd_cell_dev(const char *device_name, int r)
 {
 	char auto_dev_name[25];
+	char buf[8];
 	struct device *dev;
 
-	snprintf(auto_dev_name, sizeof(auto_dev_name),
-		 "%s.%d.auto", device_name, r);
+	sprintf(buf, ".%d.auto", r);
+	strcpy(auto_dev_name, device_name);
+	strcat(auto_dev_name, buf);
 	dev = bus_find_device_by_name(&platform_bus_type, NULL, auto_dev_name);
 	dev_info(dev, "device %s added to pm domain\n", auto_dev_name);
 

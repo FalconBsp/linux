@@ -484,6 +484,11 @@ static int gmc_v8_0_mc_init(struct amdgpu_device *adev)
 		break;
 	}
 	adev->mc.vram_width = numchan * chansize;
+	/* FIXME: The above calculation is outdated.
+	 * For HBM provide a temporary fix */
+	if (adev->mc.vram_type == AMDGPU_VRAM_TYPE_HBM)
+		adev->mc.vram_width = AMDGPU_VRAM_TYPE_HBM_WIDTH;
+
 	/* Could aper size report 0 ? */
 	adev->mc.aper_base = pci_resource_start(adev->pdev, 0);
 	adev->mc.aper_size = pci_resource_len(adev->pdev, 0);
@@ -902,7 +907,7 @@ static void gmc_v8_0_vm_decode_fault(struct amdgpu_device *adev,
 		info->vmid = vmid;
 		info->mc_id = mc_id;
 		info->page_addr = addr;
-		info->prot_valid = protections & 0x4 ? true : false;
+		info->prot_valid = protections & 0x6 ? true : false;
 		info->prot_read = protections & 0x8 ? true : false;
 		info->prot_write = protections & 0x10 ? true : false;
 		info->prot_exec = protections & 0x20 ? true : false;

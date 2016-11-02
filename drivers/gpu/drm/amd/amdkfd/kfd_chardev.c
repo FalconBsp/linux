@@ -830,7 +830,7 @@ static int kfd_ioctl_get_clock_counters(struct file *filep,
 {
 	struct kfd_ioctl_get_clock_counters_args *args = data;
 	struct kfd_dev *dev;
-	struct timespec time;
+	struct timespec64 time;
 
 	dev = kfd_device_by_id(args->gpu_id);
 	if (dev)
@@ -842,11 +842,11 @@ static int kfd_ioctl_get_clock_counters(struct file *filep,
 		args->gpu_clock_counter = 0;
 
 	/* No access to rdtsc. Using raw monotonic time */
-	getrawmonotonic(&time);
-	args->cpu_clock_counter = (uint64_t)timespec_to_ns(&time);
+	getrawmonotonic64(&time);
+	args->cpu_clock_counter = (uint64_t)timespec64_to_ns(&time);
 
-	get_monotonic_boottime(&time);
-	args->system_clock_counter = (uint64_t)timespec_to_ns(&time);
+	get_monotonic_boottime64(&time);
+	args->system_clock_counter = (uint64_t)timespec64_to_ns(&time);
 
 	/* Since the counter is in nano-seconds we use 1GHz frequency */
 	args->system_clock_freq = 1000000000;
@@ -1122,7 +1122,8 @@ static int kfd_ioctl_alloc_scratch_memory(struct file *filep,
 
 	up_write(&p->lock);
 
-	if (sched_policy == KFD_SCHED_POLICY_NO_HWS && pdd->qpd.vmid != 0) {
+	if (dev->dqm->sched_policy == KFD_SCHED_POLICY_NO_HWS &&
+	    pdd->qpd.vmid != 0) {
 		err = dev->kfd2kgd->alloc_memory_of_scratch(
 			dev->kgd, args->va_addr, pdd->qpd.vmid);
 		if (err != 0)
@@ -1579,6 +1580,7 @@ static int kfd_ioctl_unmap_memory_from_gpu(struct file *filep,
 					mem, peer_pdd->vm);
 			radeon_flush_tlb(peer, p->pasid);
 		}
+		kfree(devices_arr);
 	} else {
 		dev->kfd2kgd->unmap_memory_to_gpu(dev->kgd, mem, pdd->vm);
 		radeon_flush_tlb(dev, p->pasid);
@@ -1938,7 +1940,8 @@ static long kfd_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 	} else
 		goto err_i1;
 
-	dev_dbg(kfd_device, "ioctl cmd 0x%x (#%d), arg 0x%lx\n", cmd, nr, arg);
+	dev_dbg(kfd_device, "ioctl cmd 0x%x (#0x%x), arg 0x%lx\n",
+				cmd, nr, arg);
 
 	process = kfd_get_process(current);
 	if (IS_ERR(process)) {

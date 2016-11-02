@@ -22,9 +22,9 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  *
  * Authors: Dave Airlie
- *          Alex Deucher
- *          Jerome Glisse
- *          Christian König
+ *	    Alex Deucher
+ *	    Jerome Glisse
+ *	    Christian König
  */
 #include <linux/seq_file.h>
 #include <linux/slab.h>

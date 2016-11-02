@@ -29,7 +29,10 @@
 #include "kfd_priv.h"
 #include "kfd_mqd_manager.h"
 
-#define QUEUE_PREEMPT_DEFAULT_TIMEOUT_MS	(9000)
+#define KFD_HIQ_TIMEOUT				(500)
+#define KFD_UNMAP_LATENCY_MS			(4000)
+#define QUEUE_PREEMPT_DEFAULT_TIMEOUT_MS (2 * KFD_UNMAP_LATENCY_MS + 1000)
+
 #define QUEUES_PER_PIPE				(8)
 #define PIPE_PER_ME_CP_SCHEDULING		(3)
 #define KFD_DQM_FIRST_PIPE			(0)
@@ -140,9 +143,9 @@ struct device_queue_manager_ops {
 };
 
 struct device_queue_manager_asic_ops {
-	int	(*register_process)(struct device_queue_manager *dqm,
+	int	(*update_qpd)(struct device_queue_manager *dqm,
 					struct qcm_process_device *qpd);
-	int	(*initialize)(struct device_queue_manager *dqm);
+	int	(*init_cpsch)(struct device_queue_manager *dqm);
 	bool	(*set_cache_memory_policy)(struct device_queue_manager *dqm,
 					   struct qcm_process_device *qpd,
 					   enum cache_policy default_policy,
@@ -168,7 +171,7 @@ struct device_queue_manager_asic_ops {
 
 struct device_queue_manager {
 	struct device_queue_manager_ops ops;
-	struct device_queue_manager_asic_ops ops_asic_specific;
+	struct device_queue_manager_asic_ops asic_ops;
 
 	struct mqd_manager	*mqds[KFD_MQD_TYPE_MAX];
 	struct packet_manager	packets;
@@ -189,12 +192,17 @@ struct device_queue_manager {
 	unsigned int		*fence_addr;
 	struct kfd_mem_obj	*fence_mem;
 	bool			active_runlist;
+	int			sched_policy;
 };
 
-void device_queue_manager_init_cik(struct device_queue_manager_asic_ops *ops);
-void device_queue_manager_init_vi(struct device_queue_manager_asic_ops *ops);
+void device_queue_manager_init_cik(
+		struct device_queue_manager_asic_ops *asic_ops);
+void device_queue_manager_init_cik_hawaii(
+		struct device_queue_manager_asic_ops *asic_ops);
+void device_queue_manager_init_vi(
+		struct device_queue_manager_asic_ops *asic_ops);
 void device_queue_manager_init_vi_tonga(
-		struct device_queue_manager_asic_ops *ops);
+		struct device_queue_manager_asic_ops *asic_ops);
 void program_sh_mem_settings(struct device_queue_manager *dqm,
 					struct qcm_process_device *qpd);
 int init_pipelines(struct device_queue_manager *dqm,

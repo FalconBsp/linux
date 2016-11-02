@@ -43,6 +43,11 @@ struct kgd_mem;
 struct kfd_process_device;
 struct amdgpu_bo;
 
+enum kfd_preempt_type {
+	KFD_PREEMPT_TYPE_WAVEFRONT_DRAIN = 0,
+	KFD_PREEMPT_TYPE_WAVEFRONT_RESET,
+};
+
 struct kfd_vm_fault_info {
 	uint64_t	page_addr;
 	uint32_t	vmid;
@@ -162,7 +167,14 @@ struct kgd2kfd_shared_resources {
  * sceduling mode.
  *
  * @hqd_sdma_load: Loads the SDMA mqd structure to a H/W SDMA hqd slot.
- * used only for no HWS mode.
+ * used only for no HWS mode. If mm is passed in, its mmap_sem must be
+ * read-locked.
+ *
+ * @hqd_dump: Dumps CPC HQD registers to an array of address-value pairs.
+ * Array is allocated with kmalloc, needs to be freed with kfree by caller.
+ *
+ * @hqd_sdma_dump: Dumps SDMA HQD registers to an array of address-value pairs.
+ * Array is allocated with kmalloc, needs to be freed with kfree by caller.
  *
  * @hqd_is_occupies: Checks if a hqd slot is occupied.
  *
@@ -189,6 +201,9 @@ struct kgd2kfd_shared_resources {
  *
  * @import_dmabuf: Imports a DMA buffer, creating a new kgd_mem object
  * Supports only DMA buffers created by GPU driver on the same GPU
+ *
+ * @submit_ib: Submits an IB to the engine specified by inserting the IB to
+ * the corresonded ring (ring type).
  *
  * This structure contains function pointers to services that the kgd driver
  * provides to amdkfd driver.
@@ -232,10 +247,18 @@ struct kfd2kgd_calls {
 	
 
 	int (*hqd_load)(struct kgd_dev *kgd, void *mqd, uint32_t pipe_id,
-				uint32_t queue_id, uint32_t __user *wptr,
-				uint32_t page_table_base);
+				uint32_t queue_id, uint32_t __user *wptr);
 
-	int (*hqd_sdma_load)(struct kgd_dev *kgd, void *mqd);
+	int (*hqd_sdma_load)(struct kgd_dev *kgd, void *mqd,
+			     uint32_t __user *wptr, struct mm_struct *mm);
+
+	int (*hqd_dump)(struct kgd_dev *kgd,
+			uint32_t pipe_id, uint32_t queue_id,
+			uint32_t (**dump)[2], uint32_t *n_regs);
+
+	int (*hqd_sdma_dump)(struct kgd_dev *kgd,
+			     uint32_t engine_id, uint32_t queue_id,
+			     uint32_t (**dump)[2], uint32_t *n_regs);
 
 	bool (*hqd_is_occupied)(struct kgd_dev *kgd, uint64_t queue_address,
 				uint32_t pipe_id, uint32_t queue_id);
@@ -270,7 +293,7 @@ struct kfd2kgd_calls {
 	void (*write_vmid_invalidate_request)(struct kgd_dev *kgd,
 					uint8_t vmid);
 	int (*alloc_memory_of_gpu)(struct kgd_dev *kgd, uint64_t va,
-			size_t size, void *vm,
+			uint64_t size, void *vm,
 			struct kgd_mem **mem, uint64_t *offset,
 			void **kptr, struct kfd_process_device *pdd,
 			uint32_t flags);
@@ -315,7 +338,9 @@ struct kfd2kgd_calls {
 
 	int (*get_vm_fault_info)(struct kgd_dev *kgd,
 			struct kfd_vm_fault_info *info);
-
+	int (*submit_ib)(struct kgd_dev *kgd, enum kgd_engine_type engine,
+			uint32_t vmid, uint64_t gpu_addr,
+			uint32_t *ib_cmd, uint32_t ib_len);
 };
 
 /**

@@ -34,6 +34,7 @@
 #include <linux/kfd_ioctl.h>
 #include <linux/pid.h>
 #include <linux/interval_tree.h>
+#include <linux/seq_file.h>
 #include <kgd_kfd_interface.h>
 
 #include "amd_rdma.h"
@@ -158,13 +159,15 @@ enum cache_policy {
 
 enum asic_family_type {
 	CHIP_KAVERI = 0,
+	CHIP_HAWAII,
 	CHIP_CARRIZO,
 	CHIP_TONGA,
 	CHIP_FIJI
 };
 
 #define KFD_IS_VI(chip) ((chip) >= CHIP_CARRIZO && (chip) <= CHIP_FIJI)
-#define KFD_IS_DGPU(chip) ((chip) >= CHIP_TONGA && (chip) <= CHIP_FIJI)
+#define KFD_IS_DGPU(chip) (((chip) >= CHIP_TONGA && (chip) <= CHIP_FIJI) || \
+			   (chip) == CHIP_HAWAII)
 
 struct kfd_event_interrupt_class {
 	bool (*interrupt_isr)(struct kfd_dev *dev, const uint32_t *ih_ring_entry);
@@ -267,6 +270,14 @@ struct kfd_dev {
 	struct page *cwsr_pages;
 	uint32_t cwsr_size;
 	uint32_t tma_offset;  /*Offset for TMA from the  start of cwsr_mem*/
+
+	/* IB usage */
+	uint32_t ib_size;
+
+	/* Debugfs */
+#if defined(CONFIG_DEBUG_FS)
+	struct dentry *debugfs_root;
+#endif
 };
 
 struct kfd_bo {
@@ -312,11 +323,6 @@ enum kfd_unmap_queues_filter {
 	KFD_UNMAP_QUEUES_FILTER_ALL_QUEUES,
 	KFD_UNMAP_QUEUES_FILTER_DYNAMIC_QUEUES,
 	KFD_UNMAP_QUEUES_FILTER_BY_PASID
-};
-
-enum kfd_preempt_type {
-	KFD_PREEMPT_TYPE_WAVEFRONT,
-	KFD_PREEMPT_TYPE_WAVEFRONT_RESET
 };
 
 /**
@@ -521,11 +527,14 @@ struct qcm_process_device {
 	uint32_t sh_hidden_private_base;
 
 	/*cwsr memory*/
-	int  cwsr_mem_handle;
 	uint64_t cwsr_base;
 	uint64_t tba_addr;
 	uint64_t tma_addr;
 	void *cwsr_kaddr;
+
+	/* IB memory */
+	uint64_t ib_base; /* ib_base+ib_size must be below cwsr_base */
+	void *ib_kaddr;
 };
 
 /*8 byte handle containing GPU ID in the most significant 4 bytes and
@@ -533,6 +542,12 @@ struct qcm_process_device {
 #define MAKE_HANDLE(gpu_id, idr_handle) (((uint64_t)(gpu_id) << 32) + idr_handle)
 #define GET_GPU_ID(handle) (handle >> 32)
 #define GET_IDR_HANDLE(handle) (handle & 0xFFFFFFFF)
+
+enum kfd_pdd_bound {
+	PDD_UNBOUND = 0,
+	PDD_BOUND,
+	PDD_BOUND_SUSPENDED,
+};
 
 /* Data that is per-process-per device. */
 struct kfd_process_device {
@@ -567,7 +582,7 @@ struct kfd_process_device {
 	uint64_t sh_hidden_private_base_vmid;
 
 	/* Is this process/pasid bound to this device? (amd_iommu_bind_pasid) */
-	bool bound;
+	enum kfd_pdd_bound bound;
 
 	/* VM context for GPUVM allocations */
 	void *vm;
@@ -618,12 +633,6 @@ struct kfd_process {
 
 	struct process_queue_manager pqm;
 
-	/* The process's queues. */
-	size_t queue_array_size;
-
-	/* Size is queue_array_size, up to MAX_PROCESS_QUEUES. */
-	struct kfd_queue **queues;
-
 	unsigned long allocated_queue_bitmap[DIV_ROUND_UP(KFD_MAX_NUM_OF_QUEUES_PER_PROCESS, BITS_PER_LONG)];
 
 	/*Is the user space process 32 bit?*/
@@ -667,8 +676,10 @@ struct kfd_process *kfd_lookup_process_by_pasid(unsigned int pasid);
 struct kfd_process *kfd_lookup_process_by_mm(const struct mm_struct *mm);
 
 struct kfd_process_device *kfd_bind_process_to_device(struct kfd_dev *dev,
-							struct kfd_process *p);
-void kfd_unbind_process_from_device(struct kfd_dev *dev, unsigned int pasid);
+						struct kfd_process *p);
+int kfd_bind_processes_to_device(struct kfd_dev *dev);
+void kfd_unbind_processes_from_device(struct kfd_dev *dev);
+void kfd_process_iommu_unbind_callback(struct kfd_dev *dev, unsigned int pasid);
 struct kfd_process_device *kfd_get_process_device_data(struct kfd_dev *dev,
 							struct kfd_process *p);
 struct kfd_process_device *kfd_create_process_device_data(struct kfd_dev *dev,
@@ -774,6 +785,8 @@ struct mqd_manager *mqd_manager_init(enum KFD_MQD_TYPE type,
 					struct kfd_dev *dev);
 struct mqd_manager *mqd_manager_init_cik(enum KFD_MQD_TYPE type,
 		struct kfd_dev *dev);
+struct mqd_manager *mqd_manager_init_cik_hawaii(enum KFD_MQD_TYPE type,
+		struct kfd_dev *dev);
 struct mqd_manager *mqd_manager_init_vi(enum KFD_MQD_TYPE type,
 		struct kfd_dev *dev);
 struct mqd_manager *mqd_manager_init_vi_tonga(enum KFD_MQD_TYPE type,
@@ -812,11 +825,8 @@ int kgd2kfd_resume_mm(struct kfd_dev *kfd, struct mm_struct *mm);
 
 /* Packet Manager */
 
-#define KFD_HIQ_TIMEOUT (500)
-
 #define KFD_FENCE_COMPLETED (100)
 #define KFD_FENCE_INIT   (10)
-#define KFD_UNMAP_LATENCY (40)
 
 struct packet_manager_firmware;
 
@@ -826,6 +836,7 @@ struct packet_manager {
 	struct mutex lock;
 	bool allocated;
 	struct kfd_mem_obj *ib_buffer_obj;
+	unsigned ib_size_bytes;
 
 	struct packet_manager_firmware *pmf;
 };
@@ -837,6 +848,7 @@ struct packet_manager_firmware {
 	int (*get_map_process_packet_size)(void);
 };
 
+uint32_t pm_create_release_mem(uint64_t gpu_addr, uint32_t *buffer);
 int pm_init(struct packet_manager *pm, struct device_queue_manager *dqm,
 		uint16_t fw_ver);
 void pm_uninit(struct packet_manager *pm);
@@ -858,7 +870,7 @@ phys_addr_t kfd_get_process_doorbells(struct kfd_dev *dev,
 					struct kfd_process *process);
 int amdkfd_fence_wait_timeout(unsigned int *fence_addr,
 				unsigned int fence_value,
-				unsigned long timeout);
+				unsigned long timeout_ms);
 
 /* Events */
 extern const struct kfd_event_interrupt_class event_interrupt_class_cik;
@@ -908,5 +920,21 @@ int restore(struct kfd_dev *kfd);
 #define KFD_SCRATCH_KV_FW_VER 413
 #define KFD_MULTI_PROC_MAPPING_HWS_SUPPORT 600
 #define KFD_CWSR_CZ_FW_VER 625
+
+/* PeerDirect support */
+int kfd_init_peer_direct(void);
+void kfd_close_peer_direct(void);
+
+/* Debugfs */
+#if defined(CONFIG_DEBUG_FS)
+
+int kfd_debugfs_mqds_by_process(struct seq_file *m, void *data);
+int pqm_debugfs_mqds(struct seq_file *m, void *data);
+int kfd_debugfs_hqds_by_device(struct seq_file *m, void *data);
+int device_queue_manager_debugfs_hqds(struct seq_file *m, void *data);
+int kfd_debugfs_rls_by_device(struct seq_file *m, void *data);
+int pm_debugfs_runlist(struct seq_file *m, void *data);
+
+#endif
 
 #endif

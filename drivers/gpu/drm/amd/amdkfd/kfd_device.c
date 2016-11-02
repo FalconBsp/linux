@@ -25,6 +25,7 @@
 #include <linux/pci.h>
 #include <linux/slab.h>
 #include <linux/highmem.h>
+#include <linux/debugfs.h>
 #include "kfd_priv.h"
 #include "kfd_device_queue_manager.h"
 #include "kfd_pm4_headers.h"
@@ -42,6 +43,18 @@ static const struct kfd_device_info kaveri_device_info = {
 	.num_of_watch_points = 4,
 	.mqd_size_aligned = MQD_SIZE_ALIGNED,
 	.is_need_iommu_device = true
+};
+
+static const struct kfd_device_info hawaii_device_info = {
+	.asic_family = CHIP_HAWAII,
+	.max_pasid_bits = 16,
+	/* max num of queues for KV.TODO should be a dynamic value */
+	.max_no_of_hqd	= 24,
+	.ih_ring_entry_size = 4 * sizeof(uint32_t),
+	.event_interrupt_class = &event_interrupt_class_cik,
+	.num_of_watch_points = 4,
+	.mqd_size_aligned = MQD_SIZE_ALIGNED,
+	.is_need_iommu_device = false
 };
 
 static const struct kfd_device_info carrizo_device_info = {
@@ -120,6 +133,18 @@ static const struct kfd_deviceid supported_devices[] = {
 	{ 0x131B, &kaveri_device_info },	/* Kaveri */
 	{ 0x131C, &kaveri_device_info },	/* Kaveri */
 	{ 0x131D, &kaveri_device_info },	/* Kaveri */
+	{ 0x67A0, &hawaii_device_info },	/* Hawaii */
+	{ 0x67A1, &hawaii_device_info },	/* Hawaii */
+	{ 0x67A2, &hawaii_device_info },	/* Hawaii */
+	{ 0x67A8, &hawaii_device_info },	/* Hawaii */
+	{ 0x67A9, &hawaii_device_info },	/* Hawaii */
+	{ 0x67AA, &hawaii_device_info },	/* Hawaii */
+	{ 0x67B0, &hawaii_device_info },	/* Hawaii */
+	{ 0x67B1, &hawaii_device_info },	/* Hawaii */
+	{ 0x67B8, &hawaii_device_info },	/* Hawaii */
+	{ 0x67B9, &hawaii_device_info },	/* Hawaii */
+	{ 0x67BA, &hawaii_device_info },	/* Hawaii */
+	{ 0x67BE, &hawaii_device_info },	/* Hawaii */
 	{ 0x9870, &carrizo_device_info },	/* Carrizo */
 	{ 0x9874, &carrizo_device_info },	/* Carrizo */
 	{ 0x9875, &carrizo_device_info },	/* Carrizo */
@@ -234,7 +259,7 @@ static void iommu_pasid_shutdown_callback(struct pci_dev *pdev, int pasid)
 	struct kfd_dev *dev = kfd_device_by_pci_dev(pdev);
 
 	if (dev)
-		kfd_unbind_process_from_device(dev, pasid);
+		kfd_process_iommu_unbind_callback(dev, pasid);
 }
 
 /*
@@ -306,6 +331,85 @@ static void kfd_cwsr_fini(struct kfd_dev *kfd)
 	if (kfd->cwsr_pages)
 		__free_pages(kfd->cwsr_pages, get_order(kfd->cwsr_size));
 }
+
+static void kfd_ib_mem_init(struct kfd_dev *kdev)
+{
+	/* In certain cases we need to send IB from kernel using the GPU address
+	 * space created by user applications.
+	 * For example, on GFX v7, we need to flush TC associated to the VMID
+	 * before tearing down the VMID. In order to do so, we need an address
+	 * valid to the VMID to place the IB while this space was created on
+	 * the user's side, not the kernel.
+	 * Since kfd_set_process_dgpu_aperture reserves "cwsr_base + cwsr_size"
+	 * but CWSR only uses pages above cwsr_base, we'll use one page memory
+	 * under cwsr_base for IB submissions
+	 */
+	kdev->ib_size = PAGE_SIZE;
+}
+
+#if defined(CONFIG_DEBUG_FS)
+
+static int kfd_debugfs_open(struct inode *inode, struct file *file)
+{
+	int (*show)(struct seq_file *, void *) = inode->i_private;
+
+	return single_open(file, show, NULL);
+}
+
+static const struct file_operations kfd_debugfs_fops = {
+	.owner = THIS_MODULE,
+	.open = kfd_debugfs_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
+static void kfd_debugfs_init(struct kfd_dev *kfd)
+{
+	struct dentry *ent;
+
+	kfd->debugfs_root = debugfs_create_dir("kfd", NULL);
+	if (kfd->debugfs_root == NULL ||
+	    kfd->debugfs_root == ERR_PTR(-ENODEV)) {
+		dev_warn(kfd_device, "Failed to create kfd debugfs dir\n");
+		return;
+	}
+
+	ent = debugfs_create_file("mqds", S_IFREG | S_IRUGO, kfd->debugfs_root,
+				  kfd_debugfs_mqds_by_process,
+				  &kfd_debugfs_fops);
+	if (ent == NULL)
+		dev_warn(kfd_device, "Failed to create mqds in kfd debugfs\n");
+
+	ent = debugfs_create_file("hqds", S_IFREG | S_IRUGO, kfd->debugfs_root,
+				  kfd_debugfs_hqds_by_device,
+				  &kfd_debugfs_fops);
+	if (ent == NULL)
+		dev_warn(kfd_device, "Failed to create hqds in kfd debugfs\n");
+
+	ent = debugfs_create_file("rls", S_IFREG | S_IRUGO, kfd->debugfs_root,
+				  kfd_debugfs_rls_by_device,
+				  &kfd_debugfs_fops);
+	if (ent == NULL)
+		dev_warn(kfd_device, "Failed to create rls in kfd debugfs\n");
+}
+
+static void kfd_debugfs_fini(struct kfd_dev *kfd)
+{
+	debugfs_remove_recursive(kfd->debugfs_root);
+}
+
+#else
+
+static void kfd_debugfs_init(struct kfd_dev *kfd)
+{
+}
+
+static void kfd_debugfs_fini(struct kfd_dev *kfd)
+{
+}
+
+#endif
 
 bool kgd2kfd_device_init(struct kfd_dev *kfd,
 			 const struct kgd2kfd_shared_resources *gpu_resources)
@@ -412,8 +516,12 @@ bool kgd2kfd_device_init(struct kfd_dev *kfd,
 	if (kfd_cwsr_init(kfd))
 		goto device_iommu_pasid_error;
 
+	kfd_ib_mem_init(kfd);
+
 	if (kfd_resume(kfd))
 		goto kfd_resume_error;
+
+	kfd_debugfs_init(kfd);
 
 	kfd->dbgmgr = NULL;
 
@@ -422,7 +530,7 @@ bool kgd2kfd_device_init(struct kfd_dev *kfd,
 		 kfd->pdev->device);
 
 	pr_debug("kfd: Starting kfd with the following scheduling policy %d\n",
-		sched_policy);
+		kfd->dqm->sched_policy);
 
 	goto out;
 
@@ -448,6 +556,7 @@ out:
 void kgd2kfd_device_exit(struct kfd_dev *kfd)
 {
 	if (kfd->init_complete) {
+		kfd_debugfs_fini(kfd);
 		kgd2kfd_suspend(kfd);
 		kfd_cwsr_fini(kfd);
 		device_queue_manager_uninit(kfd->dqm);
@@ -464,14 +573,18 @@ void kgd2kfd_suspend(struct kfd_dev *kfd)
 {
 	BUG_ON(kfd == NULL);
 
-	if (kfd->init_complete) {
-		kfd->dqm->ops.stop(kfd->dqm);
-		if (kfd->device_info->is_need_iommu_device) {
-			amd_iommu_set_invalidate_ctx_cb(kfd->pdev, NULL);
-			amd_iommu_set_invalid_ppr_cb(kfd->pdev, NULL);
-			amd_iommu_free_device(kfd->pdev);
-		}
-	}
+	if (!kfd->init_complete)
+		return;
+
+	kfd->dqm->ops.stop(kfd->dqm);
+	if (!kfd->device_info->is_need_iommu_device)
+		return;
+
+	kfd_unbind_processes_from_device(kfd);
+
+	amd_iommu_set_invalidate_ctx_cb(kfd->pdev, NULL);
+	amd_iommu_set_invalid_ppr_cb(kfd->pdev, NULL);
+	amd_iommu_free_device(kfd->pdev);
 }
 
 int kgd2kfd_evict_bo(struct kfd_dev *dev, void *mem)
@@ -509,6 +622,10 @@ static int kfd_resume(struct kfd_dev *kfd)
 				iommu_pasid_shutdown_callback);
 		amd_iommu_set_invalid_ppr_cb(kfd->pdev,
 				iommu_invalid_ppr_cb);
+
+		err = kfd_bind_processes_to_device(kfd);
+		if (err)
+			return -ENXIO;
 	}
 
 	err = kfd->dqm->ops.start(kfd->dqm);

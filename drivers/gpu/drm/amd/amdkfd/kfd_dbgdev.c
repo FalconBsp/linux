@@ -262,19 +262,19 @@ static void dbgdev_address_watch_set_registers(
 
 	cntl->bitfields.mode = adw_info->watch_mode[index];
 	cntl->bitfields.vmid = (uint32_t) vmid;
+
 	/*  for APU assume it is an ATC address.  */
 	if (KFD_IS_DGPU(asic_family) == false)
 		cntl->u32All |= ADDRESS_WATCH_REG_CNTL_ATC_BIT;
+
 	pr_debug("\t\t%20s %08x\n", "set reg mask :", cntl->bitfields.mask);
 	pr_debug("\t\t%20s %08x\n", "set reg add high :", addrHi->bitfields.addr);
 	pr_debug("\t\t%20s %08x\n", "set reg add low :", addrLo->bitfields.addr);
-
 }
 
 static int dbgdev_address_watch_nodiq(struct kfd_dbgdev *dbgdev,
 					struct dbg_address_watch_info *adw_info)
 {
-
 	int status = 0;
 
 	union TCP_WATCH_ADDR_H_BITS addrHi;
@@ -348,6 +348,7 @@ static int dbgdev_address_watch_nodiq(struct kfd_dbgdev *dbgdev,
 	} while (false);
 
 	return status;
+
 }
 
 static int dbgdev_address_watch_diq(struct kfd_dbgdev *dbgdev,
@@ -365,7 +366,7 @@ static int dbgdev_address_watch_diq(struct kfd_dbgdev *dbgdev,
 
 	struct kfd_mem_obj *mem_obj;
 	uint32_t *packet_buff_uint = NULL;
-
+	
 	struct pm4__set_config_reg *packets_vec = NULL;
 
 	size_t ib_size = sizeof(struct pm4__set_config_reg) * 4;
@@ -452,9 +453,9 @@ static int dbgdev_address_watch_diq(struct kfd_dbgdev *dbgdev,
 					->address_watch_get_offset(
 						dbgdev->dev->kgd,
 						i,
-						ADDRESS_WATCH_REG_ADDR_HI);
-
-
+						ADDRESS_WATCH_REG_ADDR_HI);	
+		
+	
 			packets_vec[1].bitfields2.reg_offset = aw_reg_add_dword - CONFIG_REG_BASE;
 			packets_vec[1].reg_data[0] = addrHi.u32All;
 
@@ -523,7 +524,7 @@ static int dbgdev_wave_control_set_registers(
 	reg_gfx_index.u32All = 0;
 
 	switch (wac_info->mode) {
-	case HSA_DBG_WAVEMODE_SINGLE:	/*  Send command to single wave  */
+	case HSA_DBG_WAVEMODE_SINGLE:   /*  Send command to single wave  */
 		/*limit access to the process waves only,by setting vmid check */
 		reg_sq_cmd.bits.check_vmid = 1;
 		reg_sq_cmd.bits.simd_id = wac_info->dbgWave_msg.DbgWaveMsg.WaveMsgInfoGen2.ui32.SIMD;
@@ -536,17 +537,17 @@ static int dbgdev_wave_control_set_registers(
 
 		break;
 
-	case HSA_DBG_WAVEMODE_BROADCAST_PROCESS:	/*  Send command to all waves with matching VMID  */
-
+	case HSA_DBG_WAVEMODE_BROADCAST_PROCESS:        /*  Send command to all waves with matching VMID  */
 
 		reg_gfx_index.bits.sh_broadcast_writes = 1;
 		reg_gfx_index.bits.se_broadcast_writes = 1;
 		reg_gfx_index.bits.instance_broadcast_writes = 1;
 
 		reg_sq_cmd.bits.mode = SQ_IND_CMD_MODE_BROADCAST;
+
 		break;
 
-	case HSA_DBG_WAVEMODE_BROADCAST_PROCESS_CU:	/*  Send command to all CU waves with matching VMID  */
+	case HSA_DBG_WAVEMODE_BROADCAST_PROCESS_CU:     /*  Send command to all CU waves with matching VMID  */
 
 		reg_sq_cmd.bits.check_vmid = 1;
 		reg_sq_cmd.bits.mode = SQ_IND_CMD_MODE_BROADCAST;

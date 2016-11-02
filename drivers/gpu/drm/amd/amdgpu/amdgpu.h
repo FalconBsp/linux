@@ -85,12 +85,14 @@ extern int amdgpu_vm_size;
 extern int amdgpu_vm_block_size;
 extern int amdgpu_vm_fault_stop;
 extern int amdgpu_vm_debug;
+extern int amdgpu_vm_update_context;
 extern int amdgpu_dal;
 extern int amdgpu_sched_jobs;
 extern int amdgpu_sched_hw_submission;
 extern int amdgpu_powerplay;
 extern unsigned amdgpu_pcie_gen_cap;
 extern unsigned amdgpu_pcie_lane_cap;
+extern unsigned amdgpu_sdma_phase_quantum;
 
 #define AMDGPU_WAIT_IDLE_TIMEOUT_IN_MS		3000
 #define AMDGPU_MAX_USEC_TIMEOUT			100000	/* 100 ms */
@@ -537,8 +539,7 @@ void amdgpu_gem_object_close(struct drm_gem_object *obj,
 				struct drm_file *file_priv);
 unsigned long amdgpu_gem_timeout(uint64_t timeout_ns);
 struct sg_table *amdgpu_gem_prime_get_sg_table(struct drm_gem_object *obj);
-struct drm_gem_object *
-amdgpu_gem_prime_import_sg_table(struct drm_device *dev,
+struct drm_gem_object *amdgpu_gem_prime_import_sg_table(struct drm_device *dev,
 				 struct dma_buf_attachment *attach,
 				 struct sg_table *sg);
 struct dma_buf *amdgpu_gem_prime_export(struct drm_device *dev,
@@ -885,6 +886,14 @@ struct amdgpu_vm_pt {
 	uint64_t			addr;
 };
 
+/* amdgpu_vm_update_context - User parameter that controls how VM pde/pte are
+ *  updated for Graphics and Compute. BIT0 controls Graphics and BIT1 Compute.
+ *  BIT0 [= 0] Graphics updated by SDMA [= 1] by CPU
+ *  BIT1 [= 0] Compute updated by SDMA [= 1] by CPU
+ */
+#define AMDGPU_VM_USE_CPU_UPDATE_FOR_GRAPHICS_MASK (1 << 0)
+#define AMDGPU_VM_USE_CPU_UPDATE_FOR_COMPUTE_MASK (1 << 1)
+
 struct amdgpu_vm {
 	/* tree of virtual addresses mapped */
 	struct rb_root		va;
@@ -920,6 +929,9 @@ struct amdgpu_vm {
  
 	/* client id */
 	u64			client_id;
+	
+	/* Flag to indicate if VM tables are updated by CPU or GPU (SDMA) */
+	bool is_vm_update_mode_cpu;	
 };
 
 struct amdgpu_vm_id {
@@ -965,7 +977,8 @@ struct amdgpu_vm_manager {
 
 void amdgpu_vm_manager_init(struct amdgpu_device *adev);
 void amdgpu_vm_manager_fini(struct amdgpu_device *adev);
-int amdgpu_vm_init(struct amdgpu_device *adev, struct amdgpu_vm *vm);
+int amdgpu_vm_init(struct amdgpu_device *adev, struct amdgpu_vm *vm,
+               bool vm_update_mode);
 void amdgpu_vm_fini(struct amdgpu_device *adev, struct amdgpu_vm *vm);
 struct amdgpu_bo_list_entry *amdgpu_vm_get_bos(struct amdgpu_device *adev,
 					       struct amdgpu_vm *vm,
@@ -1591,6 +1604,12 @@ struct amdgpu_dpm_funcs {
 	u32 (*get_fan_control_mode)(struct amdgpu_device *adev);
 	int (*set_fan_speed_percent)(struct amdgpu_device *adev, u32 speed);
 	int (*get_fan_speed_percent)(struct amdgpu_device *adev, u32 *speed);
+	int (*force_clock_level)(struct amdgpu_device *adev,
+			enum pp_clock_type type, uint32_t mask);
+	int (*print_clock_levels)(struct amdgpu_device *adev,
+			enum pp_clock_type type, char *buf);
+	int (*get_sclk_od)(struct amdgpu_device *adev);
+	int (*set_sclk_od)(struct amdgpu_device *adev, uint32_t value);
 };
 
 struct amdgpu_dpm {
@@ -1864,6 +1883,8 @@ struct amdgpu_asic_funcs {
 	/* MM block clocks */
 	int (*set_uvd_clocks)(struct amdgpu_device *adev, u32 vclk, u32 dclk);
 	int (*set_vce_clocks)(struct amdgpu_device *adev, u32 evclk, u32 ecclk);
+	/* query virtual capabilities */
+	u32 (*get_virtual_caps)(struct amdgpu_device *adev);
 };
 
 /*
@@ -1956,13 +1977,18 @@ struct amdgpu_atcs {
 /*
  * CGS
  */
-struct cgs_device *amdgpu_cgs_create_device(struct amdgpu_device *adev);
-void amdgpu_cgs_destroy_device(struct cgs_device *cgs_device);
+void *amdgpu_cgs_create_device(struct amdgpu_device *adev);
+void amdgpu_cgs_destroy_device(void *cgs_device);
+
 
 
 /* GPU virtualization */
+#define AMDGPU_VIRT_CAPS_SRIOV_EN       (1 << 0)
+#define AMDGPU_VIRT_CAPS_IS_VF          (1 << 1)
 struct amdgpu_virtualization {
 	bool supports_sr_iov;
+	bool is_virtual;
+	u32 caps;
 };
 
 /*
@@ -2261,6 +2287,7 @@ amdgpu_get_sdma_instance(struct amdgpu_ring *ring)
 #define amdgpu_asic_get_xclk(adev) (adev)->asic_funcs->get_xclk((adev))
 #define amdgpu_asic_set_uvd_clocks(adev, v, d) (adev)->asic_funcs->set_uvd_clocks((adev), (v), (d))
 #define amdgpu_asic_set_vce_clocks(adev, ev, ec) (adev)->asic_funcs->set_vce_clocks((adev), (ev), (ec))
+#define amdgpu_asic_get_virtual_caps(adev) ((adev)->asic_funcs->get_virtual_caps((adev)))
 #define amdgpu_asic_get_gpu_clock_counter(adev) (adev)->asic_funcs->get_gpu_clock_counter((adev))
 #define amdgpu_asic_read_disabled_bios(adev) (adev)->asic_funcs->read_disabled_bios((adev))
 #define amdgpu_asic_read_bios_from_rom(adev, b, l) (adev)->asic_funcs->read_bios_from_rom((adev), (b), (l))
@@ -2392,6 +2419,13 @@ amdgpu_get_sdma_instance(struct amdgpu_ring *ring)
 
 #define amdgpu_dpm_force_clock_level(adev, type, level) \
 		(adev)->powerplay.pp_funcs->force_clock_level((adev)->powerplay.pp_handle, type, level)
+
+#define amdgpu_dpm_get_sclk_od(adev) \
+	((adev)->powerplay.pp_funcs->get_sclk_od((adev)->powerplay.pp_handle))
+
+#define amdgpu_dpm_set_sclk_od(adev, value) \
+	((adev)->powerplay.pp_funcs->set_sclk_od(\
+			(adev)->powerplay.pp_handle, (value)))
 
 #define amdgpu_dpm_dispatch_task(adev, event_id, input, output)		\
 	(adev)->powerplay.pp_funcs->dispatch_tasks((adev)->powerplay.pp_handle, (event_id), (input), (output))

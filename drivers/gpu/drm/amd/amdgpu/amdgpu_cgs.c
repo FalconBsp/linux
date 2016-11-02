@@ -1141,7 +1141,7 @@ static const struct cgs_os_ops amdgpu_cgs_os_ops = {
 	amdgpu_cgs_irq_put
 };
 
-struct cgs_device *amdgpu_cgs_create_device(struct amdgpu_device *adev)
+void *amdgpu_cgs_create_device(struct amdgpu_device *adev)
 {
 	struct amdgpu_cgs_device *cgs_device =
 		kmalloc(sizeof(*cgs_device), GFP_KERNEL);
@@ -1158,7 +1158,7 @@ struct cgs_device *amdgpu_cgs_create_device(struct amdgpu_device *adev)
 	return (struct cgs_device *)cgs_device;
 }
 
-void amdgpu_cgs_destroy_device(struct cgs_device *cgs_device)
+void amdgpu_cgs_destroy_device(void *cgs_device)
 {
 	kfree(cgs_device);
 }

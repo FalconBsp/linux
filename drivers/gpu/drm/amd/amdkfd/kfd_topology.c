@@ -34,6 +34,7 @@
 #include "kfd_priv.h"
 #include "kfd_crat.h"
 #include "kfd_topology.h"
+#include "kfd_device_queue_manager.h"
 
 /* topology_device_list - Master list of all topology devices */
 struct list_head topology_device_list;
@@ -996,6 +997,21 @@ static void kfd_fill_mem_clk_max_info(struct kfd_topology_device *dev)
 		mem->mem_clk_max = local_mem_info.mem_clk_max;
 }
 
+static void kfd_fill_iolink_non_crat_info(struct kfd_topology_device *dev)
+{
+	struct kfd_iolink_properties *link;
+
+	if ((dev == NULL) || (dev->gpu == NULL))
+		return;
+
+	/* GPU only creates direck links so apply flags setting to all */
+	if (dev->gpu->device_info->asic_family == CHIP_HAWAII)
+		list_for_each_entry(link, &dev->io_link_props, list)
+			link->flags = CRAT_IOLINK_FLAGS_ENABLED |
+				CRAT_IOLINK_FLAGS_NO_ATOMICS_32_BIT |
+				CRAT_IOLINK_FLAGS_NO_ATOMICS_64_BIT;
+}
+
 int kfd_topology_add_device(struct kfd_dev *gpu)
 {
 	uint32_t gpu_id;
@@ -1078,9 +1094,11 @@ int kfd_topology_add_device(struct kfd_dev *gpu)
 		cpufreq_quick_get_max(0) / 1000;
 
 	kfd_fill_mem_clk_max_info(dev);
+	kfd_fill_iolink_non_crat_info(dev);
 
 	switch (dev->gpu->device_info->asic_family) {
 	case CHIP_KAVERI:
+	case CHIP_HAWAII:
 		dev->node_props.capability |= ((HSA_CAP_DOORBELL_TYPE_PRE_1_0 <<
 			HSA_CAP_DOORBELL_TYPE_TOTALBITS_SHIFT) &
 			HSA_CAP_DOORBELL_TYPE_TOTALBITS_MASK);
@@ -1178,12 +1196,14 @@ int kfd_topology_enum_kfd_devices(uint8_t idx, struct kfd_dev **kdev)
 static int kfd_cpumask_to_apic_id(const struct cpumask *cpumask)
 {
 	const struct cpuinfo_x86 *cpuinfo;
-	int first_cpu_of_nuna_node;
+	int first_cpu_of_numa_node;
 
 	if (cpumask == NULL || cpumask == cpu_none_mask)
 		return -1;
-	first_cpu_of_nuna_node = cpumask_first(cpumask);
-	cpuinfo = &cpu_data(first_cpu_of_nuna_node);
+	first_cpu_of_numa_node = cpumask_first(cpumask);
+	if (first_cpu_of_numa_node >= nr_cpu_ids)
+		return -1;
+	cpuinfo = &cpu_data(first_cpu_of_numa_node);
 
 	return cpuinfo->apicid;
 }
@@ -1224,4 +1244,54 @@ int kfd_get_proximity_domain(const struct pci_bus *bus)
 	up_read(&topology_lock);
 
 	return proximity_domain;
+}
+
+int kfd_debugfs_hqds_by_device(struct seq_file *m, void *data)
+{
+	struct kfd_topology_device *dev;
+	unsigned i = 0;
+	int r = 0;
+
+	down_read(&topology_lock);
+
+	list_for_each_entry(dev, &topology_device_list, list) {
+		if (!dev->gpu) {
+			i++;
+			continue;
+		}
+
+		seq_printf(m, "Node %u, gpu_id %x:\n", i++, dev->gpu->id);
+		r = device_queue_manager_debugfs_hqds(m, dev->gpu->dqm);
+		if (r != 0)
+			break;
+	}
+
+	up_read(&topology_lock);
+
+	return r;
+}
+
+int kfd_debugfs_rls_by_device(struct seq_file *m, void *data)
+{
+	struct kfd_topology_device *dev;
+	unsigned i = 0;
+	int r = 0;
+
+	down_read(&topology_lock);
+
+	list_for_each_entry(dev, &topology_device_list, list) {
+		if (!dev->gpu) {
+			i++;
+			continue;
+		}
+
+		seq_printf(m, "Node %u, gpu_id %x:\n", i++, dev->gpu->id);
+		r = pm_debugfs_runlist(m, &dev->gpu->dqm->packets);
+		if (r != 0)
+			break;
+	}
+
+	up_read(&topology_lock);
+
+	return r;
 }

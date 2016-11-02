@@ -685,7 +685,7 @@ int amdgpu_gem_op_ioctl(struct drm_device *dev, void *data,
 		struct drm_amdgpu_gem_create_in info;
 		void __user *out = (void __user *)(long)args->value;
 
-		info.bo_size = amdgpu_bo_size(robj);
+		info.bo_size = amdgpu_bo_size(robj); 
 		info.alignment = robj->tbo.mem.page_alignment << PAGE_SHIFT;
 		info.domains = robj->prefered_domains;
 		info.domain_flags = robj->flags;

@@ -242,7 +242,7 @@ int amdgpu_bo_create_restricted(struct amdgpu_device *adev,
 	bo = kzalloc(sizeof(struct amdgpu_bo), GFP_KERNEL);
 	if (bo == NULL)
 		return -ENOMEM;
-
+	
 	bo->adev = adev;
 	INIT_LIST_HEAD(&bo->list);
 	INIT_LIST_HEAD(&bo->va);

@@ -131,8 +131,9 @@ static void amdgpu_flip_work_func(struct work_struct *__work)
 				 vblank->framedur_ns / 1000,
 				 vblank->linedur_ns / 1000, stat, vpos, hpos);
 
-	/* do the flip (mmio) */
+	/* Do the flip (mmio) */
 	adev->mode_info.funcs->page_flip(adev, work->crtc_id, work->base);
+
 	/* set the flip status */
 	amdgpuCrtc->pflip_status = AMDGPU_FLIP_SUBMITTED;
 

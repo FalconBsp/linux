@@ -37,13 +37,6 @@ struct mm_struct;
 #include "kfd_priv.h"
 #include "kfd_dbgmgr.h"
 
-/*
- * Initial size for the array of queues.
- * The allocated size is doubled each time
- * it is exceeded up to MAX_PROCESS_QUEUES.
- */
-#define INITIAL_QUEUE_ARRAY_SIZE 16
-
 static int evict_pdd(struct kfd_process_device *pdd);
 /*
  * List of struct kfd_process (field kfd_process).
@@ -86,6 +79,120 @@ void kfd_process_destroy_wq(void)
 	}
 }
 
+static void kfd_process_free_gpuvm(struct kfd_dev *kdev, struct kgd_mem *mem,
+				void *vm)
+{
+	kdev->kfd2kgd->unmap_memory_to_gpu(kdev->kgd, mem, vm);
+	kdev->kfd2kgd->free_memory_of_gpu(kdev->kgd, mem);
+}
+
+/* kfd_process_alloc_gpuvm - Allocate GPU VM for the KFD process
+ *	During the memory allocation of GPU, we can't hold the process lock.
+ *	There's a chance someone else allocates the memory during the lock
+ *	released time. In that case, -EINVAL is returned but kptr remains so
+ *	the caller knows the memory is allocated (by someone else) and
+ *	available to use.
+ */
+static int kfd_process_alloc_gpuvm(struct kfd_process *p,
+		struct kfd_dev *kdev, uint64_t gpu_va, uint32_t size,
+		void *vm, void **kptr, struct kfd_process_device *pdd,
+		uint64_t *addr_to_assign)
+{
+	int err;
+	void *mem = NULL;
+
+	/* can't hold the process lock while allocating from KGD */
+	up_write(&p->lock);
+
+	err = kdev->kfd2kgd->alloc_memory_of_gpu(kdev->kgd, gpu_va, size, vm,
+				(struct kgd_mem **)&mem, NULL, kptr, pdd,
+				ALLOC_MEM_FLAGS_GTT |
+				ALLOC_MEM_FLAGS_NONPAGED |
+				ALLOC_MEM_FLAGS_EXECUTE_ACCESS |
+				ALLOC_MEM_FLAGS_NO_SUBSTITUTE);
+	if (err)
+		goto err_alloc_mem;
+
+	err = kfd_map_memory_to_gpu(kdev, mem, p, pdd);
+	if (err)
+		goto err_map_mem;
+
+	down_write(&p->lock);
+	/* Check if someone else allocated the memory while we weren't looking
+	 */
+	if (*addr_to_assign) {
+		err = -EINVAL;
+		goto free_gpuvm;
+	} else {
+		/* Create an obj handle so kfd_process_device_remove_obj_handle
+		 * will take care of the bo removal when the process finishes
+		 */
+		if (kfd_process_device_create_obj_handle(
+				pdd, mem, gpu_va, size) < 0) {
+			err = -ENOMEM;
+			*kptr = NULL;
+			goto free_gpuvm;
+		}
+	}
+
+	return err;
+
+free_gpuvm:
+	up_write(&p->lock);
+	kfd_process_free_gpuvm(kdev, (struct kgd_mem *)mem, pdd->vm);
+	down_write(&p->lock);
+	return err;
+
+err_map_mem:
+	kdev->kfd2kgd->free_memory_of_gpu(kdev->kgd, mem);
+err_alloc_mem:
+	*kptr = NULL;
+	down_write(&p->lock);
+	return err;
+}
+
+/* kfd_process_reserve_ib_mem - Reserve memory inside the process for IB usage
+ *	The memory reserved is for KFD to submit IB to AMDGPU from kernel.
+ *	If the memory is reserved successfully, ib_kaddr_assigned will have
+ *	the CPU/kernel address. Check ib_kaddr_assigned before accessing the
+ *	memory.
+ */
+static int kfd_process_reserve_ib_mem(struct kfd_process *p)
+{
+	int err = 0;
+	struct kfd_process_device *temp, *pdd = NULL;
+	struct kfd_dev *kdev = NULL;
+	struct qcm_process_device *qpd = NULL;
+	void *kaddr;
+
+	down_write(&p->lock);
+	list_for_each_entry_safe(pdd, temp, &p->per_device_data,
+				per_device_list) {
+		kdev = pdd->dev;
+		qpd = &pdd->qpd;
+		if (!kdev->ib_size || qpd->ib_kaddr)
+			continue;
+
+		if (qpd->ib_base) { /* is dGPU */
+			err = kfd_process_alloc_gpuvm(p, kdev,
+				qpd->ib_base, kdev->ib_size, pdd->vm,
+				&kaddr, pdd, (uint64_t *)&qpd->ib_kaddr);
+			if (!err)
+				qpd->ib_kaddr = kaddr;
+			else if (qpd->ib_kaddr)
+				err = 0;
+			else
+				err = -ENOMEM;
+		} else {
+			/* FIXME: Support APU */
+			err = -ENOMEM;
+		}
+	}
+
+	up_write(&p->lock);
+	return err;
+}
+
 struct kfd_process *kfd_create_process(struct file *filep)
 {
 	struct kfd_process *process;
@@ -124,6 +231,7 @@ struct kfd_process *kfd_create_process(struct file *filep)
 	up_write(&thread->mm->mmap_sem);
 
 	kfd_process_init_cwsr(process, filep);
+	kfd_process_reserve_ib_mem(process);
 
 	return process;
 }
@@ -326,8 +434,13 @@ static void kfd_process_wq_release(struct work_struct *work)
 		pr_debug("Releasing pdd (topology id %d) for process (pasid %d) in workqueue\n",
 				pdd->dev->id, p->pasid);
 
-		if (pdd->dev->device_info->is_need_iommu_device)
-			amd_iommu_unbind_pasid(pdd->dev->pdev, p->pasid);
+		if (pdd->dev->device_info->is_need_iommu_device) {
+			if (pdd->bound == PDD_BOUND) {
+				amd_iommu_unbind_pasid(pdd->dev->pdev,
+						p->pasid);
+				pdd->bound = PDD_UNBOUND;
+			}
+		}
 
 		/*
 		 * Remove all handles from idr and release appropriate
@@ -362,8 +475,6 @@ static void kfd_process_wq_release(struct work_struct *work)
 	kfd_event_free_process(p);
 
 	kfd_pasid_free(p->pasid);
-
-	kfree(p->queues);
 
 	kfree(p);
 
@@ -470,7 +581,6 @@ static int kfd_process_init_cwsr(struct kfd_process *p, struct file *filep)
 	int err;
 	unsigned long  offset;
 	struct kfd_process_device *temp, *pdd = NULL;
-	void *mem = NULL;
 	struct kfd_dev *dev = NULL;
 	struct qcm_process_device *qpd = NULL;
 
@@ -484,46 +594,18 @@ static int kfd_process_init_cwsr(struct kfd_process *p, struct file *filep)
 		if (qpd->cwsr_base) {
 			/* cwsr_base is only set for DGPU */
 
-			/* can't hold the process lock while
-			 * allocating from KGD */
-			up_write(&p->lock);
-
-			err = dev->kfd2kgd->alloc_memory_of_gpu(
-				dev->kgd, qpd->cwsr_base, dev->cwsr_size,
-				pdd->vm, (struct kgd_mem **)&mem,
-				NULL, &qpd->cwsr_kaddr, pdd,
-				ALLOC_MEM_FLAGS_GTT |
-				ALLOC_MEM_FLAGS_NONPAGED |
-				ALLOC_MEM_FLAGS_EXECUTE_ACCESS |
-				ALLOC_MEM_FLAGS_NO_SUBSTITUTE);
-			if (err)
-				goto err_alloc_tba;
-			err = kfd_map_memory_to_gpu(dev, mem, p, pdd);
-			if (err)
-				goto err_map_tba;
-
-			down_write(&p->lock);
-			/* Check if someone else allocated the memory
-			 * while we weren't looking */
-			if (qpd->tba_addr) {
-				up_write(&p->lock);
-				dev->kfd2kgd->unmap_memory_to_gpu(dev->kgd,
-					(struct kgd_mem *)mem, pdd->vm);
-				dev->kfd2kgd->free_memory_of_gpu(dev->kgd, mem);
-				down_write(&p->lock);
-			} else {
-				qpd->cwsr_mem_handle =
-					kfd_process_device_create_obj_handle(
-						pdd, mem, qpd->cwsr_base,
-						dev->cwsr_size);
-				if (qpd->cwsr_mem_handle < 0)
-					goto err_create_handle;
-
+			err = kfd_process_alloc_gpuvm(p, dev, qpd->cwsr_base,
+					dev->cwsr_size, pdd->vm,
+					&qpd->cwsr_kaddr, pdd, &qpd->tba_addr);
+			if (!err) {
 				memcpy(qpd->cwsr_kaddr, kmap(dev->cwsr_pages),
 				       PAGE_SIZE);
 				kunmap(dev->cwsr_pages);
 				qpd->tba_addr = qpd->cwsr_base;
-			}
+			} else if (qpd->cwsr_kaddr)
+				err = 0;
+			else
+				goto out;
 		} else {
 			offset = (kfd_get_gpu_id(dev) |
 				KFD_MMAP_TYPE_RESERVED_MEM) << PAGE_SHIFT;
@@ -543,13 +625,8 @@ static int kfd_process_init_cwsr(struct kfd_process *p, struct file *filep)
 				qpd->tba_addr, qpd->tma_addr);
 	}
 
-err_create_handle:
+out:
 	up_write(&p->lock);
-	return err;
-
-err_map_tba:
-	dev->kfd2kgd->free_memory_of_gpu(dev->kgd, mem);
-err_alloc_tba:
 	return err;
 }
 
@@ -564,11 +641,6 @@ static struct kfd_process *create_process(const struct task_struct *thread)
 		goto err_alloc_process;
 
 	process->bo_interval_tree = RB_ROOT;
-
-	process->queues = kmalloc_array(INITIAL_QUEUE_ARRAY_SIZE,
-					sizeof(process->queues[0]), GFP_KERNEL);
-	if (!process->queues)
-		goto err_alloc_queues;
 
 	process->pasid = kfd_pasid_alloc();
 	if (process->pasid == 0)
@@ -588,8 +660,6 @@ static struct kfd_process *create_process(const struct task_struct *thread)
 			(uintptr_t)process->mm);
 
 	process->lead_thread = thread->group_leader;
-
-	process->queue_array_size = INITIAL_QUEUE_ARRAY_SIZE;
 
 	INIT_LIST_HEAD(&process->per_device_data);
 
@@ -615,8 +685,6 @@ err_process_pqm_init:
 err_mmu_notifier:
 	kfd_pasid_free(process->pasid);
 err_alloc_pasid:
-	kfree(process->queues);
-err_alloc_queues:
 	kfree(process);
 err_alloc_process:
 	return ERR_PTR(err);
@@ -629,9 +697,9 @@ struct kfd_process_device *kfd_get_process_device_data(struct kfd_dev *dev,
 
 	list_for_each_entry(pdd, &p->per_device_data, per_device_list)
 		if (pdd->dev == dev)
-			break;
+			return pdd;
 
-	return pdd;
+	return NULL;
 }
 
 struct kfd_process_device *kfd_create_process_device_data(struct kfd_dev *dev,
@@ -649,6 +717,7 @@ struct kfd_process_device *kfd_create_process_device_data(struct kfd_dev *dev,
 		pdd->qpd.evicted = 0;
 		pdd->reset_wavefronts = false;
 		pdd->process = p;
+		pdd->bound = PDD_UNBOUND;
 		list_add(&pdd->per_device_list, &p->per_device_data);
 
 		/* Init idr used for memory handle translation */
@@ -685,8 +754,13 @@ struct kfd_process_device *kfd_bind_process_to_device(struct kfd_dev *dev,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	if (pdd->bound)
+	if (pdd->bound == PDD_BOUND)
 		return pdd;
+
+	if (pdd->bound == PDD_BOUND_SUSPENDED) {
+		pr_err("kfd: binding PDD_BOUND_SUSPENDED pdd is unexpected!\n");
+		return ERR_PTR(-EINVAL);
+	}
 
 	if (dev->device_info->is_need_iommu_device) {
 		err = amd_iommu_bind_pasid(dev->pdev, p->pasid, p->lead_thread);
@@ -694,31 +768,81 @@ struct kfd_process_device *kfd_bind_process_to_device(struct kfd_dev *dev,
 			return ERR_PTR(err);
 	}
 
-	pdd->bound = true;
+	pdd->bound = PDD_BOUND;
 
 	return pdd;
 }
 
-void kfd_unbind_process_from_device(struct kfd_dev *dev, unsigned int pasid)
+int kfd_bind_processes_to_device(struct kfd_dev *dev)
+{
+	struct kfd_process_device *pdd;
+	struct kfd_process *p;
+	unsigned int temp;
+	int err = 0;
+
+	int idx = srcu_read_lock(&kfd_processes_srcu);
+
+	hash_for_each_rcu(kfd_processes_table, temp, p, kfd_processes) {
+		down_write(&p->lock);
+		pdd = kfd_get_process_device_data(dev, p);
+		if (pdd->bound != PDD_BOUND_SUSPENDED) {
+			up_write(&p->lock);
+			continue;
+		}
+
+		err = amd_iommu_bind_pasid(dev->pdev, p->pasid,
+				p->lead_thread);
+		if (err < 0) {
+			pr_err("unexpected pasid %d binding failure\n",
+					p->pasid);
+			up_write(&p->lock);
+			break;
+		}
+
+		pdd->bound = PDD_BOUND;
+		up_write(&p->lock);
+	}
+
+	srcu_read_unlock(&kfd_processes_srcu, idx);
+
+	return err;
+}
+
+void kfd_unbind_processes_from_device(struct kfd_dev *dev)
+{
+	struct kfd_process_device *pdd;
+	struct kfd_process *p;
+	unsigned int temp, temp_bound, temp_pasid;
+
+	int idx = srcu_read_lock(&kfd_processes_srcu);
+
+	hash_for_each_rcu(kfd_processes_table, temp, p, kfd_processes) {
+		down_write(&p->lock);
+		pdd = kfd_get_process_device_data(dev, p);
+		temp_bound = pdd->bound;
+		temp_pasid = p->pasid;
+		if (pdd->bound == PDD_BOUND)
+			pdd->bound = PDD_BOUND_SUSPENDED;
+		up_write(&p->lock);
+
+		if (temp_bound == PDD_BOUND)
+			amd_iommu_unbind_pasid(dev->pdev, temp_pasid);
+	}
+
+	srcu_read_unlock(&kfd_processes_srcu, idx);
+}
+
+void kfd_process_iommu_unbind_callback(struct kfd_dev *dev, unsigned int pasid)
 {
 	struct kfd_process *p;
 	struct kfd_process_device *pdd;
-	int idx, i;
 	long status = -EFAULT;
 
 	BUG_ON(dev == NULL);
 
-	idx = srcu_read_lock(&kfd_processes_srcu);
+	p = kfd_lookup_process_by_pasid(pasid);
 
-	hash_for_each_rcu(kfd_processes_table, i, p, kfd_processes)
-		if (p->pasid == pasid)
-			break;
-
-	srcu_read_unlock(&kfd_processes_srcu, idx);
-
-	BUG_ON(p->pasid != pasid);
-
-	down_write(&p->lock);
+	BUG_ON(!p);
 
 	mutex_lock(get_dbgmgr_mutex());
 
@@ -733,22 +857,11 @@ void kfd_unbind_process_from_device(struct kfd_dev *dev, unsigned int pasid)
 
 	mutex_unlock(get_dbgmgr_mutex());
 
-	pqm_uninit(&p->pqm);
-
 	pdd = kfd_get_process_device_data(dev, p);
 	if (pdd->reset_wavefronts) {
 		dbgdev_wave_reset_wavefronts(pdd->dev, p);
 		pdd->reset_wavefronts = false;
 	}
-
-	/*
-	 * Just mark pdd as unbound, because we still need it to call
-	 * amd_iommu_unbind_pasid() in when the process exits.
-	 * We don't call amd_iommu_unbind_pasid() here
-	 * because the IOMMU called us.
-	 */
-	if (pdd)
-		pdd->bound = false;
 
 	up_write(&p->lock);
 }
@@ -885,7 +998,7 @@ void kfd_process_device_remove_obj_handle(struct kfd_process_device *pdd,
 /* This returns with process->lock read-locked. */
 struct kfd_process *kfd_lookup_process_by_pasid(unsigned int pasid)
 {
-	struct kfd_process *p;
+	struct kfd_process *p, *ret_p = NULL;
 	unsigned int temp;
 
 	int idx = srcu_read_lock(&kfd_processes_srcu);
@@ -893,13 +1006,14 @@ struct kfd_process *kfd_lookup_process_by_pasid(unsigned int pasid)
 	hash_for_each_rcu(kfd_processes_table, temp, p, kfd_processes) {
 		if (p->pasid == pasid) {
 			down_read(&p->lock);
+			ret_p = p;
 			break;
 		}
 	}
 
 	srcu_read_unlock(&kfd_processes_srcu, idx);
 
-	return p;
+	return ret_p;
 }
 
 /* This returns with process->lock read-locked. */
@@ -951,3 +1065,31 @@ int kfd_reserved_mem_mmap(struct kfd_process *process, struct vm_area_struct *vm
 	return ret;
 }
 
+#if defined(CONFIG_DEBUG_FS)
+
+int kfd_debugfs_mqds_by_process(struct seq_file *m, void *data)
+{
+	struct kfd_process *p;
+	unsigned int temp;
+	int r = 0;
+
+	int idx = srcu_read_lock(&kfd_processes_srcu);
+
+	hash_for_each_rcu(kfd_processes_table, temp, p, kfd_processes) {
+		seq_printf(m, "Process %d PASID %d:\n",
+			   p->lead_thread->tgid, p->pasid);
+
+		down_read(&p->lock);
+		r = pqm_debugfs_mqds(m, &p->pqm);
+		up_read(&p->lock);
+
+		if (r != 0)
+			break;
+	}
+
+	srcu_read_unlock(&kfd_processes_srcu, idx);
+
+	return r;
+}
+
+#endif

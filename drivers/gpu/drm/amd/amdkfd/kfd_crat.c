@@ -103,6 +103,7 @@ static struct kfd_gpu_cache_info carrizo_cache_info[] = {
 
 /* NOTE: In future if more information is added to struct kfd_gpu_cache_info
  *	the following ASICs may need a separate table. */
+#define hawaii_cache_info kaveri_cache_info
 #define tonga_cache_info carrizo_cache_info
 #define fiji_cache_info  carrizo_cache_info
 
@@ -560,6 +561,10 @@ static int kfd_fill_gpu_cache_info(struct kfd_dev *kdev,
 		pcache_info = kaveri_cache_info;
 		num_of_cache_types = ARRAY_SIZE(kaveri_cache_info);
 		break;
+	case CHIP_HAWAII:
+		pcache_info = hawaii_cache_info;
+		num_of_cache_types = ARRAY_SIZE(hawaii_cache_info);
+		break;
 	case CHIP_CARRIZO:
 		pcache_info = carrizo_cache_info;
 		num_of_cache_types = ARRAY_SIZE(carrizo_cache_info);
@@ -817,6 +822,9 @@ static int kfd_create_vcrat_image_cpu(void *pcrat_image, size_t *size)
 	sub_type_hdr = (struct crat_subtype_generic *)(crat_table+1);
 
 	for_each_online_node(numa_node_id) {
+		if (kfd_numa_node_to_apic_id(numa_node_id) == -1)
+			continue;
+
 		/* Fill in Subtype: Compute Unit */
 		ret = kfd_fill_cu_for_cpu(numa_node_id, &avail_size,
 			crat_table->num_domains,

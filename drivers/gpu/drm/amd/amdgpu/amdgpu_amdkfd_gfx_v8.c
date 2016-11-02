@@ -39,8 +39,15 @@
 #include "vi_structs.h"
 #include "vid.h"
 
-#define VI_PIPE_PER_MEC	(4)
+#define VI_PIPE_PER_MEC		(4)
+#define VI_QUEUES_PER_PIPE_MEC	(8)
 
+enum hqd_dequeue_request_type {
+	NO_ACTION = 0,
+	DRAIN_PIPE,
+	RESET_WAVES,
+	SAVE_WAVES
+};
 
 static const uint32_t watchRegs[MAX_WATCH_ADDRESSES * ADDRESS_WATCH_REG_MAX] = {
 	mmTCP_WATCH0_ADDR_H, mmTCP_WATCH0_ADDR_L, mmTCP_WATCH0_CNTL,
@@ -75,13 +82,20 @@ static int kgd_init_pipeline(struct kgd_dev *kgd, uint32_t pipe_id,
 		uint32_t hpd_size, uint64_t hpd_gpu_addr);
 static int kgd_init_interrupts(struct kgd_dev *kgd, uint32_t pipe_id);
 static int kgd_hqd_load(struct kgd_dev *kgd, void *mqd, uint32_t pipe_id,
-		uint32_t queue_id, uint32_t __user *wptr,
-		uint32_t page_table_base);
-static int kgd_hqd_sdma_load(struct kgd_dev *kgd, void *mqd);
+			uint32_t queue_id, uint32_t __user *wptr);
+static int kgd_hqd_dump(struct kgd_dev *kgd,
+			uint32_t pipe_id, uint32_t queue_id,
+			uint32_t (**dump)[2], uint32_t *n_regs);
+static int kgd_hqd_sdma_load(struct kgd_dev *kgd, void *mqd,
+			     uint32_t __user *wptr, struct mm_struct *mm);
+static int kgd_hqd_sdma_dump(struct kgd_dev *kgd,
+			     uint32_t engine_id, uint32_t queue_id,
+			     uint32_t (**dump)[2], uint32_t *n_regs);
 static bool kgd_hqd_is_occupied(struct kgd_dev *kgd, uint64_t queue_address,
 		uint32_t pipe_id, uint32_t queue_id);
 static bool kgd_hqd_sdma_is_occupied(struct kgd_dev *kgd, void *mqd);
-static int kgd_hqd_destroy(struct kgd_dev *kgd, uint32_t reset_type,
+static int kgd_hqd_destroy(struct kgd_dev *kgd,
+				enum kfd_preempt_type reset_type,
 				unsigned int timeout, uint32_t pipe_id,
 				uint32_t queue_id);
 static int kgd_hqd_sdma_destroy(struct kgd_dev *kgd, void *mqd,
@@ -132,6 +146,8 @@ static const struct kfd2kgd_calls kfd2kgd = {
 	.init_interrupts = kgd_init_interrupts,
 	.hqd_load = kgd_hqd_load,
 	.hqd_sdma_load = kgd_hqd_sdma_load,
+	.hqd_dump = kgd_hqd_dump,
+	.hqd_sdma_dump = kgd_hqd_sdma_dump,
 	.hqd_is_occupied = kgd_hqd_is_occupied,
 	.hqd_sdma_is_occupied = kgd_hqd_sdma_is_occupied,
 	.hqd_destroy = kgd_hqd_destroy,
@@ -152,7 +168,6 @@ static const struct kfd2kgd_calls kfd2kgd = {
 	.get_fw_version = get_fw_version,
 	.set_num_of_requests = set_num_of_requests,
 	.get_cu_info = get_cu_info,
-	.set_num_of_requests = set_num_of_requests,
 	.alloc_memory_of_scratch = alloc_memory_of_scratch,
 	.write_config_static_mem = write_config_static_mem,
 	.mmap_bo = amdgpu_amdkfd_gpuvm_mmap_bo,
@@ -165,7 +180,8 @@ static const struct kfd2kgd_calls kfd2kgd = {
 	.unpin_put_sg_table_bo = amdgpu_amdkfd_gpuvm_unpin_put_sg_table,
 	.get_dmabuf_info = amdgpu_amdkfd_get_dmabuf_info,
 	.import_dmabuf = amdgpu_amdkfd_gpuvm_import_dmabuf,
-	.get_vm_fault_info = amdgpu_amdkfd_gpuvm_get_vm_fault_info
+	.get_vm_fault_info = amdgpu_amdkfd_gpuvm_get_vm_fault_info,
+	.submit_ib = amdgpu_amdkfd_submit_ib
 };
 
 struct kfd2kgd_calls *amdgpu_amdkfd_gfx_8_0_get_functions()
@@ -221,6 +237,16 @@ static void acquire_queue(struct kgd_dev *kgd, uint32_t pipe_id,
 	uint32_t pipe = (pipe_id % VI_PIPE_PER_MEC);
 
 	lock_srbm(kgd, mec, pipe, queue_id, 0);
+}
+
+static uint32_t get_queue_mask(uint32_t pipe_id, uint32_t queue_id)
+{
+	/* assumes that pipe0 is used by graphics and that the correct
+	 * MEC is selected by acquire_queue already
+	 */
+	unsigned bit = ((pipe_id+1) * VI_QUEUES_PER_PIPE_MEC + queue_id) & 31;
+
+	return ((uint32_t)1) << bit;
 }
 
 static void release_queue(struct kgd_dev *kgd)
@@ -319,17 +345,12 @@ static inline struct vi_sdma_mqd *get_sdma_mqd(void *mqd)
 }
 
 static int kgd_hqd_load(struct kgd_dev *kgd, void *mqd, uint32_t pipe_id,
-		uint32_t queue_id, uint32_t __user *wptr,
-		uint32_t page_table_base)
+			uint32_t queue_id, uint32_t __user *wptr)
 {
 	struct amdgpu_device *adev = get_amdgpu_device(kgd);
 	struct vi_mqd *m;
-	uint32_t wptr_shadow = 0, is_wptr_shadow_valid = 0;
 
 	m = get_mqd(mqd);
-
-	if (wptr != NULL)
-		is_wptr_shadow_valid = !get_user(wptr_shadow, wptr);
 
 	acquire_queue(kgd, pipe_id, queue_id);
 
@@ -347,18 +368,38 @@ static int kgd_hqd_load(struct kgd_dev *kgd, void *mqd, uint32_t pipe_id,
 	WREG32(mmCP_MQD_BASE_ADDR_HI, m->cp_mqd_base_addr_hi);
 
 	WREG32(mmCP_HQD_VMID, m->cp_hqd_vmid);
-	WREG32(mmCP_HQD_PERSISTENT_STATE, m->cp_hqd_persistent_state);
-	WREG32(mmCP_HQD_PIPE_PRIORITY, m->cp_hqd_pipe_priority);
-	WREG32(mmCP_HQD_QUEUE_PRIORITY, m->cp_hqd_queue_priority);
-	WREG32(mmCP_HQD_QUANTUM, m->cp_hqd_quantum);
 	WREG32(mmCP_HQD_PQ_BASE, m->cp_hqd_pq_base_lo);
 	WREG32(mmCP_HQD_PQ_BASE_HI, m->cp_hqd_pq_base_hi);
 	WREG32(mmCP_HQD_PQ_RPTR_REPORT_ADDR, m->cp_hqd_pq_rptr_report_addr_lo);
 	WREG32(mmCP_HQD_PQ_RPTR_REPORT_ADDR_HI,
 			m->cp_hqd_pq_rptr_report_addr_hi);
-	WREG32(mmCP_HQD_PQ_WPTR, (is_wptr_shadow_valid ? wptr_shadow : 0));
 	WREG32(mmCP_HQD_PQ_CONTROL, m->cp_hqd_pq_control);
 	WREG32(mmCP_HQD_PQ_DOORBELL_CONTROL, m->cp_hqd_pq_doorbell_control);
+	WREG32(mmCP_HQD_PQ_RPTR, m->cp_hqd_pq_rptr);
+
+	if (wptr) {
+		/* Don't read wptr with get_user because the user
+		 * context may not be accessible (if this function
+		 * runs in a work queue). Instead trigger a one-shot
+		 * polling read from memory in the CP. This assumes
+		 * that wptr is GPU-accessible in the queue's VMID via
+		 * ATC or SVM. WPTR==RPTR before starting the poll so
+		 * the CP starts fetching new commands from the right
+		 * place.
+		 */
+		WREG32(mmCP_HQD_PQ_WPTR, m->cp_hqd_pq_rptr);
+		WREG32(mmCP_HQD_PQ_WPTR_POLL_ADDR, (uint32_t)(uint64_t)wptr);
+		WREG32(mmCP_HQD_PQ_WPTR_POLL_ADDR_HI,
+		       (uint32_t)((uint64_t)wptr >> 32));
+		WREG32(mmCP_PQ_WPTR_POLL_CNTL1,
+		       get_queue_mask(pipe_id, queue_id));
+	} else
+		WREG32(mmCP_HQD_PQ_WPTR, 0);
+
+	WREG32(mmCP_HQD_PERSISTENT_STATE, m->cp_hqd_persistent_state);
+	WREG32(mmCP_HQD_PIPE_PRIORITY, m->cp_hqd_pipe_priority);
+	WREG32(mmCP_HQD_QUEUE_PRIORITY, m->cp_hqd_queue_priority);
+	WREG32(mmCP_HQD_QUANTUM, m->cp_hqd_quantum);
 
 	WREG32(mmCP_HQD_EOP_BASE_ADDR, m->cp_hqd_eop_base_addr_lo);
 	WREG32(mmCP_HQD_EOP_BASE_ADDR_HI, m->cp_hqd_eop_base_addr_hi);
@@ -389,14 +430,51 @@ static int kgd_hqd_load(struct kgd_dev *kgd, void *mqd, uint32_t pipe_id,
 	return 0;
 }
 
-static int kgd_hqd_sdma_load(struct kgd_dev *kgd, void *mqd)
+static int kgd_hqd_dump(struct kgd_dev *kgd,
+			uint32_t pipe_id, uint32_t queue_id,
+			uint32_t (**dump)[2], uint32_t *n_regs)
+{
+	struct amdgpu_device *adev = get_amdgpu_device(kgd);
+	uint32_t i = 0, reg;
+#define HQD_N_REGS (54+4)
+#define DUMP_REG(addr) do {				\
+		if (WARN_ON_ONCE(i >= HQD_N_REGS))	\
+			break;				\
+		(*dump)[i][0] = (addr) << 2;		\
+		(*dump)[i++][1] = RREG32(addr);		\
+	} while (0)
+
+	*dump = kmalloc(HQD_N_REGS*2*sizeof(uint32_t), GFP_KERNEL);
+	if (*dump == NULL)
+		return -ENOMEM;
+
+	acquire_queue(kgd, pipe_id, queue_id);
+
+	DUMP_REG(mmCOMPUTE_STATIC_THREAD_MGMT_SE0);
+	DUMP_REG(mmCOMPUTE_STATIC_THREAD_MGMT_SE1);
+	DUMP_REG(mmCOMPUTE_STATIC_THREAD_MGMT_SE2);
+	DUMP_REG(mmCOMPUTE_STATIC_THREAD_MGMT_SE3);
+
+	for (reg = mmCP_MQD_BASE_ADDR; reg <= mmCP_HQD_EOP_DONES; reg++)
+		DUMP_REG(reg);
+
+	release_queue(kgd);
+
+	WARN_ON_ONCE(i != HQD_N_REGS);
+	*n_regs = i;
+
+	return 0;
+}
+
+static int kgd_hqd_sdma_load(struct kgd_dev *kgd, void *mqd,
+			     uint32_t __user *wptr, struct mm_struct *mm)
 {
 	struct amdgpu_device *adev = get_amdgpu_device(kgd);
 	struct vi_sdma_mqd *m;
 	uint32_t sdma_base_addr;
 	uint32_t temp, timeout = 2000;
 	uint32_t data;
-
+	bool wptr_valid = false;
 
 	m = get_sdma_mqd(mqd);
 	sdma_base_addr = get_sdma_base_addr(m);
@@ -425,14 +503,68 @@ static int kgd_hqd_sdma_load(struct kgd_dev *kgd, void *mqd)
 	}
 
 	WREG32(sdma_base_addr + mmSDMA0_RLC0_DOORBELL, m->sdmax_rlcx_doorbell);
-	WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_RPTR, 0);
-	WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_WPTR, 0);
+	WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_RPTR, m->sdmax_rlcx_rb_rptr);
+
+	if (mm && mm == current->mm)
+		wptr_valid = !get_user(data, wptr);
+	else if (mm) {
+		struct vm_area_struct *vma;
+
+		vma = find_vma(mm, (unsigned long)wptr);
+		if (vma && vma->vm_start <= (unsigned long)wptr &&
+		    vma->vm_ops && vma->vm_ops->access)
+			wptr_valid = (sizeof(data) == vma->vm_ops->access(
+					      vma, (unsigned long)wptr,
+					      &data, sizeof(data), 0));
+	}
+	if (wptr_valid)
+		WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_WPTR, data);
+	else
+		WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_WPTR,
+		       m->sdmax_rlcx_rb_rptr);
+
 	WREG32(sdma_base_addr + mmSDMA0_RLC0_VIRTUAL_ADDR, m->sdmax_rlcx_virtual_addr);
 	WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_BASE, m->sdmax_rlcx_rb_base);
 	WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_BASE_HI, m->sdmax_rlcx_rb_base_hi);
 	WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_RPTR_ADDR_LO, m->sdmax_rlcx_rb_rptr_addr_lo);
 	WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_RPTR_ADDR_HI, m->sdmax_rlcx_rb_rptr_addr_hi);
 	WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_CNTL, m->sdmax_rlcx_rb_cntl);
+
+	return 0;
+}
+
+static int kgd_hqd_sdma_dump(struct kgd_dev *kgd,
+			     uint32_t engine_id, uint32_t queue_id,
+			     uint32_t (**dump)[2], uint32_t *n_regs)
+{
+	struct amdgpu_device *adev = get_amdgpu_device(kgd);
+	uint32_t sdma_offset = engine_id * SDMA1_REGISTER_OFFSET +
+		queue_id * KFD_VI_SDMA_QUEUE_OFFSET;
+	uint32_t i = 0, reg;
+#undef HQD_N_REGS
+#define HQD_N_REGS (19+4+2+3+7)
+
+	*dump = kmalloc(HQD_N_REGS*2*sizeof(uint32_t), GFP_KERNEL);
+	if (*dump == NULL)
+		return -ENOMEM;
+
+	for (reg = mmSDMA0_RLC0_RB_CNTL; reg <= mmSDMA0_RLC0_DOORBELL; reg++)
+		DUMP_REG(sdma_offset + reg);
+	for (reg = mmSDMA0_RLC0_VIRTUAL_ADDR; reg <= mmSDMA0_RLC0_WATERMARK;
+	     reg++)
+		DUMP_REG(sdma_offset + reg);
+	for (reg = mmSDMA0_RLC0_CSA_ADDR_LO; reg <= mmSDMA0_RLC0_CSA_ADDR_HI;
+	     reg++)
+		DUMP_REG(sdma_offset + reg);
+	for (reg = mmSDMA0_RLC0_IB_SUB_REMAIN; reg <= mmSDMA0_RLC0_DUMMY_REG;
+	     reg++)
+		DUMP_REG(sdma_offset + reg);
+	for (reg = mmSDMA0_RLC0_MIDCMD_DATA0; reg <= mmSDMA0_RLC0_MIDCMD_CNTL;
+	     reg++)
+		DUMP_REG(sdma_offset + reg);
+
+	WARN_ON_ONCE(i != HQD_N_REGS);
+	*n_regs = i;
 
 	return 0;
 }
@@ -477,29 +609,98 @@ static bool kgd_hqd_sdma_is_occupied(struct kgd_dev *kgd, void *mqd)
 	return false;
 }
 
-static int kgd_hqd_destroy(struct kgd_dev *kgd, uint32_t reset_type,
+static int kgd_hqd_destroy(struct kgd_dev *kgd,
+				enum kfd_preempt_type reset_type,
 				unsigned int timeout, uint32_t pipe_id,
 				uint32_t queue_id)
 {
 	struct amdgpu_device *adev = get_amdgpu_device(kgd);
 	uint32_t temp;
+	enum hqd_dequeue_request_type type;
+	unsigned long flags, end_jiffies;
+	int retry;
 
 	acquire_queue(kgd, pipe_id, queue_id);
 
-	WREG32(mmCP_HQD_DEQUEUE_REQUEST, reset_type);
+	switch (reset_type) {
+	case KFD_PREEMPT_TYPE_WAVEFRONT_DRAIN:
+		type = DRAIN_PIPE;
+		break;
+	case KFD_PREEMPT_TYPE_WAVEFRONT_RESET:
+		type = RESET_WAVES;
+		break;
+	default:
+		type = DRAIN_PIPE;
+		break;
+	}
 
+	/* Workaround: If IQ timer is active and the wait time is close to or
+	 * equal to 0, dequeueing is not safe. Wait until either the wait time
+	 * is larger or timer is cleared. Also, ensure that IQ_REQ_PEND is
+	 * cleared before continuing. Also, ensure wait times are set to at
+	 * least 0x3.
+	 */
+	local_irq_save(flags);
+	preempt_disable();
+	retry = 5000; /* wait for 500 usecs at maximum */
+	while (true) {
+		temp = RREG32(mmCP_HQD_IQ_TIMER);
+		if (REG_GET_FIELD(temp, CP_HQD_IQ_TIMER, PROCESSING_IQ)) {
+			pr_debug("HW is processing IQ\n");
+			goto loop;
+		}
+		if (REG_GET_FIELD(temp, CP_HQD_IQ_TIMER, ACTIVE)) {
+			if (REG_GET_FIELD(temp, CP_HQD_IQ_TIMER, RETRY_TYPE)
+					== 3) /* SEM-rearm is safe */
+				break;
+			/* Wait time 3 is safe for CP, but our MMIO read/write
+			 * time is close to 1 microsecond, so check for 10 to
+			 * leave more buffer room
+			 */
+			if (REG_GET_FIELD(temp, CP_HQD_IQ_TIMER, WAIT_TIME)
+					>= 10)
+				break;
+			pr_debug("IQ timer is active\n");
+		} else
+			break;
+	loop:
+		if (!retry) {
+			pr_err("kfd: CP HQD IQ timer status time out\n");
+			break;
+		}
+		ndelay(100);
+		--retry;
+	}
+	retry = 1000;
+	while (true) {
+		temp = RREG32(mmCP_HQD_DEQUEUE_REQUEST);
+		if (!(temp & CP_HQD_DEQUEUE_REQUEST__IQ_REQ_PEND_MASK))
+			break;
+		pr_debug("Dequeue request is pending\n");
+
+		if (!retry) {
+			pr_err("kfd: CP HQD dequeue request time out\n");
+			break;
+		}
+		ndelay(100);
+		--retry;
+	}
+	local_irq_restore(flags);
+	preempt_enable();
+
+	WREG32(mmCP_HQD_DEQUEUE_REQUEST, type);
+
+	end_jiffies = (timeout * HZ / 1000) + jiffies;
 	while (true) {
 		temp = RREG32(mmCP_HQD_ACTIVE);
-		if (temp & CP_HQD_ACTIVE__ACTIVE_MASK)
+		if (!(temp & CP_HQD_ACTIVE__ACTIVE_MASK))
 			break;
-		if (timeout == 0) {
-			pr_err("kfd: cp queue preemption time out (%dms)\n",
-				temp);
+		if (time_after(jiffies, end_jiffies)) {
+			pr_err("kfd: cp queue preemption time out.\n");
 			release_queue(kgd);
 			return -ETIME;
 		}
-		msleep(20);
-		timeout -= 20;
+		usleep_range(500, 1000);
 	}
 
 	release_queue(kgd);
@@ -513,6 +714,7 @@ static int kgd_hqd_sdma_destroy(struct kgd_dev *kgd, void *mqd,
 	struct vi_sdma_mqd *m;
 	uint32_t sdma_base_addr;
 	uint32_t temp;
+	unsigned long end_jiffies = (timeout * HZ / 1000) + jiffies;
 
 	m = get_sdma_mqd(mqd);
 	sdma_base_addr = get_sdma_base_addr(m);
@@ -525,16 +727,17 @@ static int kgd_hqd_sdma_destroy(struct kgd_dev *kgd, void *mqd,
 		temp = RREG32(sdma_base_addr + mmSDMA0_RLC0_CONTEXT_STATUS);
 		if (temp & SDMA0_RLC0_CONTEXT_STATUS__IDLE_MASK)
 			break;
-		if (timeout == 0)
+		if (time_after(jiffies, end_jiffies))
 			return -ETIME;
-		msleep(20);
-		timeout -= 20;
+		usleep_range(500, 1000);
 	}
 
 	WREG32(sdma_base_addr + mmSDMA0_RLC0_DOORBELL, 0);
 	WREG32(sdma_base_addr + mmSDMA0_RLC0_RB_CNTL,
 		RREG32(sdma_base_addr + mmSDMA0_RLC0_RB_CNTL) |
 		SDMA0_RLC0_RB_CNTL__RB_ENABLE_MASK);
+
+	m->sdmax_rlcx_rb_rptr = RREG32(sdma_base_addr + mmSDMA0_RLC0_RB_RPTR);
 
 	return 0;
 }

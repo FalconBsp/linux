@@ -88,6 +88,9 @@ int amdgpu_amdkfd_schedule_restore_mem(struct amdgpu_device *adev,
 				       unsigned long delay);
 void amdgpu_amdkfd_cancel_restore_mem(struct amdgpu_device *adev,
 				      struct kgd_mem *mem);
+int amdgpu_amdkfd_submit_ib(struct kgd_dev *kgd, enum kgd_engine_type engine,
+				uint32_t vmid, uint64_t gpu_addr,
+				uint32_t *ib_cmd, uint32_t ib_len);
 
 struct kfd2kgd_calls *amdgpu_amdkfd_gfx_7_get_functions(void);
 struct kfd2kgd_calls *amdgpu_amdkfd_gfx_8_0_get_functions(void);
@@ -105,8 +108,6 @@ uint64_t get_gpu_clock_counter(struct kgd_dev *kgd);
 
 uint32_t get_max_engine_clock_in_mhz(struct kgd_dev *kgd);
 void get_cu_info(struct kgd_dev *kgd, struct kfd_cu_info *cu_info);
-int map_gtt_bo_to_kernel(struct kgd_dev *kgd,
-		struct kgd_mem *mem, void **kptr);
 int amdgpu_amdkfd_get_dmabuf_info(struct kgd_dev *kgd, int dma_buf_fd,
 				  struct kgd_dev **dmabuf_kgd,
 				  uint64_t *bo_size, void *metadata_buffer,
@@ -115,7 +116,7 @@ int amdgpu_amdkfd_get_dmabuf_info(struct kgd_dev *kgd, int dma_buf_fd,
 
 /* GPUVM API */
 int amdgpu_amdkfd_gpuvm_alloc_memory_of_gpu(
-		struct kgd_dev *kgd, uint64_t va, size_t size,
+		struct kgd_dev *kgd, uint64_t va, uint64_t size,
 		void *vm, struct kgd_mem **mem,
 		uint64_t *offset, void **kptr,
 		struct kfd_process_device *pdd, uint32_t flags);

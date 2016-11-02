@@ -23,8 +23,8 @@
 #ifndef __AMDGPU_DPM_H__
 #define __AMDGPU_DPM_H__
 
-#define R600_SSTU_DFLT                               0
-#define R600_SST_DFLT                                0x00C8
+#define R600_SSTU_DFLT				     0
+#define R600_SST_DFLT				     0x00C8
 
 /* XXX are these ok? */
 #define R600_TEMP_RANGE_MIN (90 * 1000)

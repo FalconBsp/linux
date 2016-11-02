@@ -55,7 +55,7 @@ static void pm_calc_rlib_size(struct packet_manager *pm,
 				unsigned int *rlib_size,
 				bool *over_subscription)
 {
-	unsigned int process_count, queue_count;
+	unsigned int process_count, queue_count, compute_queue_count;
 	unsigned int map_queue_size;
 	unsigned int max_proc_per_quantum = 1;
 
@@ -65,6 +65,7 @@ static void pm_calc_rlib_size(struct packet_manager *pm,
 
 	process_count = pm->dqm->processes_count;
 	queue_count = pm->dqm->queue_count;
+	compute_queue_count = queue_count - pm->dqm->sdma_queue_count;
 
 	/* check if there is over subscription
 	 * Note: the arbitration between the number of VMIDs and
@@ -78,7 +79,8 @@ static void pm_calc_rlib_size(struct packet_manager *pm,
 		max_proc_per_quantum = dev->max_proc_per_quantum;
 
 	if ((process_count > max_proc_per_quantum) ||
-		queue_count > PIPE_PER_ME_CP_SCHEDULING * QUEUES_PER_PIPE) {
+		compute_queue_count >
+			PIPE_PER_ME_CP_SCHEDULING * QUEUES_PER_PIPE) {
 		*over_subscription = true;
 		pr_debug("kfd: over subscribed runlist\n");
 	}
@@ -449,6 +451,7 @@ static int pm_create_runlist_ib(struct packet_manager *pm,
 		return retval;
 
 	*rl_size_bytes = alloc_size_bytes;
+	pm->ib_size_bytes = alloc_size_bytes;
 
 	pr_debug("kfd: In func %s\n", __func__);
 	pr_debug("kfd: building runlist ib process count: %d queues count %d\n",
@@ -552,6 +555,43 @@ static int get_map_process_packet_size_scratch(void)
 	return sizeof(struct pm4_map_process_scratch);
 }
 
+/* pm_create_release_mem - Create a RELEASE_MEM packet and return the size
+ *	of this packet
+ *	@gpu_addr - GPU address of the packet. It's a virtual address.
+ *	@buffer - buffer to fill up with the packet. It's a CPU kernel pointer
+ *	Return - length of the packet
+ */
+uint32_t pm_create_release_mem(uint64_t gpu_addr, uint32_t *buffer)
+{
+	struct pm4__release_mem *packet;
+
+	WARN_ON(!buffer);
+
+	packet = (struct pm4__release_mem *)buffer;
+	memset(buffer, 0, sizeof(struct pm4__release_mem));
+
+	packet->header.u32all = build_pm4_header(IT_RELEASE_MEM,
+					sizeof(struct pm4__release_mem));
+
+	packet->bitfields2.event_type = CACHE_FLUSH_AND_INV_TS_EVENT;
+	packet->bitfields2.event_index = event_index___release_mem__end_of_pipe;
+	packet->bitfields2.tcl1_action_ena = 1;
+	packet->bitfields2.tc_action_ena = 1;
+	packet->bitfields2.cache_policy = cache_policy___release_mem__lru;
+	packet->bitfields2.atc = 0;
+
+	packet->bitfields3.data_sel = data_sel___release_mem__send_32_bit_low;
+	packet->bitfields3.int_sel =
+		int_sel___release_mem__send_interrupt_after_write_confirm;
+
+	packet->bitfields4.address_lo_32b = (gpu_addr & 0xffffffff) >> 2;
+	packet->address_hi = upper_32_bits(gpu_addr);
+
+	packet->data_lo = 0;
+
+	return sizeof(struct pm4__release_mem) / sizeof(unsigned int);
+}
+
 int pm_init(struct packet_manager *pm, struct device_queue_manager *dqm,
 		uint16_t fw_ver)
 {
@@ -569,6 +609,7 @@ int pm_init(struct packet_manager *pm, struct device_queue_manager *dqm,
 
 	switch (pm->dqm->dev->device_info->asic_family) {
 	case CHIP_KAVERI:
+	case CHIP_HAWAII:
 		if (fw_ver >= KFD_SCRATCH_KV_FW_VER) {
 			pm->pmf->map_process = pm_create_map_process_scratch_kv;
 			pm->pmf->get_map_process_packet_size =
@@ -633,7 +674,7 @@ int pm_send_set_resources(struct packet_manager *pm,
 	packet->bitfields2.queue_type =
 			queue_type__mes_set_resources__hsa_interface_queue_hiq;
 	packet->bitfields2.vmid_mask = res->vmid_mask;
-	packet->bitfields2.unmap_latency = KFD_UNMAP_LATENCY;
+	packet->bitfields2.unmap_latency = KFD_UNMAP_LATENCY_MS / 100;
 	packet->bitfields7.oac_mask = res->oac_mask;
 	packet->bitfields8.gds_heap_base = res->gds_heap_base;
 	packet->bitfields8.gds_heap_size = res->gds_heap_size;
@@ -830,3 +871,17 @@ void pm_release_ib(struct packet_manager *pm)
 	mutex_unlock(&pm->lock);
 }
 
+int pm_debugfs_runlist(struct seq_file *m, void *data)
+{
+	struct packet_manager *pm = data;
+
+	if (!pm->allocated) {
+		seq_puts(m, "  No active runlist\n");
+		return 0;
+	}
+
+	seq_hex_dump(m, "  ", DUMP_PREFIX_OFFSET, 32, 4,
+		     pm->ib_buffer_obj->cpu_ptr, pm->ib_size_bytes, false);
+
+	return 0;
+}

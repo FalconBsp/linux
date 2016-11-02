@@ -143,7 +143,7 @@ static bool initialize(struct kernel_queue *kq, struct kfd_dev *dev,
 		kq->queue->pipe = KFD_CIK_HIQ_PIPE;
 		kq->queue->queue = KFD_CIK_HIQ_QUEUE;
 		kq->mqd->load_mqd(kq->mqd, kq->queue->mqd, kq->queue->pipe,
-					kq->queue->queue, NULL, 0);
+					kq->queue->queue, NULL, NULL);
 	} else {
 		/* allocate fence for DIQ */
 
@@ -185,7 +185,7 @@ static void uninitialize(struct kernel_queue *kq)
 	if (kq->queue->properties.type == KFD_QUEUE_TYPE_HIQ)
 		kq->mqd->destroy_mqd(kq->mqd,
 					NULL,
-					false,
+					KFD_PREEMPT_TYPE_WAVEFRONT_RESET,
 					QUEUE_PREEMPT_DEFAULT_TIMEOUT_MS,
 					kq->queue->pipe,
 					kq->queue->queue);
@@ -311,6 +311,7 @@ struct kernel_queue *kernel_queue_init(struct kfd_dev *dev,
 		break;
 
 	case CHIP_KAVERI:
+	case CHIP_HAWAII:
 		kernel_queue_init_cik(&kq->ops_asic_specific);
 		break;
 	}

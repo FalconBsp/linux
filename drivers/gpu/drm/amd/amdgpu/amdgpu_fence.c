@@ -625,7 +625,7 @@ static int amdgpu_debugfs_fence_info(struct seq_file *m, void *data)
 		seq_printf(m, "--- ring %d (%s) ---\n", i, ring->name);
 		seq_printf(m, "Last signaled fence 0x%08x\n",
 			   atomic_read(&ring->fence_drv.last_seq));
-		seq_printf(m, "Last emitted        0x%08x\n",
+		seq_printf(m, "Last emitted	   0x%08x\n",
 			   ring->fence_drv.sync_seq);
 	}
 	return 0;

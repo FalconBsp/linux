@@ -76,6 +76,7 @@ int amdgpu_vm_size = -1;
 int amdgpu_vm_block_size = -1;
 int amdgpu_vm_fault_stop = 0;
 int amdgpu_vm_debug = 0;
+int amdgpu_vm_update_context = 2;
 int amdgpu_exp_hw_support = 0;
 int amdgpu_dal = -1;
 int amdgpu_sched_jobs = 32;
@@ -83,6 +84,7 @@ int amdgpu_sched_hw_submission = 2;
 int amdgpu_powerplay = -1;
 unsigned amdgpu_pcie_gen_cap = 0;
 unsigned amdgpu_pcie_lane_cap = 0;
+unsigned amdgpu_sdma_phase_quantum = 32;
 
 MODULE_PARM_DESC(vramlimit, "Restrict VRAM for testing, in megabytes");
 module_param_named(vramlimit, amdgpu_vram_limit, int, 0600);
@@ -147,6 +149,9 @@ module_param_named(vm_fault_stop, amdgpu_vm_fault_stop, int, 0444);
 MODULE_PARM_DESC(vm_debug, "Debug VM handling (0 = disabled (default), 1 = enabled)");
 module_param_named(vm_debug, amdgpu_vm_debug, int, 0644);
 
+MODULE_PARM_DESC(vm_update_context, "VM update using CPU. (0 = never, 1 = Graphics only, 2 = Compute only (default), 3 = Both");
+module_param_named(vm_update_context, amdgpu_vm_update_context, int, 0444);
+
 MODULE_PARM_DESC(exp_hw_support, "experimental hw support (1 = enable, 0 = disable (default))");
 module_param_named(exp_hw_support, amdgpu_exp_hw_support, int, 0444);
 
@@ -169,6 +174,9 @@ module_param_named(pcie_gen_cap, amdgpu_pcie_gen_cap, uint, 0444);
 
 MODULE_PARM_DESC(pcie_lane_cap, "PCIE Lane Caps (0: autodetect (default))");
 module_param_named(pcie_lane_cap, amdgpu_pcie_lane_cap, uint, 0444);
+
+MODULE_PARM_DESC(sdma_phase_quantum, "SDMA context switch phase quantum (x 1K GPU clock cycles, 0 = no change (default 32))");
+module_param_named(sdma_phase_quantum, amdgpu_sdma_phase_quantum, uint, 0444);
 
 static const struct pci_device_id pciidlist[] = {
 #ifdef CONFIG_DRM_AMDGPU_CIK
