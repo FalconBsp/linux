@@ -22,8 +22,8 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  *
  * Authors: Dave Airlie
- *          Alex Deucher
- *          Jerome Glisse
+ *	    Alex Deucher
+ *	    Jerome Glisse
  */
 #include <linux/ktime.h>
 #include <linux/pagemap.h>
@@ -526,7 +526,7 @@ static void amdgpu_gem_va_update_vm(struct amdgpu_device *adev,
 	r = ttm_eu_reserve_buffers(&ticket, &list, true, &duplicates);
 	if (r)
 		goto error_print;
-
+ 
 	amdgpu_vm_get_pt_bos(bo_va->vm, &duplicates);
 	list_for_each_entry(entry, &list, head) {
 		domain = amdgpu_mem_type_to_domain(entry->bo->mem.mem_type);
@@ -706,7 +706,7 @@ int amdgpu_gem_op_ioctl(struct drm_device *dev, void *data,
 		robj->allowed_domains = robj->prefered_domains;
 		if (robj->allowed_domains == AMDGPU_GEM_DOMAIN_VRAM)
 			robj->allowed_domains |= AMDGPU_GEM_DOMAIN_GTT;
-
+ 
 		amdgpu_bo_unreserve(robj);
 		break;
 	default:

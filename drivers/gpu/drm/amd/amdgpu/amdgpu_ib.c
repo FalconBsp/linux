@@ -22,9 +22,9 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  *
  * Authors: Dave Airlie
- *          Alex Deucher
- *          Jerome Glisse
- *          Christian König
+ *	    Alex Deucher
+ *	    Jerome Glisse
+ *	    Christian König
  */
 #include <linux/seq_file.h>
 #include <linux/slab.h>
@@ -111,19 +111,19 @@ void amdgpu_ib_free(struct amdgpu_device *adev, struct amdgpu_ib *ib,
  * the resource descriptors will be already in cache when the draw is
  * processed.  To accomplish this, the userspace driver submits two
  * IBs, one for the CE and one for the DE.  If there is a CE IB (called
- * a CONST_IB), it will be put on the ring prior to the DE IB.  Prior
+ * a CONST_IB), it will be put on the ring prior to the DE IB.	Prior
  * to SI there was just a DE IB.
  */
 int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
-                       struct amdgpu_ib *ibs, struct fence *last_vm_update,
-                       struct amdgpu_job *job, struct fence **f)
+		       struct amdgpu_ib *ibs, struct fence *last_vm_update,
+		       struct amdgpu_job *job, struct fence **f)
 {
 	struct amdgpu_device *adev = ring->adev;
 	struct amdgpu_ib *ib = &ibs[0];
-    uint64_t fence_context = 0, old = ring->last_fence_context;
+	uint64_t fence_context = 0, old = ring->last_fence_context;
 	struct fence *hwf;
-    struct amdgpu_vm *vm = NULL;
-    unsigned i, patch_offset = ~0;
+	struct amdgpu_vm *vm = NULL;
+	unsigned i, patch_offset = ~0;
 
 	int r = 0;
 
@@ -163,8 +163,9 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
 		if (r) {
 			amdgpu_ring_undo(ring);
 			return r;
+		    }
 		}
-	}
+
 	if (ring->funcs->emit_hdp_flush)
 		amdgpu_ring_emit_hdp_flush(ring);
 
@@ -176,10 +177,10 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
 
 		amdgpu_ring_emit_ib(ring, ib, (i == 0 && old != fence_context));
 	}
-    ring->last_fence_context = fence_context;
+	ring->last_fence_context = fence_context;
 
-    if (ring->funcs->emit_hdp_invalidate)
-    	amdgpu_ring_emit_hdp_invalidate(ring);
+	if (ring->funcs->emit_hdp_invalidate)
+		amdgpu_ring_emit_hdp_invalidate(ring);
 
 	r = amdgpu_fence_emit(ring, &hwf);
 	if (r) {

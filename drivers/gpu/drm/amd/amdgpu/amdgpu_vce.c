@@ -41,9 +41,9 @@
 /* Firmware Names */
 #ifdef CONFIG_DRM_AMDGPU_CIK
 #define FIRMWARE_BONAIRE	"radeon/bonaire_vce.bin"
-#define FIRMWARE_KABINI 	"radeon/kabini_vce.bin"
-#define FIRMWARE_KAVERI 	"radeon/kaveri_vce.bin"
-#define FIRMWARE_HAWAII 	"radeon/hawaii_vce.bin"
+#define FIRMWARE_KABINI	"radeon/kabini_vce.bin"
+#define FIRMWARE_KAVERI	"radeon/kaveri_vce.bin"
+#define FIRMWARE_HAWAII	"radeon/hawaii_vce.bin"
 #define FIRMWARE_MULLINS	"radeon/mullins_vce.bin"
 #endif
 #define FIRMWARE_TONGA		"amdgpu/tonga_vce.bin"
@@ -51,7 +51,7 @@
 #define FIRMWARE_FIJI		"amdgpu/fiji_vce.bin"
 #define FIRMWARE_STONEY		"amdgpu/stoney_vce.bin"
 #define FIRMWARE_POLARIS10	"amdgpu/polaris10_vce.bin"
-#define FIRMWARE_POLARIS11         "amdgpu/polaris11_vce.bin"
+#define FIRMWARE_POLARIS11	   "amdgpu/polaris11_vce.bin"
 
 #ifdef CONFIG_DRM_AMDGPU_CIK
 MODULE_FIRMWARE(FIRMWARE_BONAIRE);
@@ -392,10 +392,10 @@ int amdgpu_vce_get_create_msg(struct amdgpu_ring *ring, uint32_t handle,
 	int i, r;
 
 	r = amdgpu_job_alloc_with_ib(ring->adev, ib_size_dw * 4, &job);
-	if (r)
+	if (r) 
 		return r;
 
-	ib = &job->ibs[0];
+	ib = &job->ibs[0];	
 
 	dummy = ib->gpu_addr + 1024;
 
@@ -436,11 +436,11 @@ int amdgpu_vce_get_create_msg(struct amdgpu_ring *ring, uint32_t handle,
 	for (i = ib->length_dw; i < ib_size_dw; ++i)
 		ib->ptr[i] = 0x0;
 
-    r = amdgpu_ib_schedule(ring, 1, ib, NULL, NULL, &f);
-    job->fence = f;
+	r = amdgpu_ib_schedule(ring, 1, ib, NULL, NULL, &f);
+	job->fence = f;
 	if (r)
 		goto err;
-
+       
 	amdgpu_job_free(job);
 	if (fence)
 		*fence = fence_get(f);
@@ -472,10 +472,10 @@ int amdgpu_vce_get_destroy_msg(struct amdgpu_ring *ring, uint32_t handle,
 	uint64_t dummy;
 	int i, r;
 
-	r = amdgpu_job_alloc_with_ib(ring->adev, ib_size_dw * 4, &job);
-	if (r)
+	r = amdgpu_job_alloc_with_ib(ring->adev, ib_size_dw * 4, &job);	
+	if (r) 
 		return r;
-
+	
 	ib = &job->ibs[0];
 	dummy = ib->gpu_addr + 1024;
 
@@ -498,7 +498,7 @@ int amdgpu_vce_get_destroy_msg(struct amdgpu_ring *ring, uint32_t handle,
 		ib->ptr[i] = 0x0;
 
 	if (direct) {
-    	r = amdgpu_ib_schedule(ring, 1, ib, NULL, NULL, &f);
+		r = amdgpu_ib_schedule(ring, 1, ib, NULL, NULL, &f);
 		job->fence = f;
 		if (r)
 			goto err;

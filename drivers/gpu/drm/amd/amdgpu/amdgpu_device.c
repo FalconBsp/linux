@@ -22,8 +22,8 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  *
  * Authors: Dave Airlie
- *          Alex Deucher
- *          Jerome Glisse
+ *	    Alex Deucher
+ *	    Jerome Glisse
  */
 #include <linux/console.h>
 #include <linux/slab.h>
@@ -351,7 +351,7 @@ static int amdgpu_doorbell_init(struct amdgpu_device *adev)
 	adev->doorbell.base = pci_resource_start(adev->pdev, 2);
 	adev->doorbell.size = pci_resource_len(adev->pdev, 2);
 
-	adev->doorbell.num_doorbells = min_t(u32, adev->doorbell.size / sizeof(u32), 
+	adev->doorbell.num_doorbells = min_t(u32, adev->doorbell.size / sizeof(u32),
 					     AMDGPU_DOORBELL_MAX_ASSIGNMENT+1);
 	if (adev->doorbell.num_doorbells == 0)
 		return -EINVAL;
@@ -381,7 +381,7 @@ static void amdgpu_doorbell_fini(struct amdgpu_device *adev)
 
 /**
  * amdgpu_doorbell_get_kfd_info - Report doorbell configuration required to
- *                                setup amdkfd
+ *				  setup amdkfd
  *
  * @adev: amdgpu_device pointer
  * @aperture_base: output returning doorbell aperture base physical address
@@ -456,7 +456,7 @@ static int amdgpu_wb_init(struct amdgpu_device *adev)
 
 	if (adev->wb.wb_obj == NULL) {
 		r = amdgpu_bo_create(adev, AMDGPU_MAX_WB * 4, PAGE_SIZE, true,
-				     AMDGPU_GEM_DOMAIN_GTT, 0,  NULL, NULL,
+				     AMDGPU_GEM_DOMAIN_GTT, 0,	NULL, NULL,
 				     &adev->wb.wb_obj);
 		if (r) {
 			dev_warn(adev->dev, "(%d) create WB bo failed\n", r);
@@ -1030,7 +1030,7 @@ static void amdgpu_check_arguments(struct amdgpu_device *adev)
  * @pdev: pci dev pointer
  * @state: vga_switcheroo state
  *
- * Callback for the switcheroo driver.  Suspends or resumes the
+ * Callback for the switcheroo driver.	Suspends or resumes the
  * the asics before or after it is powered up using ACPI methods.
  */
 static void amdgpu_switcheroo_set_state(struct pci_dev *pdev, enum vga_switcheroo_state state)
@@ -1067,7 +1067,7 @@ static void amdgpu_switcheroo_set_state(struct pci_dev *pdev, enum vga_switchero
  *
  * @pdev: pci dev pointer
  *
- * Callback for the switcheroo driver.  Check of the switcheroo
+ * Callback for the switcheroo driver.	Check of the switcheroo
  * state can be changed.
  * Returns true if the state can be changed, false if not.
  */

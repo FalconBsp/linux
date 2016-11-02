@@ -30,45 +30,45 @@
 #include "amdgpu.h"
 #include "amdgpu_trace.h"
 
-#define AMDGPU_CS_MAX_PRIORITY         32u
-#define AMDGPU_CS_NUM_BUCKETS          (AMDGPU_CS_MAX_PRIORITY + 1)
+#define AMDGPU_CS_MAX_PRIORITY		32u
+#define AMDGPU_CS_NUM_BUCKETS		(AMDGPU_CS_MAX_PRIORITY + 1)
 
 /* This is based on the bucket sort with O(n) time complexity.
  * An item with priority "i" is added to bucket[i]. The lists are then
  * concatenated in descending order.
  */
 struct amdgpu_cs_buckets {
-       struct list_head bucket[AMDGPU_CS_NUM_BUCKETS];
+	struct list_head bucket[AMDGPU_CS_NUM_BUCKETS];
 };
 
 static void amdgpu_cs_buckets_init(struct amdgpu_cs_buckets *b)
 {
-       unsigned i;
+	unsigned i;
 
-       for (i = 0; i < AMDGPU_CS_NUM_BUCKETS; i++)
-               INIT_LIST_HEAD(&b->bucket[i]);
+	for (i = 0; i < AMDGPU_CS_NUM_BUCKETS; i++)
+		INIT_LIST_HEAD(&b->bucket[i]);
 }
 
 static void amdgpu_cs_buckets_add(struct amdgpu_cs_buckets *b,
-                                 struct list_head *item, unsigned priority)
+				  struct list_head *item, unsigned priority)
 {
-       /* Since buffers which appear sooner in the relocation list are
-        * likely to be used more often than buffers which appear later
-        * in the list, the sort mustn't change the ordering of buffers
-        * with the same priority, i.e. it must be stable.
-        */
-       list_add_tail(item, &b->bucket[min(priority, AMDGPU_CS_MAX_PRIORITY)]);
+	/* Since buffers which appear sooner in the relocation list are
+	 * likely to be used more often than buffers which appear later
+	 * in the list, the sort mustn't change the ordering of buffers
+	 * with the same priority, i.e. it must be stable.
+	 */
+	list_add_tail(item, &b->bucket[min(priority, AMDGPU_CS_MAX_PRIORITY)]);
 }
 
 static void amdgpu_cs_buckets_get_list(struct amdgpu_cs_buckets *b,
-                                      struct list_head *out_list)
+				       struct list_head *out_list)
 {
-       unsigned i;
+	unsigned i;
 
-       /* Connect the sorted buckets in the output list. */
-       for (i = 0; i < AMDGPU_CS_NUM_BUCKETS; i++) {
-               list_splice(&b->bucket[i], out_list);
-       }
+	/* Connect the sorted buckets in the output list. */
+	for (i = 0; i < AMDGPU_CS_NUM_BUCKETS; i++) {
+		list_splice(&b->bucket[i], out_list);
+	}
 }
 
 int amdgpu_cs_get_ring(struct amdgpu_device *adev, u32 ip_type,
@@ -161,7 +161,7 @@ static int amdgpu_cs_user_fence_chunk(struct amdgpu_cs_parser *p,
 int amdgpu_cs_parser_init(struct amdgpu_cs_parser *p, void *data)
 {
 	struct amdgpu_fpriv *fpriv = p->filp->driver_priv;
-    struct amdgpu_vm *vm = &fpriv->vm;
+	struct amdgpu_vm *vm = &fpriv->vm;
 	union drm_amdgpu_cs *cs = data;
 	uint64_t *chunk_array_user;
 	uint64_t *chunk_array;
@@ -182,15 +182,16 @@ int amdgpu_cs_parser_init(struct amdgpu_cs_parser *p, void *data)
 		ret = -EINVAL;
 		goto free_chunk;
 	}
-    p->bo_list = amdgpu_bo_list_get(fpriv, cs->in.bo_list_handle);
+ 
+	p->bo_list = amdgpu_bo_list_get(fpriv, cs->in.bo_list_handle);
 
 	/* get chunks */
-    INIT_LIST_HEAD(&p->validated);
+	INIT_LIST_HEAD(&p->validated);
 	chunk_array_user = (uint64_t __user *)(unsigned long)(cs->in.chunks);
 	if (copy_from_user(chunk_array, chunk_array_user,
 			   sizeof(uint64_t)*cs->in.num_chunks)) {
 		ret = -EFAULT;
-        goto put_bo_list;
+		goto put_bo_list;
 	}
 
 	p->nchunks = cs->in.num_chunks;
@@ -198,7 +199,7 @@ int amdgpu_cs_parser_init(struct amdgpu_cs_parser *p, void *data)
 			    GFP_KERNEL);
 	if (!p->chunks) {
 		ret = -ENOMEM;
-        goto put_bo_list;
+		goto put_bo_list;
 	}
 
 	for (i = 0; i < p->nchunks; i++) {
@@ -258,7 +259,7 @@ int amdgpu_cs_parser_init(struct amdgpu_cs_parser *p, void *data)
 		}
 	}
 
-    ret = amdgpu_job_alloc(p->adev, num_ibs, &p->job, vm);
+	ret = amdgpu_job_alloc(p->adev, num_ibs, &p->job, vm);
 	if (ret)
 		goto free_all_kdata;
 
@@ -274,8 +275,8 @@ free_partial_kdata:
 		drm_free_large(p->chunks[i].kdata);
 	kfree(p->chunks);
 put_bo_list:
-	if (p->bo_list)
-    	amdgpu_bo_list_put(p->bo_list);
+       if (p->bo_list)
+	       amdgpu_bo_list_put(p->bo_list);
 	amdgpu_ctx_put(p->ctx);
 free_chunk:
 	kfree(chunk_array);
@@ -300,18 +301,18 @@ static u64 amdgpu_cs_get_threshold_for_moves(struct amdgpu_device *adev)
 	 *
 	 * - From 0 to one half of used VRAM, the threshold decreases
 	 *   linearly.
-	 *         __________________
-	 * 1/4 of -|\               |
-	 * VRAM    | \              |
-	 *         |  \             |
-	 *         |   \            |
-	 *         |    \           |
-	 *         |     \          |
-	 *         |      \         |
-	 *         |       \________|1 MB
-	 *         |----------------|
-	 *    VRAM 0 %             100 %
-	 *         used            used
+	 *	   __________________
+	 * 1/4 of -|\		    |
+	 * VRAM    | \		    |
+	 *	   |  \		    |
+	 *	   |   \	    |
+	 *	   |	\	    |
+	 *	   |	 \	    |
+	 *	   |	  \	    |
+	 *	   |	   \________|1 MB
+	 *	   |----------------|
+	 *    VRAM 0 %		   100 %
+	 *	   used		   used
 	 *
 	 * Note: It's a threshold, not a limit. The threshold must be crossed
 	 * for buffer relocations to stop, so any buffer of an arbitrary size
@@ -376,17 +377,18 @@ int amdgpu_cs_list_validate(struct amdgpu_cs_parser *p,
 			domain = bo->prefered_domains;
 		else
 			domain = bo->allowed_domains;
-
+ 
 	retry:
 		amdgpu_ttm_placement_from_domain(bo, domain);
 		initial_bytes_moved = atomic64_read(&bo->adev->num_bytes_moved);
 		r = ttm_bo_validate(&bo->tbo, &bo->placement, true, false);
 		p->bytes_moved += atomic64_read(&bo->adev->num_bytes_moved) -
 			       initial_bytes_moved;
-
+ 
 		if (unlikely(r)) {
 			if (r != -ERESTARTSYS && domain != bo->allowed_domains) {
 				domain = bo->allowed_domains;
+
 				goto retry;
 			}
 			return r;
@@ -403,22 +405,22 @@ int amdgpu_cs_list_validate(struct amdgpu_cs_parser *p,
 static int amdgpu_cs_parser_relocs(struct amdgpu_cs_parser *p)
 {
 	struct amdgpu_fpriv *fpriv = p->filp->driver_priv;
-    struct amdgpu_cs_buckets buckets;
+	struct amdgpu_cs_buckets buckets;
 	struct amdgpu_bo_list_entry *e;
 	struct list_head duplicates;
 	bool need_mmap_lock = false;
 	unsigned i, tries = 10;
-	int r;
+	int  r;
 	
 	if (p->bo_list) {
-    	need_mmap_lock = p->bo_list->first_userptr !=
-        	p->bo_list->num_entries;
-        amdgpu_cs_buckets_init(&buckets);
-        for (i = 0; i < p->bo_list->num_entries; i++)
-        	amdgpu_cs_buckets_add(&buckets, &p->bo_list->array[i].tv.head,
-            	p->bo_list->array[i].priority);
+		need_mmap_lock = p->bo_list->first_userptr !=
+			p->bo_list->num_entries;
+		amdgpu_cs_buckets_init(&buckets);
+		for (i = 0; i < p->bo_list->num_entries; i++)
+			amdgpu_cs_buckets_add(&buckets, &p->bo_list->array[i].tv.head,
+								 p->bo_list->array[i].priority);
 
-            amdgpu_cs_buckets_get_list(&buckets, &p->validated);
+	       amdgpu_cs_buckets_get_list(&buckets, &p->validated);
 	}
 
 	INIT_LIST_HEAD(&duplicates);
@@ -438,20 +440,20 @@ static int amdgpu_cs_parser_relocs(struct amdgpu_cs_parser *p)
 					   &duplicates);
 		if (unlikely(r != 0))
 			goto error_free_pages;
-
+ 
 		/* Without a BO list we don't have userptr BOs */
 		if (!p->bo_list)
 			break;
-
+ 
 		INIT_LIST_HEAD(&need_pages);
 		for (i = p->bo_list->first_userptr;
 		     i < p->bo_list->num_entries; ++i) {
-
+ 
 			e = &p->bo_list->array[i];
-
+ 
 			if (amdgpu_ttm_tt_userptr_invalidated(e->robj->tbo.ttm,
 				 &e->user_invalidated) && e->user_pages) {
-
+ 
 				/* We acquired a page array, but somebody
 				 * invalidated it. Free it an try again
 				 */
@@ -473,7 +475,7 @@ static int amdgpu_cs_parser_relocs(struct amdgpu_cs_parser *p)
 
 		if (list_empty(&need_pages))
 			break;
-
+ 
 		/* Unreserve everything again. */
 		ttm_eu_backoff_reservation(&p->ticket, &p->validated);
 
@@ -482,18 +484,18 @@ static int amdgpu_cs_parser_relocs(struct amdgpu_cs_parser *p)
 			r = -EDEADLK;
 			goto error_free_pages;
 		}
-
+ 
 		/* Fill the page arrays for all useptrs. */
 		list_for_each_entry(e, &need_pages, tv.head) {
 			struct ttm_tt *ttm = e->robj->tbo.ttm;
-
+ 
 			e->user_pages = drm_calloc_large(ttm->num_pages,
 							 sizeof(struct page*));
 			if (!e->user_pages) {
 				r = -ENOMEM;
 				goto error_free_pages;
 			}
-
+ 
 			r = amdgpu_ttm_tt_get_user_pages(ttm, e->user_pages);
 			if (r) {
 				drm_free_large(e->user_pages);
@@ -501,7 +503,7 @@ static int amdgpu_cs_parser_relocs(struct amdgpu_cs_parser *p)
 				goto error_free_pages;
 			}
 		}
-
+ 
 		/* And try again. */
 		list_splice(&need_pages, &p->validated);
 	}
@@ -510,7 +512,7 @@ static int amdgpu_cs_parser_relocs(struct amdgpu_cs_parser *p)
 
 	p->bytes_moved_threshold = amdgpu_cs_get_threshold_for_moves(p->adev);
 	p->bytes_moved = 0;
-
+ 
 	r = amdgpu_cs_list_validate(p, &duplicates);
 	if (r)
 		goto error_validate;
@@ -522,10 +524,10 @@ static int amdgpu_cs_parser_relocs(struct amdgpu_cs_parser *p)
 	if (p->bo_list) {
 		struct amdgpu_vm *vm = &fpriv->vm;
 		unsigned i;
-
+ 
 		for (i = 0; i < p->bo_list->num_entries; i++) {
 			struct amdgpu_bo *bo = p->bo_list->array[i].robj;
-
+ 
 			p->bo_list->array[i].bo_va = amdgpu_vm_bo_find(vm, bo);
 		}
 	}
@@ -534,7 +536,7 @@ error_validate:
 	if (r) {
 		amdgpu_vm_move_pt_bos_in_lru(p->adev, &fpriv->vm);
 		ttm_eu_backoff_reservation(&p->ticket, &p->validated);
-	}
+	}		
 
 error_free_pages:
 
@@ -545,10 +547,10 @@ error_free_pages:
 		for (i = p->bo_list->first_userptr;
 		     i < p->bo_list->num_entries; ++i) {
 			e = &p->bo_list->array[i];
-
+ 
 			if (!e->user_pages)
 				continue;
-
+ 
 			release_pages(e->user_pages,
 				      e->robj->tbo.ttm->num_pages,
 				      false);
@@ -737,7 +739,7 @@ static int amdgpu_cs_ib_fill(struct amdgpu_device *adev,
 
 		if (parser->job->ring && parser->job->ring != ring)
 			return -EINVAL;
-
+ 
 		parser->job->ring = ring;
 
 		if (ring->funcs->parse_cs) {
@@ -818,6 +820,7 @@ static int amdgpu_cs_ib_fill(struct amdgpu_device *adev,
 		/* UVD & VCE fw doesn't support user fences */
 		if (parser->job->ring->type == AMDGPU_RING_TYPE_UVD ||
 		    parser->job->ring->type == AMDGPU_RING_TYPE_VCE)
+
 			return -EINVAL;
 
 		ib->user = &parser->job->uf;
@@ -907,7 +910,7 @@ static int amdgpu_cs_submit(struct amdgpu_cs_parser *p,
 	p->fence = fence_get(fence);
 	cs->out.handle = amdgpu_ctx_add_fence(p->ctx, ring, fence);
 	job->ibs[job->num_ibs - 1].sequence = cs->out.handle;
-
+	
 	trace_amdgpu_cs_ioctl(job);
 	amd_sched_entity_push_job(&job->base);
 
@@ -935,7 +938,7 @@ int amdgpu_cs_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 		r = amdgpu_cs_handle_lockup(adev, r);
 		return r;
 	}
-    r = amdgpu_cs_parser_relocs(&parser);
+	r = amdgpu_cs_parser_relocs(&parser);
 	if (r == -ENOMEM)
 		DRM_ERROR("Not enough memory for command submission!\n");
 	else if (r && r != -ERESTARTSYS)

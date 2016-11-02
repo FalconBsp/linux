@@ -135,8 +135,8 @@ static void vi_smc_wreg(struct amdgpu_device *adev, u32 reg, u32 v)
 }
 
 /* smu_8_0_d.h */
-#define mmMP0PUB_IND_INDEX                                                      0x180
-#define mmMP0PUB_IND_DATA                                                       0x181
+#define mmMP0PUB_IND_INDEX							0x180
+#define mmMP0PUB_IND_DATA							0x181
 
 static u32 cz_smc_rreg(struct amdgpu_device *adev, u32 reg)
 {
@@ -1437,9 +1437,9 @@ int vi_set_ip_blocks(struct amdgpu_device *adev)
 	return 0;
 }
 
-#define ATI_REV_ID_FUSE_MACRO__ADDRESS      0xC0014044
-#define ATI_REV_ID_FUSE_MACRO__SHIFT        9
-#define ATI_REV_ID_FUSE_MACRO__MASK         0x00001E00
+#define ATI_REV_ID_FUSE_MACRO__ADDRESS	    0xC0014044
+#define ATI_REV_ID_FUSE_MACRO__SHIFT	    9
+#define ATI_REV_ID_FUSE_MACRO__MASK	    0x00001E00
 
 static uint32_t vi_get_rev_id(struct amdgpu_device *adev)
 {
@@ -1551,13 +1551,13 @@ static int vi_common_early_init(void *handle)
 			AMD_CG_SUPPORT_HDP_LS |
 			AMD_CG_SUPPORT_SDMA_MGCG |
 			AMD_CG_SUPPORT_SDMA_LS;
-               /* rev0 hardware doesn't support PG */
-               if (adev->rev_id != 0x00)
-                       adev->pg_flags |= AMDGPU_PG_SUPPORT_GFX_PG |
-                                         AMDGPU_PG_SUPPORT_GFX_SMG |
-                                         AMDGPU_PG_SUPPORT_GFX_DMG |
-                                         AMDGPU_PG_SUPPORT_CP |
-                                         AMDGPU_PG_SUPPORT_GFX_PIPELINE;
+	        /* rev0 hardware doesn't support PG */
+	        if (adev->rev_id != 0x00)
+		        adev->pg_flags |= AMDGPU_PG_SUPPORT_GFX_PG |
+				 AMDGPU_PG_SUPPORT_GFX_SMG |
+				 AMDGPU_PG_SUPPORT_GFX_DMG |
+				 AMDGPU_PG_SUPPORT_CP |
+				 AMDGPU_PG_SUPPORT_GFX_PIPELINE;
 
 		adev->external_rev_id = adev->rev_id + 0x1;
 		break;

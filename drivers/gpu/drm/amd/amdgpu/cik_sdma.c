@@ -636,7 +636,7 @@ static int cik_sdma_ring_test_ib(struct amdgpu_ring *ring)
 	tmp = 0xCAFEDEAD;
 	adev->wb.wb[index] = cpu_to_le32(tmp);
 	memset(&ib, 0, sizeof(ib));
-        r = amdgpu_ib_get(adev, NULL, 256, &ib);
+	r = amdgpu_ib_get(adev, NULL, 256, &ib);
 	if (r) {
 		DRM_ERROR("amdgpu: failed to get ib (%d).\n", r);
 		goto err0;
@@ -648,7 +648,7 @@ static int cik_sdma_ring_test_ib(struct amdgpu_ring *ring)
 	ib.ptr[3] = 1;
 	ib.ptr[4] = 0xDEADBEEF;
 	ib.length_dw = 5;
-    r = amdgpu_ib_schedule(ring, 1, &ib, NULL, NULL, &f);
+	r = amdgpu_ib_schedule(ring, 1, &ib, NULL, NULL, &f);
 	if (r)
 		goto err1;
 
@@ -1366,7 +1366,7 @@ static void cik_sdma_set_vm_pte_funcs(struct amdgpu_device *adev)
 		for (i = 0; i < adev->sdma.num_instances; i++)
 			adev->vm_manager.vm_pte_rings[i] =
 				&adev->sdma.instance[i].ring;
-
+ 
 		adev->vm_manager.vm_pte_num_rings = adev->sdma.num_instances;
 	}
 }

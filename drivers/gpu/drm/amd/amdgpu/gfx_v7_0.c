@@ -1677,9 +1677,9 @@ static void gmc_v7_0_init_compute_vmid(struct amdgpu_device *adev)
 
 	/*
 	 * Configure apertures:
-	 * LDS:         0x60000000'00000000 - 0x60000001'00000000 (4GB)
-	 * Scratch:     0x60000001'00000000 - 0x60000002'00000000 (4GB)
-	 * GPUVM:       0x60010000'00000000 - 0x60020000'00000000 (1TB)
+	 * LDS:		0x60000000'00000000 - 0x60000001'00000000 (4GB)
+	 * Scratch:	0x60000001'00000000 - 0x60000002'00000000 (4GB)
+	 * GPUVM:	0x60010000'00000000 - 0x60020000'00000000 (1TB)
 	*/
 	sh_mem_bases = DEFAULT_SH_MEM_BASES | (DEFAULT_SH_MEM_BASES << 16);
 	sh_mem_config = SH_MEM_ALIGNMENT_MODE_UNALIGNED <<
@@ -2127,7 +2127,7 @@ static int gfx_v7_0_ring_test_ib(struct amdgpu_ring *ring)
 	}
 	WREG32(scratch, 0xCAFEDEAD);
 	memset(&ib, 0, sizeof(ib));
-    r = amdgpu_ib_get(adev, NULL, 256, &ib);
+	r = amdgpu_ib_get(adev, NULL, 256, &ib);
 	if (r) {
 		DRM_ERROR("amdgpu: failed to get ib (%d).\n", r);
 		goto err1;
@@ -2137,7 +2137,7 @@ static int gfx_v7_0_ring_test_ib(struct amdgpu_ring *ring)
 	ib.ptr[2] = 0xDEADBEEF;
 	ib.length_dw = 3;
 
-    r = amdgpu_ib_schedule(ring, 1, &ib, NULL, NULL, &f);
+	r = amdgpu_ib_schedule(ring, 1, &ib, NULL, NULL, &f);
 	if (r)
 		goto err2;
 
@@ -2628,7 +2628,7 @@ static int gfx_v7_0_mec_init(struct amdgpu_device *adev)
 	u32 *hpd;
 
 	/*
-	 * KV:    2 MEC, 4 Pipes/MEC, 8 Queues/Pipe - 64 Queues total
+	 * KV:	  2 MEC, 4 Pipes/MEC, 8 Queues/Pipe - 64 Queues total
 	 * CI/KB: 1 MEC, 4 Pipes/MEC, 8 Queues/Pipe - 32 Queues total
 	 * Nonetheless, we assign only 1 pipe because all other pipes will
 	 * be handled by KFD

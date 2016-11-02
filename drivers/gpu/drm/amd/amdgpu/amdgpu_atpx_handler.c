@@ -28,7 +28,7 @@ struct amdgpu_atpx_functions {
 struct amdgpu_atpx {
 	acpi_handle handle;
 	struct amdgpu_atpx_functions functions;
-        bool is_hybrid;
+	bool is_hybrid;
 };
 
 static struct amdgpu_atpx_priv {
@@ -65,11 +65,11 @@ bool amdgpu_has_atpx(void) {
 	return amdgpu_atpx_priv.atpx_detected;
 }
 bool amdgpu_has_atpx_dgpu_power_cntl(void) {
-         return amdgpu_atpx_priv.atpx.functions.power_cntl;
+	return amdgpu_atpx_priv.atpx.functions.power_cntl;
 }
 
 bool amdgpu_is_atpx_hybrid(void) {
-         return amdgpu_atpx_priv.atpx.is_hybrid;
+	return amdgpu_atpx_priv.atpx.is_hybrid;
 }
 
 /**

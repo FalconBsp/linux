@@ -2075,7 +2075,7 @@ int amdgpu_dm_atomic_commit(
 	struct drm_plane *plane;
 	struct drm_plane_state *old_plane_state;
 	uint32_t i;
-	int32_t ret=0;
+	int32_t ret = 0;
 	uint32_t commit_targets_count = 0;
 	uint32_t new_crtcs_count = 0;
 	struct drm_crtc *crtc;
@@ -2324,14 +2324,16 @@ int amdgpu_dm_atomic_commit(
 			!crtc->state->active)
 			continue;
 
-		if (page_flip_needed(plane_state, old_plane_state))
-			ret = amdgpu_crtc_page_flip(
-				crtc,
-				fb,
-				crtc->state->event,
-				0);
-			if(ret)
-			  return ret;
+                if (page_flip_needed(plane_state, old_plane_state)) {
+                        ret = amdgpu_crtc_page_flip(
+                                                    crtc,
+                                                    fb,
+                                                    crtc->state->event,
+                                                    0);
+                        if (ret)
+                                return ret;
+                }
+
 	}
 
 	/* In this state all old framebuffers would be unpinned */

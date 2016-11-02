@@ -251,7 +251,7 @@ static int amdgpu_verify_access(struct ttm_buffer_object *bo, struct file *filp)
 }
 
 static void amdgpu_move_null(struct ttm_buffer_object *bo,
-			struct ttm_mem_reg *new_mem)
+			     struct ttm_mem_reg *new_mem)
 {
 	struct ttm_mem_reg *old_mem = &bo->mem;
 
@@ -998,7 +998,7 @@ static struct ttm_bo_driver amdgpu_bo_driver = {
 	.io_mem_free = &amdgpu_ttm_io_mem_free,
 	.lru_removal = &amdgpu_ttm_lru_removal,
 	.lru_tail = &amdgpu_ttm_lru_tail,
-        .swap_lru_tail = &amdgpu_ttm_swap_lru_tail,
+	.swap_lru_tail = &amdgpu_ttm_swap_lru_tail,
 };
 
 int amdgpu_ttm_init(struct amdgpu_device *adev)
@@ -1047,7 +1047,6 @@ int amdgpu_ttm_init(struct amdgpu_device *adev)
 	if (r) {
 		return r;
 	}
-
 	r = amdgpu_bo_reserve(adev->stollen_vga_memory, false);
 	if (r)
 		return r;
@@ -1057,7 +1056,6 @@ int amdgpu_ttm_init(struct amdgpu_device *adev)
 		amdgpu_bo_unref(&adev->stollen_vga_memory);
 		return r;
 	}
-
 	DRM_INFO("amdgpu: %uM of VRAM memory ready\n",
 		 (unsigned) (adev->mc.real_vram_size / (1024 * 1024)));
 	r = ttm_bo_init_mm(&adev->mman.bdev, TTM_PL_TT,
@@ -1117,7 +1115,6 @@ void amdgpu_ttm_fini(struct amdgpu_device *adev)
 	if (!adev->mman.initialized)
 		return;
 	amdgpu_ttm_debugfs_fini(adev);
-
 	if (adev->stollen_vga_memory) {
 		r = amdgpu_bo_reserve(adev->stollen_vga_memory, false);
 		if (r == 0) {
@@ -1126,7 +1123,6 @@ void amdgpu_ttm_fini(struct amdgpu_device *adev)
 		}
 		amdgpu_bo_unref(&adev->stollen_vga_memory);
 	}
-
 	ttm_bo_clean_mm(&adev->mman.bdev, TTM_PL_VRAM);
 	ttm_bo_clean_mm(&adev->mman.bdev, TTM_PL_TT);
 	ttm_bo_clean_mm(&adev->mman.bdev, AMDGPU_PL_GDS);
@@ -1295,6 +1291,7 @@ int amdgpu_copy_buffer(struct amdgpu_ring *ring,
 {
 	struct amdgpu_device *adev = ring->adev;
 	struct amdgpu_job *job;
+
 	uint32_t max_bytes;
 	unsigned num_loops, num_dw;
 	unsigned i;
@@ -1307,12 +1304,13 @@ int amdgpu_copy_buffer(struct amdgpu_ring *ring,
 	/* for IB padding */
 	while (num_dw & 0x7)
 		num_dw++;
+
 	r = amdgpu_job_alloc_with_ib(adev, num_dw * 4, &job);
 	if (r) 
 		return r;
 
 	if (resv) {
-                r = amdgpu_sync_resv(adev, &job->sync, resv,
+		r = amdgpu_sync_resv(adev, &job->sync, resv,
 				     AMDGPU_FENCE_OWNER_UNDEFINED);
 		if (r) {
 			DRM_ERROR("sync failed (%d).\n", r);
@@ -1338,6 +1336,7 @@ int amdgpu_copy_buffer(struct amdgpu_ring *ring,
 		goto error_free;
 
 	return 0;
+
 error_free:
 	amdgpu_job_free(job);
 	return r;

@@ -22,8 +22,8 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  *
  * Authors: Dave Airlie
- *          Alex Deucher
- *          Jerome Glisse
+ *	    Alex Deucher
+ *	    Jerome Glisse
  */
 #include <drm/drmP.h>
 #include "amdgpu.h"
@@ -448,7 +448,7 @@ static int amdgpu_info_ioctl(struct drm_device *dev, void *data, struct drm_file
 			dev_info.max_memory_clock = adev->pm.default_mclk * 10;
 		}
 		dev_info.enabled_rb_pipes_mask = adev->gfx.config.backend_enable_mask;
-                dev_info.num_rb_pipes = adev->gfx.config.max_backends_per_se;
+		dev_info.num_rb_pipes = adev->gfx.config.max_backends_per_se;
 		dev_info.num_hw_gfx_contexts = adev->gfx.config.max_hw_contexts;
 		dev_info._pad = 0;
 		dev_info.ids_flags = 0;
@@ -566,8 +566,8 @@ void amdgpu_driver_postclose_kms(struct drm_device *dev,
 
 	amdgpu_ctx_mgr_fini(&fpriv->ctx_mgr);
 
-    amdgpu_uvd_free_handles(adev, file_priv);
-    amdgpu_vce_free_handles(adev, file_priv);
+	amdgpu_uvd_free_handles(adev, file_priv);
+	amdgpu_vce_free_handles(adev, file_priv);
 
 	amdgpu_vm_fini(adev, &fpriv->vm);
 

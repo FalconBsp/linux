@@ -1644,7 +1644,7 @@ static void cz_hw_print_display_cfg(
 			cc6_settings->cpu_pstate_separation_time);
 }
 
- static int cz_set_cpu_power_state(struct pp_hwmgr *hwmgr)
+static int cz_set_cpu_power_state(struct pp_hwmgr *hwmgr)
 {
 	struct cz_hwmgr *hw_data = (struct cz_hwmgr *)(hwmgr->backend);
 	uint32_t data = 0;

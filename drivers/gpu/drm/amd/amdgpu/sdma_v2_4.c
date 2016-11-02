@@ -705,7 +705,7 @@ static int sdma_v2_4_ring_test_ib(struct amdgpu_ring *ring)
 	ib.ptr[7] = SDMA_PKT_HEADER_OP(SDMA_OP_NOP);
 	ib.length_dw = 8;
 
-    r = amdgpu_ib_schedule(ring, 1, &ib, NULL, NULL, &f);
+	r = amdgpu_ib_schedule(ring, 1, &ib, NULL, NULL, &f);
 	if (r)
 		goto err1;
 
@@ -1370,10 +1370,10 @@ static void sdma_v2_4_set_vm_pte_funcs(struct amdgpu_device *adev)
 
 	if (adev->vm_manager.vm_pte_funcs == NULL) {
 		adev->vm_manager.vm_pte_funcs = &sdma_v2_4_vm_pte_funcs;
-		for (i = 0; i < adev->sdma.num_instances; i++)
-			adev->vm_manager.vm_pte_rings[i] =
-				&adev->sdma.instance[i].ring;
-
+	        for (i = 0; i < adev->sdma.num_instances; i++)
+		        adev->vm_manager.vm_pte_rings[i] =
+			        &adev->sdma.instance[i].ring;
+ 
 		adev->vm_manager.vm_pte_num_rings = adev->sdma.num_instances;
 	}
 }

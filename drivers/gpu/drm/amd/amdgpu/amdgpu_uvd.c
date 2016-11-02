@@ -45,9 +45,9 @@
 /* Firmware Names */
 #ifdef CONFIG_DRM_AMDGPU_CIK
 #define FIRMWARE_BONAIRE	"radeon/bonaire_uvd.bin"
-#define FIRMWARE_KABINI 	"radeon/kabini_uvd.bin"
-#define FIRMWARE_KAVERI 	"radeon/kaveri_uvd.bin"
-#define FIRMWARE_HAWAII 	"radeon/hawaii_uvd.bin"
+#define FIRMWARE_KABINI	"radeon/kabini_uvd.bin"
+#define FIRMWARE_KAVERI	"radeon/kaveri_uvd.bin"
+#define FIRMWARE_HAWAII	"radeon/hawaii_uvd.bin"
 #define FIRMWARE_MULLINS	"radeon/mullins_uvd.bin"
 #endif
 #define FIRMWARE_TONGA		"amdgpu/tonga_uvd.bin"
@@ -219,7 +219,7 @@ int amdgpu_uvd_sw_init(struct amdgpu_device *adev)
 	}
 
 	amdgpu_bo_unreserve(adev->uvd.vcpu_bo);
-
+ 
 	ring = &adev->uvd.ring;
 	rq = &ring->sched.sched_rq[AMD_SCHED_PRIORITY_NORMAL];
 	r = amd_sched_entity_init(&ring->sched, &adev->uvd.entity,
@@ -246,7 +246,8 @@ int amdgpu_uvd_sw_fini(struct amdgpu_device *adev)
 	int r;
 	
 	kfree(adev->uvd.saved_bo);
-        amd_sched_entity_fini(&adev->uvd.ring.sched, &adev->uvd.entity);
+
+	amd_sched_entity_fini(&adev->uvd.ring.sched, &adev->uvd.entity);
 	
 	if (adev->uvd.vcpu_bo) {
 		r = amdgpu_bo_reserve(adev->uvd.vcpu_bo, false);
@@ -257,7 +258,8 @@ int amdgpu_uvd_sw_fini(struct amdgpu_device *adev)
 		}
 
 		amdgpu_bo_unref(&adev->uvd.vcpu_bo);
-    }
+	}
+
 	amdgpu_ring_fini(&adev->uvd.ring);
 
 	release_firmware(adev->uvd.fw);
@@ -277,18 +279,19 @@ int amdgpu_uvd_suspend(struct amdgpu_device *adev)
 	for (i = 0; i < adev->uvd.max_handles; ++i)
 		if (atomic_read(&adev->uvd.handles[i]))
 			break;
-
+ 
 	if (i == AMDGPU_MAX_UVD_HANDLES)
 		return 0;
-
+	
 	cancel_delayed_work_sync(&adev->uvd.idle_work);
+
 	size = amdgpu_bo_size(adev->uvd.vcpu_bo);
 	ptr = adev->uvd.cpu_addr;
 
 	adev->uvd.saved_bo = kmalloc(size, GFP_KERNEL);
 	if (!adev->uvd.saved_bo)
 		return -ENOMEM;
-
+ 
 	memcpy(adev->uvd.saved_bo, ptr, size);
 
 	return 0;
@@ -312,7 +315,7 @@ int amdgpu_uvd_resume(struct amdgpu_device *adev)
 	} else {
 		const struct common_firmware_header *hdr;
 		unsigned offset;
-
+ 
 		hdr = (const struct common_firmware_header *)adev->uvd.fw->data;
 		offset = le32_to_cpu(hdr->ucode_array_offset_bytes);
 		memcpy(adev->uvd.cpu_addr, (adev->uvd.fw->data) + offset,
@@ -908,7 +911,7 @@ static int amdgpu_uvd_send_msg(struct amdgpu_ring *ring, struct amdgpu_bo *bo,
 	ib->length_dw = 16;
 
 	if (direct) {
-    	r = amdgpu_ib_schedule(ring, 1, ib, NULL, NULL, &f);
+		r = amdgpu_ib_schedule(ring, 1, ib, NULL, NULL, &f);
 		job->fence = f;
 		if (r)
 			goto err_free;
